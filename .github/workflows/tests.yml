@@ -1,0 +1,60 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Le serveur tourne sous Windows au cabinet et se développe sous
+        # macOS : les deux sont couverts, et Linux sert de référence.
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python: ['3.9', '3.13']
+        exclude:
+          - os: macos-latest
+            python: '3.9'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      # cryptography ne sert qu'à fabriquer les certificats, donc uniquement
+      # aux tests. Le serveur lui-même n'a aucune dépendance.
+      - name: Install certificate tooling
+        run: python -m pip install --upgrade pip cryptography
+
+      - name: Run tests
+        run: python -W error::ResourceWarning -m unittest discover -s tests -v
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install linters
+        run: python -m pip install --upgrade pip pyflakes
+
+      - name: Check for unused imports and undefined names
+        run: python -m pyflakes serveur.py generer_autorite.py tests/
+
+      - name: Check that no secret is committed
+        run: |
+          set -e
+          motif='\.pem$|autorite\.crt$|^config\.json$|^journal\.log$|^bilans/'
+          if git ls-files | grep -Ei "$motif"; then
+            echo "::error::Un fichier sensible est versionné."
+            exit 1
+          fi
+          echo "Aucun secret versionné."
