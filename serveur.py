@@ -29,6 +29,7 @@ import os
 import re
 import secrets
 import socket
+import socketserver
 import ssl
 import sys
 import tempfile
@@ -229,7 +230,17 @@ class ServeurBilan(ThreadingHTTPServer):
             # franchement en IPv4.
             self.socket.setsockopt(socket.IPPROTO_IPV6,
                                    socket.IPV6_V6ONLY, 0)
-        super().server_bind()
+
+        # HTTPServer.server_bind() appelle socket.getfqdn(), c'est-à-dire une
+        # résolution DNS inverse, entre le bind() et le listen(). Sur un
+        # réseau sans DNS joignable — celui du cabinet comme celui d'un
+        # runner d'intégration continue — elle peut bloquer plusieurs
+        # dizaines de secondes, pendant lesquelles le serveur semble démarré
+        # mais refuse toute connexion. On saute donc l'appel : server_name ne
+        # sert qu'aux en-têtes CGI, que ce serveur n'émet pas.
+        socketserver.TCPServer.server_bind(self)
+        self.server_name = "bilan-posturo"
+        self.server_port = self.server_address[1]
 
     def get_request(self):
         """Remonte les échecs de négociation TLS.

@@ -78,18 +78,29 @@ class ServeurEnMarche(unittest.TestCase):
             cafile=os.path.join(cls.dossier, "autorite.crt"))
 
         # Attendre que le port réponde plutôt que de dormir un temps fixe.
-        limite = time.monotonic() + 30
-        while time.monotonic() < limite:
-            if cls.processus.poll() is not None:
-                raise AssertionError("le serveur s'est arrêté : "
-                                     + cls.processus.stdout.read())
-            try:
-                with socket.create_connection(("127.0.0.1", cls.port), 0.2):
-                    break
-            except OSError:
-                time.sleep(0.05)
-        else:
-            raise AssertionError("le serveur n'a pas démarré à temps")
+        try:
+            limite = time.monotonic() + 30
+            while time.monotonic() < limite:
+                if cls.processus.poll() is not None:
+                    raise AssertionError("le serveur s'est arrêté : "
+                                         + cls.processus.stdout.read())
+                try:
+                    with socket.create_connection(("127.0.0.1", cls.port), 0.2):
+                        break
+                except OSError:
+                    time.sleep(0.05)
+            else:
+                raise AssertionError(
+                    "le serveur n'a pas démarré à temps ; il écoute peut-être "
+                    "en IPv6 seul, ou reste bloqué avant le listen()")
+        except BaseException:
+            # Sans cela, un échec ici laisse le serveur tourner et le port
+            # occupé pour les exécutions suivantes.
+            cls.processus.terminate()
+            cls.processus.wait(timeout=10)
+            cls.processus.stdout.close()
+            shutil.rmtree(cls.dossier, ignore_errors=True)
+            raise
 
     @classmethod
     def tearDownClass(cls):
