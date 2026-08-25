@@ -1,0 +1,100 @@
+BILAN POSTUROLOGIQUE — Installation sur le PC du cabinet
+=========================================================
+
+Ce dossier contient tout le nécessaire. Rien d'autre à installer
+que Python 3 (python.org), plus une bibliothèque servant
+uniquement aux certificats.
+
+
+PREMIÈRE INSTALLATION — dans l'ordre
+------------------------------------
+
+1. Renommer ce dossier en :  BilanPosturo
+   et le placer par exemple dans C:\BilanPosturo
+
+2. Ouvrir un terminal (PowerShell sous Windows) et s'y placer :
+
+       cd C:\BilanPosturo
+
+3. Installer la bibliothèque qui fabrique les certificats :
+
+       python3 -m pip install cryptography
+
+4. Définir l'identifiant et le mot de passe :
+
+       python3 serveur.py --config
+
+5. Relever l'adresse IP de ce PC (commande : ipconfig) et la
+   RÉSERVER sur la box, pour qu'elle ne change plus.
+
+6. SEULEMENT ENSUITE, générer le certificat de chiffrement avec
+   cette adresse :
+
+       python3 generer_autorite.py 192.168.1.42
+
+   L'ordre compte : le certificat est lié à l'adresse IP. S'il est
+   créé avant que l'adresse soit fixée, il faudra le refaire.
+
+7. Installer autorite.crt sur la tablette et sur ce PC, sans quoi
+   le navigateur refusera la connexion :
+
+       Android — Réglages, Sécurité, Chiffrement et identifiants,
+                 Installer depuis la mémoire, Certificat CA
+       Windows — Import-Certificate -FilePath autorite.crt
+                 -CertStoreLocation Cert:\CurrentUser\Root
+
+8. Démarrer :
+
+       python3 serveur.py
+
+   L'adresse affichée doit commencer par https.
+
+
+CHAQUE MATIN
+------------
+
+       cd C:\BilanPosturo
+       python3 serveur.py
+
+   Laisser cette fenêtre ouverte toute la journée.
+   La fermer coupe le service.
+
+
+ENTRE DEUX PATIENTS
+-------------------
+
+   Sur la tablette, cliquer sur « Nouveau bilan ».
+   Recharger la page ne suffit pas : le bilan précédent serait
+   proposé à la restauration.
+
+
+OÙ VONT LES FICHIERS
+--------------------
+
+   bilans/        les PDF reçus de la tablette (données patient)
+   journal.log    horodatage de chaque accès et de chaque dépôt
+   config.json    identifiant et empreinte du mot de passe
+   cle.pem        clé privée du chiffrement
+
+   Les trois derniers ne doivent JAMAIS être copiés, envoyés
+   ni partagés. Le dossier bilans/ doit en revanche être inclus
+   dans la sauvegarde du cabinet.
+
+   Pour envoyer les PDF ailleurs que dans bilans/, modifier la
+   ligne "dossier_pdf" de config.json.
+
+
+EN CAS DE PROBLÈME
+------------------
+
+   Mot de passe oublié
+       python3 serveur.py --config
+
+   La tablette ne se connecte plus
+       L'adresse IP du PC a probablement changé. La relever,
+       la réserver sur la box, puis REFAIRE l'étape 6.
+
+   Consulter journal.log : il indique si un bilan a été reçu
+   et à quelle heure.
+
+
