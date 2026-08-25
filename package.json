@@ -1,0 +1,15 @@
+{
+  "name": "bilan-posturo",
+  "version": "1.0.0",
+  "description": "Tablet postural-assessment form with client-side PDF generation and delivery to a local practice server",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "vendor": "mkdir -p lib && cp node_modules/jspdf/dist/jspdf.umd.min.js node_modules/html2canvas/dist/html2canvas.min.js lib/",
+    "test": "python3 -m unittest discover -s tests -v"
+  },
+  "dependencies": {
+    "html2canvas": "^1.4.1",
+    "jspdf": "^4.2.1"
+  }
+}

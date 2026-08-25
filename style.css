@@ -1,0 +1,568 @@
+body {
+    background-color:#cec1a3;
+    padding: 20px;
+    font-size: 16px;
+    margin-left:30px;
+}
+main {
+    clear: both;
+    padding: 10px;
+}
+
+#form-bilan {
+    display: flow-root;
+    background-color: #cec1a3;
+}          
+
+h1 {
+    text-align: center;
+    color: #8C6D53;
+    border: 2px solid;
+    border-radius: 5px;
+    padding: 15px;
+}
+
+h3 {
+    text-align: left;
+    color:#3b523a;
+    text-decoration: underline;
+}
+#logo {
+    display: block;
+    margin-left:auto;
+    margin-top: 15px;
+    height: 130px;
+    width:130px;
+    float: right;
+    border-radius:100px;
+}
+
+.titre_section {
+    display: inline-block;
+    vertical-align: top;     
+    padding-top: 8px;        
+    font-weight: bold;
+    color: #3B4133; 
+    margin-right: 20px;
+}
+
+.form-group-inline {
+    display: flex;
+    align-items: center; 
+    height:42px;
+    margin-bottom: 40px;
+}
+
+.form-group-inline .titre_section {
+    margin: 0;
+    padding: 0;
+    display: inline-block;
+    width: 80px;             
+}
+
+.checkbox-group,
+.radio-group {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+}
+
+input[type="radio"], 
+input[type="checkbox"] {
+    width: 20px;
+    height: 20px;
+    appearance: auto;
+    cursor: pointer;
+    accent-color: #8C6D53; 
+    margin-right:7px;
+}
+
+.checkbox-group,
+.radio-group label {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    color: #3B4133; 
+}
+
+.form-group-atcd {
+    display: flex;
+    align-items: flex-start; 
+    margin-bottom: 20px;
+}
+
+.atcd-inputs-container {
+    display: flex;
+    flex-direction: column;
+    gap: 15px; 
+    width: 100%;
+    max-width: 400px; 
+}
+
+.atcd-row {
+    display: flex;
+    align-items: flex-start; 
+}
+
+.atcd-sublabel {
+    width: 70px; 
+    font-size: 16px;
+    color: #3B4133;
+    text-decoration:underline;
+    padding-top: 10px; 
+    margin-left: 20px;
+
+}
+
+.atcd-row textarea {
+    flex: 10; 
+    margin-bottom: 0; 
+}
+textarea {
+    display: inline-block;
+    vertical-align: top;     
+    width: 100%;
+    max-width: 400px;        
+    min-height: 42px;        
+    padding: 10px 14px;
+    font-size: 15px;
+    color: #3B4133;
+    background-color: #FFFFFF;
+    border: 2px solid #A39B8B; 
+    border-radius: 6px;      
+    box-sizing: border-box;   
+    font-family: Arial, sans-serif;
+    margin-bottom: 15px;
+    margin-left: 30px;
+    resize: none;
+    overflow-y: hidden;      
+}
+
+#patient_infos {
+    background-color: #E2DDD3;  
+    padding: 20px;
+    border-radius: 8px;
+    max-width: 500px;           
+    margin-bottom: 30px;
+}
+
+
+#patient_info_title {
+    color: #3b523a;            
+    margin-top: 0;
+    margin-bottom: 20px;
+    padding-bottom: 5px;
+}
+
+#patient_infos .titre_section {
+    display: inline-block;
+    width: 140px;             
+    color: #3B4133;           
+    font-weight: bold;
+    margin-bottom: 12px;     
+}
+
+
+#patient_infos input[type="text"],
+#patient_infos input[type="date"] {
+    width: 100%;
+    max-width: 300px;    
+    padding: 8px 12px;
+    font-size: 14px;
+    color: #3B4133;       
+    background-color: #FFFFFF;  
+    border: 1px solid #A39B8B; 
+    border-radius: 4px;        
+    box-sizing: border-box;
+    transition: all 0.3s ease;  
+}
+
+#patient_infos input:focus {
+    border-color: #8C6D53;
+    outline: none;
+    box-shadow: 0 0 5px rgba(140, 109, 83, 0.4);
+    background-color: #FAF9F6;  
+}
+
+#section_squelettes {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 15px;
+    margin-bottom: 30px;
+}
+
+#section_squelettes .titre_section {
+    flex: 0 0 100%;
+    margin-right: 0;
+}
+
+.squelette {
+    flex: 0 0 auto;
+    height: 300px;
+    width: auto;             
+    box-sizing: border-box;
+    background-color: #FFFFFF;
+    border-radius: 6px;
+    padding: 10px;
+}
+
+table {
+    width: 100%;
+    max-width: 600px;           
+    border-collapse: collapse;  
+    margin-bottom: 35px;        
+    background-color: #FFFFFF;  
+    border-radius: 8px;         
+    overflow: hidden;           
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.05);
+}
+
+thead tr {
+    background-color: #8C6D53;  
+}
+
+th {
+    padding: 12px 15px;
+    font-size: 15px;
+    font-weight: bold;
+    color: #FFFFFF;             
+    text-align: center;         
+}
+
+
+th.titre_section {
+    text-align: left;
+    color: #FFFFFF;
+    width: 40%;                
+}
+
+
+td {
+    padding: 12px 15px;
+    font-size: 15px;
+    color: #3B4133;             
+    border-bottom: 1px solid #E2DDD3; 
+    vertical-align: middle;     
+    text-align: center;       
+}
+
+tbody td:first-child {
+    text-align: left;
+    font-weight: bold;          
+}
+
+.chaussures-inline-group {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap; 
+    gap: 15px;
+    margin-bottom: 25px;
+    background-color: #E2DDD3; 
+    padding: 15px;
+    border-radius: 6px;
+}
+
+.chaussures-inline-group label {
+    font-weight: bold;
+    color: #3B4133;
+}
+
+.chaussures-inline-group input[type="text"] {
+    flex: 1;
+    min-width: 100px;
+    max-width: 180px; 
+    padding: 6px 10px;
+    border: 1px solid #A39B8B;
+    border-radius: 4px;
+    font-size: 14px;
+}
+
+.checkbox-label-simple {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    cursor: pointer;
+}
+
+#section_enregistrement_plateforme .titre_section {
+    display: block;
+    margin-bottom: 8px;
+    padding-top: 0;
+}
+
+#section_enregistrement_plateforme textarea {
+    margin-left: 0;
+}
+
+.titre_section_bloc {
+    display: block;
+    font-weight: bold;
+    color: #3B4133;
+    font-size: 16px;
+    margin-bottom: 15px;
+}
+
+.appareillage-container {
+    display: flex;
+    flex-direction: column;  
+    align-items: flex-start;
+    gap: 25px;
+    margin-bottom: 25px;
+}
+
+.empreintes-box {
+    flex: 0 0 auto;
+    width: 100%;
+    max-width: 450px;
+    background-color: #FFFFFF; 
+    border: 2px solid #A39B8B;
+    border-radius: 8px;
+    box-shadow: 0 4px 8px #0000000a; 
+    display: flex;
+    justify-content: center;
+}
+
+#image_empreintes {
+    width: 100%;
+    height: auto;            
+    display: block;
+}
+
+.appareillage-container textarea {
+    flex: 0 0 auto;
+    width: 100%;
+    max-width: 500px;
+    min-height: 150px;
+    margin-left: 0;
+    margin-bottom: 0;
+}
+
+.form-group-inline-bottom {
+    display: flex;
+    align-items: center;
+    margin-bottom: 15px;
+}
+
+.form-group-inline-bottom input[type="text"] {
+    width: 100%;
+    max-width: 80px;
+    padding: 8px 12px;
+    border: 1px solid #A39B8B;
+    border-radius: 4px;
+}
+
+input[type="date"] {
+    padding: 5px 10px;
+    font-size: 15px;
+    color: #3B4133;            
+    background-color: #FFFFFF;  
+    border: 2px solid #A39B8B;  
+    border-radius: 6px;
+    box-sizing: border-box;
+    
+}
+
+header.bloc {
+    display: flow-root;     
+}
+
+/* ===== Dessin au stylet sur les images ===== */
+
+.zone-dessin {
+    position: relative;
+    display: inline-block;
+    line-height: 0;
+}
+
+.zone-dessin img {
+    display: block;
+}
+
+/* Calque transparent superposé à l'image ; touch-action: none évite que la
+   tablette interprète le tracé du stylet comme un défilement de page */
+.calque-dessin {
+    position: absolute;
+    top: 0;
+    left: 0;
+    touch-action: none;
+    cursor: crosshair;
+}
+
+/* .sans-pdf : masqué dans la capture, mais l'espace est conservé */
+.outils-dessin {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    display: flex;
+    gap: 6px;
+    line-height: normal;
+}
+
+.outils-dessin button {
+    padding: 4px 9px;
+    font-size: 12px;
+    font-family: Arial, sans-serif;
+    color: #FFFFFF;
+    background-color: #8C6D53;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    opacity: 0.85;
+}
+
+.outils-dessin button:hover {
+    opacity: 1;
+}
+
+.outils-dessin button:disabled {
+    background-color: #A39B8B;
+    cursor: default;
+    opacity: 0.5;
+}
+
+/* Conserver le dimensionnement d'origine, le wrapper remplaçant l'image */
+#section_squelettes .zone-dessin {
+    flex: 0 0 auto;
+}
+
+.empreintes-box .zone-dessin {
+    width: 100%;
+}
+
+/* ===== Réglages du stylet (hors zone capturée) ===== */
+
+#outils-globaux {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin: 0 20px 20px;
+    padding: 12px 16px;
+    background-color: #E2DDD3;
+    border-radius: 6px;
+    max-width: 560px;
+}
+
+.etiquette-outil {
+    font-weight: bold;
+    font-size: 14px;
+    color: #3B4133;
+}
+
+.palette {
+    display: flex;
+    gap: 8px;
+}
+
+/* Cibles larges : la sélection se fait au stylet ou au doigt sur tablette */
+.pastille {
+    width: 32px;
+    height: 32px;
+    border: 2px solid #A39B8B;
+    border-radius: 50%;
+    cursor: pointer;
+    padding: 0;
+}
+
+.pastille.active {
+    border-color: #3B4133;
+    border-width: 3px;
+    box-shadow: 0 0 0 2px #FFFFFF inset;
+}
+
+#couleur-libre {
+    width: 40px;
+    height: 32px;
+    padding: 2px;
+    border: 1px solid #A39B8B;
+    border-radius: 4px;
+    background-color: #FFFFFF;
+    cursor: pointer;
+}
+
+#epaisseur-trait {
+    width: 120px;
+    accent-color: #8C6D53;
+    cursor: pointer;
+}
+
+#apercu-trait {
+    background-color: #FFFFFF;
+    border: 1px solid #A39B8B;
+    border-radius: 4px;
+}
+
+/* ===== Reprise de bilan et messages d'état ===== */
+
+#btn-nouveau {
+    margin: 20px 0 20px 4px;
+    padding: 10px 20px;
+    background-color: #FFFFFF;
+    color: #8C6D53;
+    border: 2px solid #8C6D53;
+    border-radius: 5px;
+    cursor: pointer;
+    font-weight: bold;
+}
+
+#barre-brouillon {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin: 0 20px 16px;
+    padding: 14px 18px;
+    max-width: 700px;
+    background-color: #FBF0DC;
+    border: 2px solid #8A5A00;
+    border-radius: 6px;
+    color: #4A3A18;
+    font-weight: bold;
+}
+
+#barre-brouillon button {
+    padding: 7px 15px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: bold;
+    font-size: 14px;
+}
+
+#btn-restaurer { background-color: #8A5A00; color: #FFFFFF; }
+
+#btn-abandonner {
+    background-color: transparent;
+    color: #4A3A18;
+    border: 1px solid #A08A5A;
+}
+
+#zone-messages {
+    margin: 0 20px 16px;
+    padding: 13px 18px;
+    max-width: 700px;
+    border-radius: 6px;
+    border-left: 5px solid;
+    font-weight: bold;
+}
+
+#zone-messages.succes       { background-color: #E4F1EA; border-color: #1C6540; color: #14472C; }
+#zone-messages.avertissement{ background-color: #FBF0DC; border-color: #8A5A00; color: #4A3A18; }
+#zone-messages.erreur       { background-color: #FBE9E6; border-color: #9E2A1C; color: #6B1D13; }
+#zone-messages.info         { background-color: #E2F1F1; border-color: #0E6A6E; color: #0A4B4E; }
+
+/* [hidden] doit l'emporter sur les display:flex ci-dessus */
+[hidden] { display: none !important; }
+
+#btn-dossier {
+    margin: 20px 0 20px 4px;
+    padding: 10px 18px;
+    background-color: transparent;
+    color: #3B4133;
+    border: 1px solid #A39B8B;
+    border-radius: 5px;
+    cursor: pointer;
+    font-weight: bold;
+    font-size: 14px;
+}

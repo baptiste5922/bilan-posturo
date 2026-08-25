@@ -1,0 +1,382 @@
+<!DOCTYPE html>  
+<html lang="fr">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        
+        <meta name="robots" content="noindex, nofollow, noarchive">
+        <meta name="googlebot" content="noindex, nofollow">
+        
+        <meta name="application-name" content="Template Bilan Podologique">
+        <meta name="author" content="Nom du Praticien ou de la Clinique">
+        <meta name="description" content="Modèle structuré pour l'anamnèse, l'examen clinique et le plan d'appareillage podologique.">
+
+        <meta name="version" content="1.0.0">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+
+        <title>Template_bilan</title>
+        <link rel="icon" type="image/png" href="images/favicon.jpeg">
+        <link rel="stylesheet" href="style.css">
+
+        <script src="lib/jspdf.umd.min.js"></script>
+        <script src="lib/html2canvas.min.js"></script>
+    </head>
+    
+    <body>
+        <button id="btn-export" onclick="exporterBilanPDF()" style="margin: 20px; padding: 10px 20px; background-color: #8C6D53; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">
+            Générer le PDF
+        </button>
+        <button type="button" id="btn-nouveau">Nouveau bilan</button>
+        <button type="button" id="btn-dossier">Choisir le dossier…</button>
+
+        <!-- Réglages du stylet. Hors de #form-bilan : jamais capturé dans le PDF. -->
+        <!-- Proposition de reprise. Masquée tant qu'aucun brouillon n'existe. -->
+        <div id="barre-brouillon" hidden>
+            <span id="texte-brouillon"></span>
+            <button type="button" id="btn-restaurer">Restaurer</button>
+            <button type="button" id="btn-abandonner">Ignorer</button>
+        </div>
+
+        <!-- Messages d'état : remplace les alert() bloquants -->
+        <div id="zone-messages" role="status" aria-live="polite" hidden></div>
+
+        <div id="outils-globaux">
+            <span class="etiquette-outil">Couleur :</span>
+            <div class="palette">
+                <button type="button" class="pastille" data-couleur="#B03A2E" title="Rouge"></button>
+                <button type="button" class="pastille" data-couleur="#1F5C8B" title="Bleu"></button>
+                <button type="button" class="pastille" data-couleur="#3B523A" title="Vert"></button>
+                <button type="button" class="pastille" data-couleur="#2B2B2B" title="Noir"></button>
+            </div>
+            <input type="color" id="couleur-libre" value="#B03A2E" title="Autre couleur">
+
+            <span class="etiquette-outil">Épaisseur :</span>
+            <input type="range" id="epaisseur-trait" min="1" max="8" step="0.5" value="2.5">
+            <canvas id="apercu-trait" width="70" height="26" title="Aperçu du trait"></canvas>
+        </div>
+
+        <div id="form-bilan">
+        <header class="bloc">
+            <h1 class="Title" id="maintitle">Bilan Posturologique</h1>
+            <img id="logo" src="images/favicon.jpeg" alt="Logo Cabinet">
+            <label for="date-bilan" class="titre_section">Réalisé le</label>
+            <input type="date" id="date-bilan" name="date_consultation">
+            <section id="infos_podo">
+                <p>Françoise LE GOFF-LE BIGOT, Pédicure-Podologue</p>
+                <p>32 Grand'Rue, MORLAIX 29600</p>
+                <p>mail: legoffpodologuemorlaix@gmail.com</p>
+                <p>tel: 02 98 88 58 92</p>
+                
+            </section>
+        </header>
+
+        <main>
+            <section id="patient_infos" class="bloc">
+                <h3 class="Title" id="patient_info_title">Informations Patient</h3>
+                <label class="titre_section" for="nom">Nom:</label>
+                <input type="text" id="nom"><br>
+                
+                <label class="titre_section" for="prenom">Prénom:</label>
+                <input type="text" id="prenom"><br>
+                
+                <label class="titre_section" for="date_naissance">Date de naissance:</label>
+                <input type="text" id="date_naissance" name="Date_de_naissance_patient"><br>
+
+                <label class="titre_section" for="sport">Sport:</label>
+                <input type="text" id="sport"><br>
+
+                <label class="titre_section" for="metier">Métier:</label>
+                <input type="text" id="metier"><br>
+
+                <label class="titre_section" for="niveau_scolaire">Niveau Scolaire:</label>
+                <input type="text" id="niveau_scolaire"><br>
+            </section>
+            
+            <section id="consultation">
+                <div class="bloc">
+                <h3 class="Title" id="consultation_title">Consultation</h3>
+                <label class="titre_section" for="MDC">MDC:</label>
+                <textarea id="MDC" class="input-auto-grow"></textarea><br>
+
+                </div>
+                <div class="bloc">
+                    <label class="titre_section" for="oriente_par">Orienté par:</label>
+                        <textarea id="oriente_par" class="input-auto-grow"></textarea>
+                </div>
+                <div class="form-group-inline bloc">
+                    <label class="titre_section" for="SO_oui">Déjà SO:</label>
+                    <div class="radio-group">
+                        <label class="radio-label">
+                            <input type="radio" id="SO_oui" name="semelle_orthopédique" value="oui">
+                            <span class="custom-radio"></span> Oui
+                        </label>
+                        <label class="radio-label">
+                            <input type="radio" id="SO_non" name="semelle_orthopédique" value="non">
+                            <span class="custom-radio"></span> Non
+                        </label>
+                    </div>
+                </div>
+
+                <div class="bloc">
+                <label class="titre_section" for="spécialistes">Spécialistes:</label>
+                <textarea id="spécialistes" name="liste_spécialistes" class="input-auto-grow"></textarea><br>
+
+                </div>
+                <div class="form-group-atcd bloc">
+                    <label class="titre_section">ATCD:</label>
+                    <div class="atcd-inputs-container">
+                        <div class="atcd-row">
+                            <label for="perso" class="atcd-sublabel">Perso:</label>
+                            <textarea id="perso" class="input-auto-grow"></textarea>
+                        </div>
+        
+                        <div class="atcd-row">
+                            <label for="familliaux" class="atcd-sublabel">Familiaux:</label>
+                            <textarea id="familliaux" class="input-auto-grow"></textarea>
+                        </div>
+                    </div>
+                </div>
+
+                    
+                <div id="section_squelettes" class="bloc">
+                    <label class="titre_section">Statique:</label>
+                    <img src="images/squelette_gauche.png" alt="squelette gauche" class="squelette dessinable">
+                    <img src="images/squelette_droite.png" alt="squelette droite" class="squelette dessinable">
+                    <img src="images/squelette_dos.png" alt="squelette dos" class="squelette dessinable">
+                </div>
+
+                <div id="appui" class="form-group-inline bloc">
+                    <label class="titre_section">Appui:</label>
+                        <div class="radio-group">
+                        <label class="radio-label">
+                            <input type="radio" id="anterieur" name="appui">
+                            <span class="custom-radio"></span> Antérieur
+                        </label>
+                        <label class="radio-label">
+                            <input type="radio" id="posterieur" name="appui">
+                            <span class="custom-radio"></span> Postérieur
+                        </label>
+                    </div>
+                </div>
+
+                <div id="Podo" class="form-group-inline bloc">
+                    <label class="titre_section">Podo:</label>
+                    <div class="checkbox-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="symétrique">
+                            <span class="custom-checkbox"></span> Symétrique
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="Isthme">
+                            <span class="custom-checkbox"></span> Isthme
+                        </label>
+                        
+                        <label class="radio-label">
+                            <input type="radio" id="isthme_g" name="isthme_cote">
+                            <span class="custom-radio"></span> Gauche
+                        </label>
+                        <label class="radio-label">
+                            <input type="radio" id="isthme_d" name="isthme_cote">
+                            <span class="custom-radio"></span> Droit
+                        </label>
+                    </div>
+                </div>
+                
+                <table id="rotation" class="bloc">
+                <thead>
+                    <tr>
+                        <th class="titre_section">Rotation tête:</th>
+                        <th>Gauche(G)</th>
+                        <th>Droite (D)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Positif</td>
+                        <td>
+                            <input type="radio" name="test_positif" value="G">
+                        </td>
+                        <td>
+                            <input type="radio" name="test_positif" value="D">
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>Plus court</td>
+                        <td>
+                            <input type="radio" name="membre_court" value="G">
+                        </td>
+                        <td>
+                            <input type="radio" name="membre_court" value="D">
+                        </td>
+                     </tr>
+                </tbody>
+                </table>
+                
+                <table id="Posturo" class="bloc">
+                <thead>
+                    <tr>
+                        <th class="titre_section">Posturo dynamique:</th>
+                        <th>Gauche(G)</th>
+                        <th>Droite (D)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Dorsal</td>
+                        <td>
+                            <input type="radio" name="dorsal" value="G">
+                        </td>
+                        <td>
+                            <input type="radio" name="dorsal" value="D">
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>Lombaire</td>
+                        <td>
+                            <input type="radio" name="lombaire" value="G">
+                        </td>
+                        <td>
+                            <input type="radio" name="lombaire" value="D">
+                        </td>
+                     </tr>
+                </tbody>
+                </table>
+                
+                <div id="spin" class="form-group-inline bloc">
+                    <label class="titre_section">Spin test:</label>
+                        <div class="radio-group">
+                        <label class="radio-label">
+                            <input type="radio" id="gauche" name="spin">
+                            <span class="custom-radio"></span> Gauche
+                        </label>
+                        <label class="radio-label">
+                            <input type="radio" id="droit" name="spin">
+                            <span class="custom-radio"></span> Droit
+                        </label>
+                    </div>
+                </div>
+                
+                <div id="section_elements_testes" class="bloc">
+                    <label class="titre_section" for="elements_testes">Elements testés:</label>
+                    <textarea id="elements_testes" class="input-auto-grow"></textarea><br>
+                </div>
+
+                <div id="section_bilan_algique" class="bloc">
+                    <label class="titre_section" for="bilan_algique">Bilan algique:</label>
+                    <textarea id="bilan_algique" class="input-auto-grow"></textarea><br>
+                </div>
+
+                <div id="section_bilan_morpho" class="bloc">
+                    <label class="titre_section" for="bilan_morpho">Bilan morpho:</label>
+                    <textarea id="bilan_morpho" class="input-auto-grow"></textarea><br>
+                </div>
+
+                <div id="section_bilan_def" class="bloc">
+                    <label class="titre_section" for="bilan_def">Bilan def:</label>
+                    <textarea id="bilan_def" class="input-auto-grow"></textarea><br>
+                </div>
+
+                <div id="Pouls" class="form-group-inline bloc">
+                    <label class="titre_section">Pouls:</label>
+                        <div class="checkbox-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="pédieux">
+                            <span></span>Pédieux
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="tibial">
+                            <span ></span>Tibial
+                        </label>
+                    </div>
+                </div>
+
+
+                <div id="section_enregistrement_plateforme" class="bloc">
+                    <label class="titre_section" for="enregistrement_plateforme">Enregistrement Plateforme:</label>
+                    <textarea id="enregistrement_plateforme" class="input-auto-grow"></textarea><br>
+                </div>
+
+                <div id="section_empreinte_encre" class="form-group-inline bloc">
+                    <label class="checkbox-group">
+                       <label class="titre_section" for="empreinte_encre">Empreinte encre:</label>
+                       <input type=checkbox class="custom-checkbox" id="empreinte_encre"><br>
+                    </label>
+                </div>
+
+                <div id="section_chaussures_ville" class="chaussures-inline-group bloc">
+                    <label for="chaussures_ville">Chaussures ville:</label>
+                    <input type="text" id="chaussures_ville" name="chaussures_modele">
+                    
+                    <label class="checkbox-label-simple"></label>
+                        <input type="checkbox" id="usee_ville" name="chaussures_usees"> Usées
+                    
+
+                    <label for="marque_ville">Marque :</label>
+                    <input type="text" id="marque_ville" name="chaussures_marque">
+
+                    <label for="type_ville">Type :</label>
+                    <input type="text" id="type_ville" name="chaussures_type">
+                </div>
+
+                <div id="section_chaussures_sport" class="chaussures-inline-group bloc">
+                    <label for="chaussures_sport">Chaussures sport :</label>
+                    <input type="text" id="chaussures_sport" name="chaussures_modele">
+                    
+                    <label class="checkbox-label-simple"></label>
+                        <input type="checkbox" id="usee_sport" name="chaussures_usees"> Usées
+                    
+
+                    <label for="marque_sport">Marque :</label>
+                    <input type="text" id="marque_sport" name="chaussures_marque">
+
+                    <label for="type_sport">Type :</label>
+                    <input type="text" id="type_sport" name="chaussures_type">
+                </div>
+
+                <div id="section_plan_appareillage" class="bloc">
+                    <label class="titre_section_bloc">Plan appareillage proposé :</label>
+    
+                    <div class="appareillage-container">
+                        <div class="empreintes-box">
+                            <img src="images/empreintes_pieds.png" alt="Empreintes plantaires" id="image_empreintes" class="dessinable">
+                        </div>
+                        <textarea id="plan_texte" nom="plan_appareillage_notes" class="input-auto-grow" placeholder="Saisissez les éléments du plan d'appareillage..."></textarea>
+                    </div>
+                </div>
+
+                <div class="form-group-inline-bottom bloc">
+                    <label class="titre_section" for="pointure_ville">Pointure ville:</label>
+                    <input type="text" id="pointure_ville" nom="pointure_ville">
+                </div>
+
+                <div class="form-group-inline-bottom bloc">
+                    <label class="titre_section" for="pointure_sport">Pointure sport:</label>
+                    <input type="text" nom="semelle_base" id="pointure_sport">
+                </div>
+
+                <div class="form-group-inline-bottom bloc">
+                    <label class="titre_section" for="base">Base :</label>
+                    <input type="text" nom="semelle_base" id="base">
+                </div>
+
+                <div id="section_recouvrement" class="bloc">
+                    <label class="titre_section" for="recouvrement">Recouvrement :</label>
+                    <textarea id="recouvrement" class="input-auto-grow"></textarea><br>
+                </div>
+
+                <div id="section_conseils" class="bloc">
+                    <label class="titre_section" for="conseils">Conseils:</label>
+                    <textarea id="conseils" class="input-auto-grow"></textarea><br>
+                </div>
+
+                <div id="section_orientation" class="bloc">
+                    <label class="titre_section" for="orientation">Orientation:</label>
+                    <textarea type="text" id="orientation" class="input-auto-grow"></textarea><br>
+                </div>
+            </section>
+        </main>
+        </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
