@@ -12,7 +12,8 @@ import tempfile
 import unittest
 import unittest.mock
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "serveur"))
 
 import serveur
 
@@ -199,11 +200,12 @@ class PortabiliteWindows(unittest.TestCase):
     certificat sous Windows, sans que macOS ni Linux ne le voient.
     """
 
-    PROJET = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    SERVEUR = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "serveur")
 
     def test_aucun_caractere_hors_cp1252(self):
         for nom in ("serveur.py", "generer_autorite.py"):
-            chemin = os.path.join(self.PROJET, nom)
+            chemin = os.path.join(self.SERVEUR, nom)
             with open(chemin, encoding="utf-8") as f:
                 for numero, ligne in enumerate(f, 1):
                     for caractere in ligne:

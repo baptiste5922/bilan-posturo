@@ -8,8 +8,8 @@ chaque fois que l'adresse IP du PC change. En passant par une autorité, seule
 l'autorité est installée sur les appareils, une fois pour toutes : changer
 d'adresse ne demande plus qu'à regénérer le certificat serveur côté PC.
 
-    python3 generer_autorite.py 192.168.1.13
-    python3 generer_autorite.py 192.168.1.11 192.168.1.13
+    python3 serveur/generer_autorite.py 192.168.1.13
+    python3 serveur/generer_autorite.py 192.168.1.11 192.168.1.13
 
 Produit dans le dossier du projet :
     autorite.crt        à installer sur la tablette et sur le PC
@@ -50,7 +50,9 @@ def sortie_tolerante():
             pass
 
 
-RACINE = os.path.dirname(os.path.abspath(__file__))
+# Le script vit dans serveur/ ; certificats et clés se rangent à la racine du
+# projet, là où serveur.py va les chercher.
+RACINE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 AUTORITE_CERT = os.path.join(RACINE, "autorite.crt")
 AUTORITE_CLE = os.path.join(RACINE, "autorite-cle.pem")
 SERVEUR_CERT = os.path.join(RACINE, "certificat.pem")

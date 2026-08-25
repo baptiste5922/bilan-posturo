@@ -24,7 +24,7 @@ FIRST INSTALLATION — in this order
 
 4. Set the username and password:
 
-       python3 serveur.py --config
+       python3 serveur/serveur.py --config
 
 5. Note this PC's IP address (command: ipconfig) and RESERVE it
    on the router, so that it stops changing.
@@ -32,7 +32,7 @@ FIRST INSTALLATION — in this order
 6. ONLY THEN, generate the encryption certificate with that
    address:
 
-       python3 generer_autorite.py 192.168.1.42
+       python3 serveur/generer_autorite.py 192.168.1.42
 
    The order matters: the certificate is tied to the IP address.
    Created before the address is fixed, it has to be redone.
@@ -47,7 +47,7 @@ FIRST INSTALLATION — in this order
 
 8. Start:
 
-       python3 serveur.py
+       python3 serveur/serveur.py
 
    The displayed address must begin with https.
 
@@ -56,7 +56,7 @@ EVERY MORNING
 -------------
 
        cd C:\BilanPosturo
-       python3 serveur.py
+       python3 serveur/serveur.py
 
    Leave this window open all day.
    Closing it stops the service.
@@ -90,7 +90,7 @@ IF SOMETHING GOES WRONG
 -----------------------
 
    Forgotten password
-       python3 serveur.py --config
+       python3 serveur/serveur.py --config
 
    The tablet no longer connects
        The PC's IP address has probably changed. Note it,

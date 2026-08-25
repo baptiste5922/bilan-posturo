@@ -24,7 +24,7 @@ import unittest
 import warnings
 
 PROJET = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, PROJET)
+sys.path.insert(0, os.path.join(PROJET, "serveur"))
 
 import serveur
 
@@ -52,13 +52,20 @@ class ServeurEnMarche(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
+        # L'arborescence du projet est reproduite à l'identique : les scripts
+        # calculent leurs chemins à partir de leur propre emplacement.
         cls.dossier = tempfile.mkdtemp(prefix="bilan-test-")
-        for nom in ("serveur.py", "generer_autorite.py", "index.html",
-                    "style.css", "script.js"):
-            shutil.copy(os.path.join(PROJET, nom), cls.dossier)
+        os.mkdir(os.path.join(cls.dossier, "serveur"))
+        os.mkdir(os.path.join(cls.dossier, "formulaire"))
+        for nom in ("serveur/serveur.py", "serveur/generer_autorite.py",
+                    "formulaire/index.html", "formulaire/style.css",
+                    "formulaire/script.js"):
+            shutil.copy(os.path.join(PROJET, nom),
+                        os.path.join(cls.dossier, nom))
 
         sortie = subprocess.run(
-            [sys.executable, "generer_autorite.py", "127.0.0.1"],
+            [sys.executable, os.path.join("serveur", "generer_autorite.py"),
+             "127.0.0.1"],
             cwd=cls.dossier, capture_output=True, text=True)
         assert sortie.returncode == 0, sortie.stderr
 
@@ -71,7 +78,8 @@ class ServeurEnMarche(unittest.TestCase):
                        "cle_privee": "cle.pem"}, f)
 
         cls.processus = subprocess.Popen(
-            [sys.executable, "serveur.py"], cwd=cls.dossier,
+            [sys.executable, os.path.join("serveur", "serveur.py")],
+            cwd=cls.dossier,
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
 
         cls.contexte = ssl.create_default_context(
@@ -268,7 +276,9 @@ class RefusDeDemarrer(unittest.TestCase):
         # de passe en clair sur le réseau du cabinet.
         dossier = tempfile.mkdtemp(prefix="bilan-test-")
         self.addCleanup(shutil.rmtree, dossier, ignore_errors=True)
-        shutil.copy(os.path.join(PROJET, "serveur.py"), dossier)
+        os.mkdir(os.path.join(dossier, "serveur"))
+        shutil.copy(os.path.join(PROJET, "serveur", "serveur.py"),
+                    os.path.join(dossier, "serveur"))
         with open(os.path.join(dossier, "config.json"), "w") as f:
             json.dump({"port": port_libre(), "dossier_pdf": "bilans",
                        "utilisateur": "cabinet",
@@ -276,8 +286,9 @@ class RefusDeDemarrer(unittest.TestCase):
                        "certificat": "absent.pem",
                        "cle_privee": "absent-cle.pem"}, f)
 
-        sortie = subprocess.run([sys.executable, "serveur.py"], cwd=dossier,
-                                capture_output=True, text=True, timeout=30)
+        sortie = subprocess.run(
+            [sys.executable, os.path.join("serveur", "serveur.py")],
+            cwd=dossier, capture_output=True, text=True, timeout=30)
         self.assertEqual(sortie.returncode, 1)
         self.assertIn("Refus de démarrer", sortie.stdout)
 

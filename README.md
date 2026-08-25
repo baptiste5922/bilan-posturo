@@ -72,7 +72,7 @@ python -m pip install cryptography
 **1. Set the credentials**
 
 ```bash
-python serveur.py --config
+python serveur/serveur.py --config
 ```
 
 The password is hashed with PBKDF2-SHA256 (240,000 iterations, random salt)
@@ -81,13 +81,13 @@ and written to `config.json`. It is never stored in clear text.
 **2. Generate the authority and the certificate**
 
 ```bash
-python generer_autorite.py 192.168.1.13
+python serveur/generer_autorite.py 192.168.1.13
 ```
 
 Declare every address of the machine if it has several interfaces:
 
 ```bash
-python generer_autorite.py 192.168.1.11 192.168.1.13
+python serveur/generer_autorite.py 192.168.1.11 192.168.1.13
 ```
 
 This produces a local certificate authority (`autorite.crt`, 10 years) and a
@@ -112,7 +112,7 @@ New-NetFirewallRule -DisplayName "Bilan 8000" -Direction Inbound `
 **5. Start**
 
 ```bash
-python serveur.py
+python serveur/serveur.py
 ```
 
 ## Configuration
@@ -141,10 +141,13 @@ constant-time comparison over bytes. Both checks (username and password) always
 run, with no short-circuit that would reveal through response timing whether
 the username exists.
 
-**Exposed surface** — only the extensions `.html`, `.css`, `.js`, `.png`,
-`.jpg`, `.jpeg`, `.svg`, `.ico` are served. `config.json`, `journal.log`, the
-private keys and the source code are unreachable over HTTP, on `GET` as well as
-on `HEAD`.
+**Exposed surface** — two independent barriers. The web root is
+`formulaire/`, which contains nothing but the form itself: `config.json`, the
+private keys, `journal.log` and the Python source all live one level up and are
+simply not inside the served tree. On top of that, only the extensions
+`.html`, `.css`, `.js`, `.png`, `.jpg`, `.jpeg`, `.svg`, `.ico` are served, on
+`GET` as well as on `HEAD`. Either barrier alone would be enough; a mistake in
+one is caught by the other.
 
 **File delivery** — sanitised filename (directory traversal neutralised,
 Unicode normalisation, truncation), `%PDF-` signature verified, 30 MB ceiling,
@@ -179,42 +182,46 @@ journal.log          IP addresses, timestamps
 bilans/              health data
 Bilan_entrants/
 BilanPosturo-*.zip   distribution archives
-node_modules/        build-time only; lib/ itself is committed
+node_modules/        build-time only; formulaire/lib/ is committed
 __pycache__/  *.pyc
 .DS_Store
 ```
 
-`lib/` holds the two vendored browser libraries and **is** committed, so a
-fresh clone generates PDFs without any install step.
+`formulaire/lib/` holds the two vendored browser libraries and **is**
+committed, so a fresh clone generates PDFs without any install step.
 
 ---
 
 ## Layout
 
 ```
-BilanPosturo/
-├── serveur.py              HTTPS server and delivery endpoint
-├── generer_autorite.py     certificate authority + server certificate
-├── demarrer-serveur.bat    Windows launcher
-├── index.html              the form
-├── script.js               PDF, stylus, draft, delivery
-├── style.css
-├── lib/
-│   ├── jspdf.umd.min.js
-│   └── html2canvas.min.js
-├── images/                 skeletal diagrams, footprints, logo
-├── faire-paquet.sh         builds the archive to install at the practice
-├── LISEZMOI.txt            install sheet shipped with the archive (French)
-├── Mode_emploi.md          guide for the practitioner (French)
-├── READ-ME-FIRST.txt       English translation of LISEZMOI.txt
-├── USER-GUIDE.md           English translation of Mode_emploi.md
-└── config.json             not committed
+bilan-posturo/
+├── formulaire/             everything served to the tablet — the web root
+│   ├── index.html
+│   ├── script.js           PDF, stylus, draft, delivery
+│   ├── style.css
+│   ├── lib/                jspdf + html2canvas, committed
+│   └── images/             skeletal diagrams, footprints, logo
+├── serveur/
+│   ├── serveur.py          HTTPS server and delivery endpoint
+│   └── generer_autorite.py certificate authority + server certificate
+├── docs/                   practitioner guides, French and English
+├── outils/
+│   ├── faire-paquet.sh     builds the archive to install at the practice
+│   └── partager-paquet.sh  serves that archive over the local network
+├── tests/
+├── demarrer-serveur.bat    Windows launcher, the practitioner's entry point
+└── config.json             not committed; created at the root at setup
 ```
+
+Runtime state — `config.json`, `journal.log`, the certificates and `bilans/`
+— lives at the project root, never inside `formulaire/`.
+
 
 The code is in French, and so are the two documents the practice actually uses:
 the software is deployed in a French practice and its sole user works in
-French. `USER-GUIDE.md` and `READ-ME-FIRST.txt` are English translations of
-those, kept alongside rather than in place of them.
+French. `docs/USER-GUIDE.md` and `docs/READ-ME-FIRST.txt` are English translations
+of those, kept alongside rather than in place of them.
 
 ---
 

@@ -22,7 +22,7 @@ PREMIÈRE INSTALLATION — dans l'ordre
 
 4. Définir l'identifiant et le mot de passe :
 
-       python3 serveur.py --config
+       python3 serveur/serveur.py --config
 
 5. Relever l'adresse IP de ce PC (commande : ipconfig) et la
    RÉSERVER sur la box, pour qu'elle ne change plus.
@@ -30,7 +30,7 @@ PREMIÈRE INSTALLATION — dans l'ordre
 6. SEULEMENT ENSUITE, générer le certificat de chiffrement avec
    cette adresse :
 
-       python3 generer_autorite.py 192.168.1.42
+       python3 serveur/generer_autorite.py 192.168.1.42
 
    L'ordre compte : le certificat est lié à l'adresse IP. S'il est
    créé avant que l'adresse soit fixée, il faudra le refaire.
@@ -45,7 +45,7 @@ PREMIÈRE INSTALLATION — dans l'ordre
 
 8. Démarrer :
 
-       python3 serveur.py
+       python3 serveur/serveur.py
 
    L'adresse affichée doit commencer par https.
 
@@ -54,7 +54,7 @@ CHAQUE MATIN
 ------------
 
        cd C:\BilanPosturo
-       python3 serveur.py
+       python3 serveur/serveur.py
 
    Laisser cette fenêtre ouverte toute la journée.
    La fermer coupe le service.
@@ -88,7 +88,7 @@ EN CAS DE PROBLÈME
 ------------------
 
    Mot de passe oublié
-       python3 serveur.py --config
+       python3 serveur/serveur.py --config
 
    La tablette ne se connecte plus
        L'adresse IP du PC a probablement changé. La relever,

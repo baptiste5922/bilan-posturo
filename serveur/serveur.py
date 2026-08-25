@@ -3,7 +3,7 @@
 Serveur du bilan posturologique.
 
 Trois rôles :
-  1. servir le formulaire (index.html, style.css, script.js, lib/, images/) ;
+  1. servir le formulaire, qui vit dans formulaire/ ;
   2. recevoir les PDF générés sur la tablette et les écrire dans le dossier
      patient du PC (route POST /depot) ;
   3. protéger l'ensemble par un mot de passe et par TLS, tous deux
@@ -12,9 +12,9 @@ Trois rôles :
 N'utilise que la bibliothèque standard : rien à installer au cabinet.
 Le certificat, lui, se fabrique avec generer_autorite.py.
 
-    python3 generer_autorite.py 192.168.1.13   # certificat, une fois
-    python3 serveur.py --config                # identifiant et mot de passe
-    python3 serveur.py                         # démarrage
+    python3 serveur/generer_autorite.py 192.168.1.13   # certificat, une fois
+    python3 serveur/serveur.py --config                # identifiant, mot de passe
+    python3 serveur/serveur.py                         # démarrage
 """
 
 import argparse
@@ -37,15 +37,21 @@ import unicodedata
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
-RACINE = os.path.dirname(os.path.abspath(__file__))
+# Le script vit dans serveur/ : la racine du projet est le dossier parent.
+RACINE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIG = os.path.join(RACINE, "config.json")
 JOURNAL = os.path.join(RACINE, "journal.log")
+
+# Racine web : elle ne contient que le formulaire. Ni config.json, ni les
+# clés privées, ni le code Python n'y figurent, si bien qu'aucune requête ne
+# peut les atteindre même si le filtre d'extensions venait à être contourné.
+FORMULAIRE = os.path.join(RACINE, "formulaire")
 
 TAILLE_MAX = 30 * 1024 * 1024      # 30 Mo : un bilan pèse ~1 à 3 Mo
 ITERATIONS = 240_000               # coût du hachage PBKDF2
 
-# Seuls ces fichiers sont servis. Tout le reste est refusé, ce qui met hors
-# d'atteinte config.json, journal.log, serveur.py et les certificats.
+# Seuls ces fichiers sont servis. Le filtre double la séparation des dossiers :
+# même si la racine web venait à contenir autre chose, rien d'autre ne sortirait.
 EXTENSIONS_SERVIES = {".html", ".css", ".js", ".png", ".jpg", ".jpeg", ".svg", ".ico"}
 
 CONFIG_DEFAUT = {
@@ -269,7 +275,7 @@ class Gestionnaire(SimpleHTTPRequestHandler):
     dossier_pdf = None
 
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, directory=RACINE, **kwargs)
+        super().__init__(*args, directory=FORMULAIRE, **kwargs)
 
     # --- journalisation ----------------------------------------------------
 
@@ -444,7 +450,7 @@ def demarrer():
     config = charger_config()
     if config is None or not config.get("mot_de_passe"):
         print("Aucun mot de passe défini.")
-        print("Lancez d'abord :  python3 serveur.py --config")
+        print("Lancez d'abord :  python3 serveur/serveur.py --config")
         return 1
 
     dossier_pdf = config["dossier_pdf"]
@@ -467,7 +473,7 @@ def demarrer():
     if manquants:
         print("Refus de démarrer : {} introuvable.".format(
             " et ".join(manquants)))
-        print("Générez le certificat :  python3 generer_autorite.py <ip-du-pc>")
+        print("Générez le certificat :  python3 serveur/generer_autorite.py <ip>")
         return 1
 
     contexte = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
@@ -480,7 +486,7 @@ def demarrer():
         contexte.load_cert_chain(certificat, cle)
     except (ssl.SSLError, OSError) as erreur:
         print("Certificat inutilisable : {}".format(erreur))
-        print("Regénérez-le :  python3 generer_autorite.py <ip-du-pc>")
+        print("Regénérez-le :  python3 serveur/generer_autorite.py <ip>")
         return 1
 
     try:

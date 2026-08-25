@@ -123,8 +123,8 @@ sécurité, alors que rien n'a été modifié.
 
 ```powershell
 ipconfig | findstr IPv4
-python generer_autorite.py <la_nouvelle_IP>
-python serveur.py
+python serveur/generer_autorite.py <la_nouvelle_IP>
+python serveur/serveur.py
 ```
 
 L'autorité de certification est réutilisée : **rien à réinstaller sur la
@@ -136,7 +136,7 @@ l'interface de la box (associer l'adresse MAC du Wi-Fi à `192.168.1.13`).
 ### Changer le mot de passe
 
 ```powershell
-python serveur.py --config
+python serveur/serveur.py --config
 ```
 
 ### Le certificat serveur expire
@@ -144,7 +144,7 @@ python serveur.py --config
 Validité 825 jours. Le regénérer avant la date d'expiration :
 
 ```powershell
-python generer_autorite.py 192.168.1.13
+python serveur/generer_autorite.py 192.168.1.13
 ```
 
 L'autorité, elle, est valable 10 ans.

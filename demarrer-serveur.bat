@@ -5,7 +5,7 @@ REM A double-cliquer chaque matin. Laisser la fenetre ouverte.
 cd /d "%~dp0"
 title Bilan posturologique - serveur
 
-python serveur.py
+python serveur\serveur.py
 if errorlevel 1 (
     echo.
     echo Le serveur s^'est arrete sur une erreur. Voir le message ci-dessus.

@@ -119,8 +119,8 @@ nothing was changed.
 
 ```powershell
 ipconfig | findstr IPv4
-python generer_autorite.py <the_new_IP>
-python serveur.py
+python serveur/generer_autorite.py <the_new_IP>
+python serveur/serveur.py
 ```
 
 The certificate authority is reused: **nothing to reinstall on the tablet**.
@@ -132,7 +132,7 @@ router's interface (bind the Wi-Fi MAC address to `192.168.1.13`).
 ### Change the password
 
 ```powershell
-python serveur.py --config
+python serveur/serveur.py --config
 ```
 
 ### The server certificate is expiring
@@ -140,7 +140,7 @@ python serveur.py --config
 Valid for 825 days. Regenerate it before the expiry date:
 
 ```powershell
-python generer_autorite.py 192.168.1.13
+python serveur/generer_autorite.py 192.168.1.13
 ```
 
 The authority itself is valid for 10 years.

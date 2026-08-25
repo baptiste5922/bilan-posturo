@@ -5,7 +5,7 @@
   "license": "MIT",
   "private": true,
   "scripts": {
-    "vendor": "mkdir -p lib && cp node_modules/jspdf/dist/jspdf.umd.min.js node_modules/html2canvas/dist/html2canvas.min.js lib/",
+    "vendor": "mkdir -p formulaire/lib && cp node_modules/jspdf/dist/jspdf.umd.min.js node_modules/html2canvas/dist/html2canvas.min.js formulaire/lib/",
     "test": "python3 -m unittest discover -s tests -v"
   },
   "dependencies": {

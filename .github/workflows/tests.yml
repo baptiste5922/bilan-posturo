@@ -47,7 +47,7 @@ jobs:
         run: python -m pip install --upgrade pip pyflakes
 
       - name: Check for unused imports and undefined names
-        run: python -m pyflakes serveur.py generer_autorite.py tests/
+        run: python -m pyflakes serveur/ tests/
 
       - name: Check that no secret is committed
         run: |
