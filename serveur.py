@@ -194,8 +194,12 @@ class ServeurBilan(ThreadingHTTPServer):
     `localhost` se résout d'abord en ::1 : un serveur lié au seul 0.0.0.0 y
     est injoignable, et le praticien qui ouvre le formulaire sur le PC lui-même
     obtient un refus de connexion. On écoute donc en IPv6 avec IPV6_V6ONLY
-    désactivé, ce qui couvre aussi l'IPv4, et on retombe en IPv4 seul si la
-    pile IPv6 est absente.
+    désactivé, ce qui couvre aussi l'IPv4.
+
+    Si la pile IPv6 est absente, ou si IPV6_V6ONLY ne peut pas être désactivé,
+    on retombe entièrement en IPv4 : mieux vaut perdre l'accès par ::1 que
+    d'écouter en IPv6 pur, ce qui rendrait la tablette incapable de se
+    connecter tout en laissant croire que le serveur tourne.
     """
 
     address_family = socket.AF_INET6
@@ -218,11 +222,13 @@ class ServeurBilan(ThreadingHTTPServer):
 
     def server_bind(self):
         if self.address_family == socket.AF_INET6:
-            try:
-                self.socket.setsockopt(socket.IPPROTO_IPV6,
-                                       socket.IPV6_V6ONLY, 0)
-            except OSError:
-                pass          # pile IPv6 seule : l'IPv4 sera simplement absente
+            # Si IPV6_V6ONLY ne peut pas être désactivé, l'écoute resterait
+            # purement IPv6. La tablette se connecte en 192.168.1.x : elle
+            # serait injoignable, et le serveur paraîtrait pourtant démarré.
+            # L'erreur est donc laissée remonter, pour que __init__ retombe
+            # franchement en IPv4.
+            self.socket.setsockopt(socket.IPPROTO_IPV6,
+                                   socket.IPV6_V6ONLY, 0)
         super().server_bind()
 
     def get_request(self):

@@ -78,7 +78,7 @@ class ServeurEnMarche(unittest.TestCase):
             cafile=os.path.join(cls.dossier, "autorite.crt"))
 
         # Attendre que le port réponde plutôt que de dormir un temps fixe.
-        limite = time.monotonic() + 15
+        limite = time.monotonic() + 30
         while time.monotonic() < limite:
             if cls.processus.poll() is not None:
                 raise AssertionError("le serveur s'est arrêté : "

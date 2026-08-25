@@ -188,3 +188,32 @@ class EcritureAtomique(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PortabiliteWindows(unittest.TestCase):
+    """Le serveur tourne sur le PC Windows du cabinet.
+
+    La console y travaille en cp1252 : un caractère absent de ce jeu lève
+    UnicodeEncodeError et interrompt le script. Une flèche « → » dans les
+    consignes d'installation a suffi à faire échouer la génération du
+    certificat sous Windows, sans que macOS ni Linux ne le voient.
+    """
+
+    PROJET = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+    def test_aucun_caractere_hors_cp1252(self):
+        for nom in ("serveur.py", "generer_autorite.py"):
+            chemin = os.path.join(self.PROJET, nom)
+            with open(chemin, encoding="utf-8") as f:
+                for numero, ligne in enumerate(f, 1):
+                    for caractere in ligne:
+                        if caractere.isascii():
+                            continue
+                        with self.subTest(fichier=nom, ligne=numero,
+                                          caractere=caractere):
+                            try:
+                                caractere.encode("cp1252")
+                            except UnicodeEncodeError:
+                                self.fail(
+                                    "{}:{} contient {!r}, non encodable par la "
+                                    "console Windows".format(nom, numero, caractere))

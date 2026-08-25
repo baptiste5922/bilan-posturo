@@ -35,6 +35,21 @@ try:
 except ImportError:
     sys.exit("Module manquant.  Installez-le :  python3 -m pip install cryptography")
 
+
+def sortie_tolerante():
+    """Empêche un caractère non affichable de faire planter le script.
+
+    La console Windows travaille en cp1252 : imprimer un caractère absent de
+    ce jeu lève UnicodeEncodeError et interrompt la génération, au moment
+    précis où le praticien installe le logiciel.
+    """
+    for flux in (sys.stdout, sys.stderr):
+        try:
+            flux.reconfigure(errors="replace")
+        except (AttributeError, ValueError):
+            pass
+
+
 RACINE = os.path.dirname(os.path.abspath(__file__))
 AUTORITE_CERT = os.path.join(RACINE, "autorite.crt")
 AUTORITE_CLE = os.path.join(RACINE, "autorite-cle.pem")
@@ -191,6 +206,7 @@ def creer_certificat_serveur(cle_autorite, cert_autorite, adresses):
 
 
 def main():
+    sortie_tolerante()
     adresses = sys.argv[1:]
     if not adresses or adresses[0] in ("-h", "--help"):
         print(__doc__.strip())
@@ -214,8 +230,8 @@ def main():
     if creee:
         print("\nInstallez {} sur la tablette et sur le PC :".format(
             os.path.basename(AUTORITE_CERT)))
-        print("  Android — Réglages → Sécurité → Chiffrement et identifiants")
-        print("            → Installer depuis la mémoire → Certificat CA")
+        print("  Android - Reglages, Securite, Chiffrement et identifiants,")
+        print("            Installer depuis la memoire, Certificat CA")
         print("  Windows — Import-Certificate -FilePath autorite.crt "
               "-CertStoreLocation Cert:\\CurrentUser\\Root")
     else:
