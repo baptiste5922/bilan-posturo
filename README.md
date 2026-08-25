@@ -1,5 +1,8 @@
 # Postural Assessment
 
+[![tests](https://github.com/baptiste5922/bilan-posturo/actions/workflows/tests.yml/badge.svg)](https://github.com/baptiste5922/bilan-posturo/actions/workflows/tests.yml)
+[![licence: MIT](https://img.shields.io/badge/licence-MIT-blue.svg)](LICENSE)
+
 Tablet application for recording postural assessments, with PDF generation and
 automatic delivery to the practice workstation.
 
