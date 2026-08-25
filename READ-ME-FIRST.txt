@@ -1,0 +1,100 @@
+POSTURAL ASSESSMENT — Installing on the practice PC
+====================================================
+
+English translation of LISEZMOI.txt, which is the version shipped
+to the practice and the reference for installation.
+
+This folder contains everything needed. Nothing to install but
+Python 3 (python.org), plus one library for the certificates only.
+
+
+FIRST INSTALLATION — in this order
+----------------------------------
+
+1. Rename this folder to:  BilanPosturo
+   and put it in, for example, C:\BilanPosturo
+
+2. Open a terminal (PowerShell on Windows) and go there:
+
+       cd C:\BilanPosturo
+
+3. Install the library used to create the certificates:
+
+       python3 -m pip install cryptography
+
+4. Set the username and password:
+
+       python3 serveur.py --config
+
+5. Note this PC's IP address (command: ipconfig) and RESERVE it
+   on the router, so that it stops changing.
+
+6. ONLY THEN, generate the encryption certificate with that
+   address:
+
+       python3 generer_autorite.py 192.168.1.42
+
+   The order matters: the certificate is tied to the IP address.
+   Created before the address is fixed, it has to be redone.
+
+7. Install autorite.crt on the tablet and on this PC, otherwise
+   the browser will refuse the connection:
+
+       Android — Settings, Security, Encryption & credentials,
+                 Install from storage, CA certificate
+       Windows — Import-Certificate -FilePath autorite.crt
+                 -CertStoreLocation Cert:\CurrentUser\Root
+
+8. Start:
+
+       python3 serveur.py
+
+   The displayed address must begin with https.
+
+
+EVERY MORNING
+-------------
+
+       cd C:\BilanPosturo
+       python3 serveur.py
+
+   Leave this window open all day.
+   Closing it stops the service.
+
+
+BETWEEN TWO PATIENTS
+--------------------
+
+   On the tablet, tap "Nouveau bilan" (New assessment).
+   Reloading the page is not enough: the previous assessment
+   would be offered for recovery.
+
+
+WHERE THE FILES GO
+------------------
+
+   bilans/        the PDFs received from the tablet (patient data)
+   journal.log    timestamp of every access and every delivery
+   config.json    username and password digest
+   cle.pem        private encryption key
+
+   The last three must NEVER be copied, sent or shared. The
+   bilans/ folder, on the other hand, must be included in the
+   practice backup.
+
+   To send the PDFs somewhere other than bilans/, edit the
+   "dossier_pdf" line in config.json.
+
+
+IF SOMETHING GOES WRONG
+-----------------------
+
+   Forgotten password
+       python3 serveur.py --config
+
+   The tablet no longer connects
+       The PC's IP address has probably changed. Note it,
+       reserve it on the router, then REDO step 6.
+
+   Check journal.log: it shows whether an assessment was
+   received, and at what time.
