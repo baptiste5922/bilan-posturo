@@ -1,0 +1,20 @@
+# Secrets et certificats
+config.json
+*.pem
+autorite.crt
+
+# Données patient et traces d'exécution
+bilans/
+Bilan_entrants/
+journal.log
+
+# Dépendances et archives de distribution
+node_modules/
+BilanPosturo-*.zip
+
+# Système
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
