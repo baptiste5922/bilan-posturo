@@ -7,30 +7,36 @@ Tablet-based assessment recording, with automatic saving to the practice PC.
 
 ---
 
-## 1. Every morning — start the server
+## 1. Every morning — nothing to do
 
-On the **PC**, open the `C:\BilanPosturo` folder, then double-click
-`demarrer-serveur.bat`.
+The server starts with the PC and restarts itself if it stops. No window to
+open, nothing to leave running.
 
-A black window opens and shows:
+### Checking that it answers
+
+From the tablet or from the PC, open:
 
 ```
-Serveur HTTPS démarré.
-  Sur ce PC  : https://localhost:8000
-  Tablette   : https://192.168.1.13:8000
-  Dépôt      : C:\Bilan_entrants
+https://192.168.1.13:8000/sante
 ```
 
-**Leave this window open all day.** Closing it stops the server: the tablet
-will no longer be able to send assessments.
+`{"etat":"ok"}` means the server is running. This is the only check worth
+making: it answers without credentials.
 
-Minimising it to the taskbar is perfectly fine.
+### Restarting it by hand
 
-### If an error message appears
+If the tablet cannot connect, on the PC, in PowerShell:
+
+```powershell
+Start-ScheduledTask -TaskName BilanPosturo
+```
+
+To see an error message, double-click `demarrer-serveur.bat` instead: the
+server then runs in a visible window.
 
 | Message | What to do |
 |---|---|
-| `Port 8000 indisponible` | The server is already running. Look for the other black window. |
+| `Port 8000 indisponible` | The server is already running; nothing to do. |
 | `certificat.pem introuvable` | See the Maintenance section. |
 | `config.json absent` | See the Maintenance section. |
 
@@ -61,12 +67,19 @@ Tap the PDF generation button at the bottom of the form. Two things happen:
 A coloured banner confirms the outcome:
 
 - **Green** — the assessment reached the PC. All good.
-- **Orange** — the assessment is on the tablet but **not** on the PC. Check
-  that the black window is still open, then regenerate the PDF.
-- **Red** — PDF creation failed. Nothing is lost: try again.
+- **Orange** — the practice server was not answering. The assessment is held
+  on the tablet and **will be sent on its own** as soon as the server answers.
+  Nothing to redo, and above all do not regenerate the PDF.
+- **Red** — PDF creation failed, or the PC rejected the file. Nothing is lost:
+  try again.
 
-> **Never leave the page on an orange or red banner** without first checking
-> that the assessment did arrive.
+While assessments are waiting, a banner stays at the top of the page with the
+count. **Réessayer maintenant** forces an attempt straight away.
+
+> **What keeps the queue moving is an open page.** Queued assessments are held
+> in the tablet and survive Chrome closing, but delivery only resumes when the
+> form is loaded again. At the end of the day, leave the page open until the
+> banner disappears.
 
 ---
 
@@ -102,20 +115,52 @@ To be done at least once a week.
 ## 5. Weekly check
 
 On Friday, check that the number of filed assessments matches the number of
-consultations for the week. A discrepancy points to an orange banner that went
-unnoticed.
+consultations for the week.
 
-If an assessment is missing, check the tablet's Downloads: the local copy is
-probably there and can be transferred to the PC by hand.
+A discrepancy can no longer come from a missed delivery: an assessment the
+server never received stays queued on the tablet and shows in the waiting
+banner. Opening the form is enough to resume delivery.
+
+If an assessment is missing all the same, the local copy is in the tablet's
+Downloads and can be transferred by hand.
 
 ---
 
 ## Maintenance — for Baptiste
 
+### Automatic start
+
+Installed once, as administrator:
+
+```powershell
+.\installer-demarrage.ps1
+```
+
+It registers the `BilanPosturo` scheduled task (at system startup, as SYSTEM,
+restarted up to five times) and the firewall rule.
+`.\desinstaller-demarrage.ps1` reverts to manual start.
+
+```powershell
+Get-ScheduledTask -TaskName BilanPosturo          # state
+Get-ScheduledTaskInfo -TaskName BilanPosturo      # last result, last run
+Stop-ScheduledTask  -TaskName BilanPosturo        # stop
+Start-ScheduledTask -TaskName BilanPosturo        # restart
+```
+
+The task runs under `pythonw.exe`, without a console: everything the server
+has to say goes to `journal.log`. After editing `config.json` or the
+certificate, stop and restart the task.
+
+A consequence of the SYSTEM account: `dossier_pdf` must be an absolute local
+path or a UNC path. A network drive mapped in the practitioner's session does
+not exist for SYSTEM.
+
 ### The PC's address has changed
 
-Symptom: the tablet shows a connection error or a security warning, although
-nothing was changed.
+Symptom: the tablet shows `ERR_CONNECTION_TIMED_OUT` or a security warning,
+although nothing was changed. `ERR_CONNECTION_REFUSED` means the opposite: the
+PC is reachable and the server is not running on it — look at the scheduled
+task, not at the address.
 
 ```powershell
 ipconfig | findstr IPv4
@@ -149,6 +194,10 @@ The authority itself is valid for 10 years.
 
 `C:\BilanPosturo\journal.log` keeps every request and every error. Search it
 for `TLS refusé` or `Traceback` when something is unexplained.
+
+Past 5 MB it is archived as `journal.log.1` and a new log starts; three
+generations are kept. Calls to `/sante`, which arrive continuously from every
+tablet that is switched on, are not recorded.
 
 ### Files that must never be shared
 

@@ -49,15 +49,27 @@ PREMIÈRE INSTALLATION — dans l'ordre
 
    L'adresse affichée doit commencer par https.
 
+9. Installer le démarrage automatique, pour ne plus avoir à lancer
+   le serveur à la main. Clic droit sur le fichier, « Exécuter
+   avec PowerShell », en administrateur :
+
+       installer-demarrage.ps1
+
+   Le serveur démarre alors avec le PC, même sans session ouverte,
+   et se relance tout seul s'il s'arrête. Le script ouvre aussi le
+   port dans le pare-feu et affiche l'adresse à utiliser sur la
+   tablette.
+
 
 CHAQUE MATIN
 ------------
 
-       cd C:\BilanPosturo
-       python3 serveur/serveur.py
+   Rien à faire : le serveur démarre avec le PC.
 
-   Laisser cette fenêtre ouverte toute la journée.
-   La fermer coupe le service.
+   Si le démarrage automatique n'a pas été installé (étape 9), il
+   faut double-cliquer chaque matin sur demarrer-serveur.bat et
+   laisser la fenêtre ouverte toute la journée ; la fermer coupe
+   le service.
 
 
 ENTRE DEUX PATIENTS
@@ -90,11 +102,37 @@ EN CAS DE PROBLÈME
    Mot de passe oublié
        python3 serveur/serveur.py --config
 
-   La tablette ne se connecte plus
-       L'adresse IP du PC a probablement changé. La relever,
-       la réserver sur la box, puis REFAIRE l'étape 6.
+   La tablette affiche « ERR_CONNECTION_REFUSED »
+       Le PC a répondu, mais le serveur n'y tourne pas. Ce n'est
+       donc pas le Wi-Fi. Vérifier sur le PC :
+
+           Get-ScheduledTask -TaskName BilanPosturo
+
+       Si l'état n'est pas « Running », le relancer :
+
+           Start-ScheduledTask -TaskName BilanPosturo
+
+       Si la tâche n'existe pas, le démarrage automatique n'a
+       jamais été installé : faire l'étape 9.
+
+   La tablette affiche « ERR_CONNECTION_TIMED_OUT »
+       Le PC n'a pas répondu du tout : il est éteint, sur un autre
+       réseau, ou l'adresse IP a changé. La relever (ipconfig), la
+       réserver sur la box, puis REFAIRE l'étape 6.
+
+   Un bandeau annonce des bilans en attente
+       Le serveur ne répondait pas au moment de l'envoi. Les
+       bilans sont conservés sur la tablette et partiront seuls
+       dès que le serveur répondra. Rien n'est perdu, rien à
+       transférer à la main : il suffit de remettre le serveur
+       en marche et de laisser la page ouverte.
+
+   Vérifier que le serveur tourne, depuis n'importe quel appareil
+   du cabinet : ouvrir https://<ip-du-pc>:8000/sante
+   La réponse {"etat":"ok"} signifie que le serveur répond.
 
    Consulter journal.log : il indique si un bilan a été reçu
-   et à quelle heure.
+   et à quelle heure. Au-delà de 5 Mo, il est archivé en
+   journal.log.1, et ainsi de suite jusqu'à journal.log.3.
 
 

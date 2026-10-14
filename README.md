@@ -28,8 +28,9 @@ account to create.
 │     Form     │                 │    serveur.py    │
 │  + stylus    │ ──── HTTPS ───► │  (stdlib only)   │
 │  → jsPDF     │   POST /depot   │        ↓         │
-└──────────────┘                 │ C:\Bilan_entrants│
-                                 └──────────────────┘
+│  → queue     │ ◄─── GET ────── │ C:\Bilan_entrants│
+│  (IndexedDB) │     /sante      │  (scheduled task)│
+└──────────────┘                 └──────────────────┘
 ```
 
 The PDF is produced **client-side** by html2canvas and jsPDF: the server only
@@ -46,8 +47,12 @@ standard library.
 - Multi-page PDF generation in the browser
 - Automatic delivery to the practice workstation, falling back to a local
   download if the server is unreachable
+- **Persistent delivery queue**: a generated assessment is stored in the
+  browser before any upload and retried until the server acknowledges it, so a
+  stopped server delays a delivery rather than losing one
 - Automatic draft saving: a tablet that runs out of battery does not lose the
   work in progress
+- Starts with the workstation as a scheduled task, with automatic restart
 - HTTP Basic authentication over HTTPS
 - Local copy to a desktop machine via the File System Access API
 
@@ -102,18 +107,29 @@ storage → **CA certificate** → `autorite.crt`
 
 Windows — `Import-Certificate -FilePath autorite.crt -CertStoreLocation Cert:\CurrentUser\Root`
 
-**4. Open the port**
-
-```powershell
-New-NetFirewallRule -DisplayName "Bilan 8000" -Direction Inbound `
-  -LocalPort 8000 -Protocol TCP -Action Allow
-```
-
-**5. Start**
+**4. Start**
 
 ```bash
 python serveur/serveur.py
 ```
+
+**5. Install the automatic start** (Windows, as administrator)
+
+```powershell
+.\installer-demarrage.ps1
+```
+
+Registers the `BilanPosturo` scheduled task — at system startup, as SYSTEM,
+restarted up to five times — opens the firewall port, and prints the address
+to use on the tablet. `.\desinstaller-demarrage.ps1` reverts to manual start.
+
+Without this step the server depends on someone double-clicking
+`demarrer-serveur.bat` every morning, and a workstation that rebooted
+overnight greets the first patient with `ERR_CONNECTION_REFUSED`.
+
+Because the task runs as SYSTEM, `dossier_pdf` must be an absolute local path
+or a UNC path: a network drive mapped in the practitioner's session does not
+exist for SYSTEM.
 
 ## Configuration
 
@@ -155,6 +171,13 @@ write to a temporary file followed by an atomic rename. An interrupted transfer
 never leaves a partial PDF behind. Existing names are suffixed rather than
 overwritten.
 
+**Health probe** — `GET /sante` answers `{"etat":"ok"}` without
+authentication. It is the one unauthenticated route, and deliberately so: the
+tablet uses it to tell a stopped server from a rejected password, which a 401
+could not do. It discloses nothing beyond the open port, which already answers
+401 to anyone who asks — no version, no paths, no counts — and is not written
+to the log.
+
 **Headers** — `X-Content-Type-Options: nosniff`, `Referrer-Policy:
 no-referrer`, `Cache-Control: no-store`, `X-Frame-Options: DENY`.
 
@@ -162,7 +185,11 @@ no-referrer`, `Cache-Control: no-store`, `X-Frame-Options: DENY`.
 
 This system is designed for a trusted local network, on a single workstation.
 It is not suitable for exposure to the internet: no rate limiting on attempts,
-no log rotation, no encryption at rest for the delivered PDFs.
+no encryption at rest for the delivered PDFs.
+
+The delivery queue only makes progress while the form is open in the browser:
+queued assessments survive a closed tab, but retries resume when the page is
+loaded again. There is no service worker, and no background delivery.
 
 Because the certificate authority is local, its private key
 (`autorite-cle.pem`) must stay on the practice machine. Anyone holding it can
@@ -178,7 +205,7 @@ The bundled `.gitignore` excludes them:
 config.json          password digest
 *.pem                server and authority private keys
 autorite.crt         local authority certificate
-journal.log          IP addresses, timestamps
+journal.log*         IP addresses, timestamps (and its rotated archives)
 bilans/              health data
 Bilan_entrants/
 BilanPosturo-*.zip   distribution archives
@@ -209,8 +236,10 @@ bilan-posturo/
 ├── outils/
 │   ├── faire-paquet.sh     builds the archive to install at the practice
 │   └── partager-paquet.sh  serves that archive over the local network
-├── tests/
-├── demarrer-serveur.bat    Windows launcher, the practitioner's entry point
+├── tests/                  Python for the server, Node for the delivery queue
+├── demarrer-serveur.bat    manual Windows launcher, useful to see errors
+├── installer-demarrage.ps1 registers the scheduled task and firewall rule
+├── desinstaller-demarrage.ps1
 └── config.json             not committed; created at the root at setup
 ```
 

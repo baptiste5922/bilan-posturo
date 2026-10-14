@@ -51,15 +51,26 @@ FIRST INSTALLATION — in this order
 
    The displayed address must begin with https.
 
+9. Install the automatic start, so the server never has to be
+   launched by hand. Right-click the file, "Run with
+   PowerShell", as administrator:
+
+       installer-demarrage.ps1
+
+   The server then starts with the PC, even with nobody logged
+   in, and restarts itself if it stops. The script also opens
+   the firewall port and prints the address to use on the
+   tablet.
+
 
 EVERY MORNING
 -------------
 
-       cd C:\BilanPosturo
-       python3 serveur/serveur.py
+   Nothing to do: the server starts with the PC.
 
-   Leave this window open all day.
-   Closing it stops the service.
+   If the automatic start was not installed (step 9),
+   double-click demarrer-serveur.bat every morning and leave
+   the window open all day; closing it stops the service.
 
 
 BETWEEN TWO PATIENTS
@@ -92,9 +103,34 @@ IF SOMETHING GOES WRONG
    Forgotten password
        python3 serveur/serveur.py --config
 
-   The tablet no longer connects
-       The PC's IP address has probably changed. Note it,
+   The tablet shows "ERR_CONNECTION_REFUSED"
+       The PC answered, but the server is not running on it.
+       So it is not the Wi-Fi. On the PC, check:
+
+           Get-ScheduledTask -TaskName BilanPosturo
+
+       If the state is not "Running", restart it:
+
+           Start-ScheduledTask -TaskName BilanPosturo
+
+       If the task does not exist, the automatic start was
+       never installed: do step 9.
+
+   The tablet shows "ERR_CONNECTION_TIMED_OUT"
+       The PC did not answer at all: switched off, on another
+       network, or its IP address changed. Note it (ipconfig),
        reserve it on the router, then REDO step 6.
 
+   A banner announces assessments waiting
+       The server was not answering when they were sent. They
+       are held on the tablet and will go out on their own once
+       the server answers. Nothing is lost and nothing has to be
+       transferred by hand: restart the server and leave the
+       page open.
+
+   To check the server from any device in the practice, open
+   https://<pc-ip>:8000/sante — {"etat":"ok"} means it answers.
+
    Check journal.log: it shows whether an assessment was
-   received, and at what time.
+   received, and at what time. Past 5 MB it is archived as
+   journal.log.1, and so on up to journal.log.3.
