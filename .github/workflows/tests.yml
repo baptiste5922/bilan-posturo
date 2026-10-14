@@ -35,6 +35,15 @@ jobs:
       - name: Run tests
         run: python -W error::ResourceWarning -m unittest discover -s tests -v
 
+      # La file d'attente des dépôts vit dans le navigateur : les tests
+      # Python s'arrêtent au serveur et ne la couvrent pas.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run form tests
+        run: node tests/test_file_depots.js
+
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -52,9 +61,33 @@ jobs:
       - name: Check that no secret is committed
         run: |
           set -e
-          motif='\.pem$|autorite\.crt$|^config\.json$|^journal\.log$|^bilans/'
+          motif='\.pem$|autorite\.crt$|^config\.json$|^journal\.log|^bilans/'
           if git ls-files | grep -Ei "$motif"; then
             echo "::error::Un fichier sensible est versionné."
             exit 1
           fi
           echo "Aucun secret versionné."
+
+  scripts-windows:
+    # Les scripts d'installation ne tournent qu'au cabinet, sous Windows :
+    # sans ce controle, une faute de syntaxe ne se decouvrirait que la-bas.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check PowerShell syntax
+        shell: powershell
+        run: |
+          $echec = $false
+          Get-ChildItem -Path . -Filter *.ps1 -Recurse | ForEach-Object {
+            $erreurs = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              $_.FullName, [ref]$null, [ref]$erreurs) | Out-Null
+            if ($erreurs) {
+              $echec = $true
+              Write-Host "::error file=$($_.Name)::$($erreurs[0].Message)"
+            } else {
+              Write-Host "$($_.Name) : syntaxe correcte"
+            }
+          }
+          if ($echec) { exit 1 }
