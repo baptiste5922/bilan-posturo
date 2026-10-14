@@ -268,6 +268,62 @@ class ServeurEnMarche(unittest.TestCase):
         statut, _, _ = self.requete("POST", "/autre", PDF)
         self.assertEqual(statut, 404)
 
+    # --- sonde de santé ----------------------------------------------------
+
+    def test_sante_repond_sans_authentification(self):
+        # Toute la valeur de la sonde tient là : elle doit permettre de
+        # distinguer « serveur arrêté » de « mot de passe refusé », donc
+        # répondre à une tablette qui n'a pas encore d'identifiants.
+        statut, entetes, corps = self.requete("GET", "/sante",
+                                              utilisateur=None)
+        self.assertEqual(statut, 200)
+        self.assertEqual(json.loads(corps.decode("utf-8")), {"etat": "ok"})
+        types = [v for n, v in entetes if n.lower() == "content-type"]
+        self.assertEqual(types, ["application/json; charset=utf-8"])
+
+    def test_sante_en_head_sans_corps(self):
+        statut, _, corps = self.requete("HEAD", "/sante", utilisateur=None)
+        self.assertEqual(statut, 200)
+        self.assertEqual(corps, b"")
+
+    def test_sante_ne_divulgue_rien(self):
+        # Le port ouvert répond déjà 401 : la sonde ne doit rien apprendre de
+        # plus à qui la sollicite. Ni version, ni chemins, ni identifiant.
+        _, _, corps = self.requete("GET", "/sante", utilisateur=None)
+        texte = corps.decode("utf-8")
+        self.assertNotIn(UTILISATEUR, texte)
+        self.assertNotIn("bilans", texte)
+        self.assertNotIn(str(self.port), texte)
+
+    def test_sante_n_encombre_pas_le_journal(self):
+        journal = os.path.join(self.dossier, "journal.log")
+        avant = os.path.getsize(journal) if os.path.exists(journal) else 0
+        for _ in range(5):
+            self.requete("GET", "/sante", utilisateur=None)
+        apres = os.path.getsize(journal) if os.path.exists(journal) else 0
+        self.assertEqual(avant, apres)
+
+    def test_sante_ne_rend_pas_muettes_les_requetes_suivantes(self):
+        # Même instance de gestionnaire sur une connexion persistante : le
+        # silence de la sonde ne doit pas déteindre sur le dépôt qui suit.
+        connexion = http.client.HTTPSConnection(
+            "127.0.0.1", self.port, context=self.contexte, timeout=10)
+        self.addCleanup(connexion.close)
+        connexion.request("GET", "/sante")
+        connexion.getresponse().read()
+
+        jeton = base64.b64encode(
+            "{}:{}".format(UTILISATEUR, MOT_DE_PASSE).encode("utf-8"))
+        nom = base64.b64encode("Bilan_trace.pdf".encode("utf-8"))
+        connexion.request("POST", "/depot", PDF, {
+            "Authorization": "Basic " + jeton.decode("ascii"),
+            "X-Fichier": nom.decode("ascii")})
+        self.assertEqual(connexion.getresponse().status, 200)
+
+        with open(os.path.join(self.dossier, "journal.log"),
+                  encoding="utf-8") as f:
+            self.assertIn("Bilan_trace.pdf", f.read())
+
 
 class RefusDeDemarrer(unittest.TestCase):
 

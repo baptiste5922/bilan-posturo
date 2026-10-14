@@ -5,7 +5,9 @@ Bibliothèque standard uniquement, comme le serveur lui-même.
     python3 -m unittest discover -s tests
 """
 
+import io
 import os
+import shutil
 import stat
 import sys
 import tempfile
@@ -203,6 +205,30 @@ class PortabiliteWindows(unittest.TestCase):
     SERVEUR = os.path.join(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "serveur")
 
+    def test_scripts_powershell_avec_bom(self):
+        """PowerShell 5.1 — celui livre avec Windows — lit un .ps1 sans BOM
+        comme de l'ANSI : les accents et les guillemets typographiques
+        deviennent illisibles dans les messages affiches au praticien."""
+        racine = os.path.dirname(self.SERVEUR)
+        scripts = [n for n in os.listdir(racine) if n.endswith(".ps1")]
+        self.assertTrue(scripts, "aucun script PowerShell trouve")
+        for nom in scripts:
+            with self.subTest(fichier=nom):
+                with open(os.path.join(racine, nom), "rb") as f:
+                    self.assertEqual(f.read(3), b"\xef\xbb\xbf",
+                                     nom + " doit etre encode en UTF-8 avec BOM")
+
+    def test_scripts_powershell_en_crlf(self):
+        """Un .ps1 en fins de ligne Unix se comporte de facon erratique sous
+        PowerShell 5.1, notamment autour des continuations en accent grave."""
+        racine = os.path.dirname(self.SERVEUR)
+        for nom in [n for n in os.listdir(racine) if n.endswith(".ps1")]:
+            with self.subTest(fichier=nom):
+                with open(os.path.join(racine, nom), "rb") as f:
+                    contenu = f.read()
+                self.assertEqual(contenu.count(b"\n"), contenu.count(b"\r\n"),
+                                 nom + " contient des fins de ligne Unix")
+
     def test_aucun_caractere_hors_cp1252(self):
         for nom in ("serveur.py", "generer_autorite.py"):
             chemin = os.path.join(self.SERVEUR, nom)
@@ -219,3 +245,61 @@ class PortabiliteWindows(unittest.TestCase):
                                 self.fail(
                                     "{}:{} contient {!r}, non encodable par la "
                                     "console Windows".format(nom, numero, caractere))
+
+
+class RotationDuJournal(unittest.TestCase):
+    """Le serveur tourne en service, donc en continu : le journal doit
+    s'arrêter de croître tout seul."""
+
+    def setUp(self):
+        self.dossier = tempfile.mkdtemp(prefix="bilan-journal-")
+        self.journal = os.path.join(self.dossier, "journal.log")
+        self.patch = unittest.mock.patch.object(serveur, "JOURNAL",
+                                                self.journal)
+        self.patch.start()
+        self.addCleanup(self.patch.stop)
+        self.addCleanup(shutil.rmtree, self.dossier, ignore_errors=True)
+
+    def ecrire(self, octets):
+        with open(self.journal, "w", encoding="utf-8") as f:
+            f.write("x" * octets)
+
+    def test_journal_court_conserve(self):
+        self.ecrire(100)
+        serveur.faire_tourner_journal()
+        self.assertEqual(os.path.getsize(self.journal), 100)
+        self.assertFalse(os.path.exists(self.journal + ".1"))
+
+    def test_journal_plein_archive(self):
+        self.ecrire(serveur.JOURNAL_TAILLE_MAX + 1)
+        serveur.faire_tourner_journal()
+        self.assertFalse(os.path.exists(self.journal))
+        self.assertTrue(os.path.exists(self.journal + ".1"))
+
+    def test_generations_limitees(self):
+        for _ in range(serveur.JOURNAL_ARCHIVES + 2):
+            self.ecrire(serveur.JOURNAL_TAILLE_MAX + 1)
+            serveur.faire_tourner_journal()
+        surnumeraire = "{}.{}".format(self.journal, serveur.JOURNAL_ARCHIVES + 1)
+        self.assertTrue(os.path.exists(
+            "{}.{}".format(self.journal, serveur.JOURNAL_ARCHIVES)))
+        self.assertFalse(os.path.exists(surnumeraire))
+
+    def test_journal_absent_ne_leve_pas(self):
+        serveur.faire_tourner_journal()      # aucun fichier : rien à faire
+
+    def test_journaliser_sans_stderr(self):
+        # Sous pythonw.exe, celui du service Windows, sys.stderr vaut None.
+        # Un write direct tuerait le thread de la requête en cours.
+        with unittest.mock.patch.object(serveur.sys, "stderr", None):
+            serveur.journaliser("ligne\n")
+        with open(self.journal, encoding="utf-8") as f:
+            self.assertEqual(f.read(), "ligne\n")
+
+    def test_journaliser_avec_stderr_ferme(self):
+        flux = io.StringIO()
+        flux.close()
+        with unittest.mock.patch.object(serveur.sys, "stderr", flux):
+            serveur.journaliser("ligne\n")
+        with open(self.journal, encoding="utf-8") as f:
+            self.assertEqual(f.read(), "ligne\n")

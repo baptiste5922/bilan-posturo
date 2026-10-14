@@ -33,6 +33,7 @@ import socketserver
 import ssl
 import sys
 import tempfile
+import threading
 import unicodedata
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -49,6 +50,11 @@ FORMULAIRE = os.path.join(RACINE, "formulaire")
 
 TAILLE_MAX = 30 * 1024 * 1024      # 30 Mo : un bilan pèse ~1 à 3 Mo
 ITERATIONS = 240_000               # coût du hachage PBKDF2
+
+# Le serveur tourne désormais en service, donc en continu : sans rotation, le
+# journal croîtrait indéfiniment. 5 Mo représentent environ 40 000 requêtes.
+JOURNAL_TAILLE_MAX = 5 * 1024 * 1024
+JOURNAL_ARCHIVES = 3
 
 # Seuls ces fichiers sont servis. Le filtre double la séparation des dossiers :
 # même si la racine web venait à contenir autre chose, rien d'autre ne sortirait.
@@ -192,6 +198,69 @@ def ecrire_atomiquement(destination, contenu):
 
 
 # --------------------------------------------------------------------------
+# Journal
+# --------------------------------------------------------------------------
+
+# Le serveur est multithreadé : deux requêtes simultanées peuvent vouloir
+# écrire, et surtout faire tourner le journal, au même instant.
+_verrou_journal = threading.Lock()
+
+
+def ecrire_stderr(ligne):
+    """Écrit sur la sortie d'erreur quand il y en a une.
+
+    Lancé par le service Windows, le serveur tourne sous `pythonw.exe`, qui
+    n'ouvre pas de console : `sys.stderr` vaut alors None. Un write direct
+    lèverait AttributeError au milieu d'une requête, et le thread mourrait
+    sans réponse — un dépôt perdu pour une ligne de journal.
+    """
+    if sys.stderr is None:
+        return
+    try:
+        sys.stderr.write(ligne)
+    except (ValueError, OSError):
+        pass
+
+
+def faire_tourner_journal():
+    """Archive le journal au-delà de JOURNAL_TAILLE_MAX.
+
+    Conserve JOURNAL_ARCHIVES générations. Toute erreur est ignorée : un
+    journal qu'on ne peut pas faire tourner ne doit pas empêcher le serveur
+    de répondre.
+    """
+    try:
+        if os.path.getsize(JOURNAL) < JOURNAL_TAILLE_MAX:
+            return
+    except OSError:
+        return
+
+    try:
+        plus_ancienne = "{}.{}".format(JOURNAL, JOURNAL_ARCHIVES)
+        if os.path.exists(plus_ancienne):
+            os.remove(plus_ancienne)
+        for rang in range(JOURNAL_ARCHIVES - 1, 0, -1):
+            source = "{}.{}".format(JOURNAL, rang)
+            if os.path.exists(source):
+                os.replace(source, "{}.{}".format(JOURNAL, rang + 1))
+        os.replace(JOURNAL, JOURNAL + ".1")
+    except OSError:
+        pass
+
+
+def journaliser(ligne):
+    """Trace une ligne sur la sortie d'erreur et dans le journal."""
+    ecrire_stderr(ligne)
+    with _verrou_journal:
+        faire_tourner_journal()
+        try:
+            with open(JOURNAL, "a", encoding="utf-8") as f:
+                f.write(ligne)
+        except OSError:
+            pass
+
+
+# --------------------------------------------------------------------------
 # Serveur
 # --------------------------------------------------------------------------
 
@@ -258,15 +327,8 @@ class ServeurBilan(ThreadingHTTPServer):
         try:
             return super().get_request()
         except ssl.SSLError as erreur:
-            sys.stderr.write("{} TLS refusé : {}\n".format(
+            journaliser("{} TLS refusé : {}\n".format(
                 datetime.datetime.now().isoformat(timespec="seconds"), erreur))
-            try:
-                with open(JOURNAL, "a", encoding="utf-8") as f:
-                    f.write("{} TLS refusé : {}\n".format(
-                        datetime.datetime.now().isoformat(timespec="seconds"),
-                        erreur))
-            except OSError:
-                pass
             raise
 
 
@@ -279,16 +341,22 @@ class Gestionnaire(SimpleHTTPRequestHandler):
 
     # --- journalisation ----------------------------------------------------
 
+    def handle_one_request(self):
+        # Une connexion persistante sert plusieurs requêtes avec la même
+        # instance : sans remise à zéro, une sonde de santé rendrait muettes
+        # toutes les requêtes suivantes de la même connexion.
+        self.silencieux = False
+        super().handle_one_request()
+
     def log_message(self, format, *args):
-        ligne = "{} {} {}\n".format(
+        # La sonde de santé est interrogée toutes les quelques dizaines de
+        # secondes par chaque tablette allumée : la journaliser noierait les
+        # dépôts et les erreurs sous des milliers de lignes par jour.
+        if getattr(self, "silencieux", False):
+            return
+        journaliser("{} {} {}\n".format(
             datetime.datetime.now().isoformat(timespec="seconds"),
-            self.address_string(), format % args)
-        sys.stderr.write(ligne)
-        try:
-            with open(JOURNAL, "a", encoding="utf-8") as f:
-                f.write(ligne)
-        except OSError:
-            pass
+            self.address_string(), format % args))
 
     # --- authentification --------------------------------------------------
 
@@ -332,6 +400,10 @@ class Gestionnaire(SimpleHTTPRequestHandler):
 
     # --- GET ---------------------------------------------------------------
 
+    def chemin_demande(self):
+        """Chemin seul, sans chaîne de requête ni fragment."""
+        return self.path.split("?", 1)[0].split("#", 1)[0]
+
     def autorise_lecture(self):
         """Filtre commun à GET et HEAD.
 
@@ -345,7 +417,7 @@ class Gestionnaire(SimpleHTTPRequestHandler):
             self.exiger_authentification()
             return False
 
-        chemin = self.path.split("?", 1)[0].split("#", 1)[0]
+        chemin = self.chemin_demande()
         if chemin in ("/", ""):
             chemin = "/index.html"
 
@@ -358,12 +430,41 @@ class Gestionnaire(SimpleHTTPRequestHandler):
         return True
 
     def do_GET(self):
+        if self.chemin_demande() == "/sante":
+            self.repondre_sante(avec_corps=True)
+            return
         if self.autorise_lecture():
             super().do_GET()
 
     def do_HEAD(self):
+        if self.chemin_demande() == "/sante":
+            self.repondre_sante(avec_corps=False)
+            return
         if self.autorise_lecture():
             super().do_HEAD()
+
+    # --- sonde de santé ----------------------------------------------------
+
+    def repondre_sante(self, avec_corps):
+        """Répond « je suis là », sans authentification.
+
+        La tablette interroge cette route en tâche de fond pour distinguer les
+        pannes, que le navigateur confond toutes en une erreur de connexion :
+        serveur arrêté, mauvaise adresse, mot de passe refusé. Elle est donc
+        volontairement hors authentification — un 401 ne dirait pas si le
+        serveur tourne.
+
+        Elle ne révèle rien de plus que le port ouvert, qui répond déjà 401 à
+        qui le sollicite : ni version, ni chemins, ni nombre de bilans.
+        """
+        self.silencieux = True
+        corps = b'{"etat":"ok"}'
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(corps)))
+        self.end_headers()
+        if avec_corps:
+            self.wfile.write(corps)
 
     # --- POST /depot -------------------------------------------------------
 
