@@ -15,6 +15,9 @@ rm -rf "$PAQUET" "$PAQUET.zip"
 mkdir -p "$PAQUET"
 
 cp demarrer-serveur.bat "$PAQUET/"
+# Scripts d'installation du demarrage automatique : ils s'executent au
+# cabinet, pas ici, et doivent donc voyager avec le paquet.
+cp installer-demarrage.ps1 desinstaller-demarrage.ps1 "$PAQUET/"
 cp -R formulaire serveur "$PAQUET/"
 
 # Les fiches d'installation restent à la racine du paquet : c'est la première
