@@ -9,7 +9,7 @@
 > est la traduction opérationnelle. La projection dit *pourquoi* ; cette feuille
 > de route dit *quoi faire, dans quel ordre, et comment savoir que c'est fini*.
 
-**Dernière mise à jour :** 1er octobre 2026
+**Dernière mise à jour :** 14 octobre 2026
 **État de départ :** V1 en production chez un cabinet depuis deux mois.
 
 ---
@@ -61,6 +61,13 @@ reste définitivement. Ce chantier ne produit presque pas de code, et il
 conditionne la valeur de tout le reste.
 
 ### C0-T1 — Trancher la licence des développements à venir
+
+> **État : livré le 14 octobre 2026.** BUSL 1.1 retenue, `Change License`
+> MIT, `Change Date` 2030-10-14. Commit frontière `9339ee9`, étiqueté
+> `frontiere-mit` et poussé. Les 17 critères sont vérifiés. Contrat,
+> audit et revue : `docs/contrats/C0-T1.md`, `docs/audits/C0-T1.md`,
+> `docs/revues/C0-T1.md`. Reste à faire relire l'`Additional Use Grant`
+> par un conseil, groupé avec C0-T2.
 
 - **Effort :** S (décision) + S (mise en œuvre)
 - **Dépendances :** aucune
@@ -144,6 +151,13 @@ l'en-tête ; le moteur de rendu, identique chez tous les clients, produit le DOM
   programmation. Le plafond du sur-mesure se pose ici, pas plus tard.
 
 ### C1-T2 — Extraire les couleurs en tokens uniques
+
+> **État : livré le 14 octobre 2026, sous réserve du contrôle visuel.**
+> Cinq tokens, 36 littéraux remplacés, lecture par `getComputedStyle` à
+> chaque génération de PDF. 13 des 18 critères sont vérifiés ; les cinq
+> autres demandent un navigateur et restent à exécuter par le praticien —
+> procédure dans `docs/references-visuelles/LISEZMOI.md`. **Pas de
+> déploiement sur la tablette avant.**
 
 - **Effort :** S
 - **Dépendances :** aucune (peut partir en premier, gain immédiat)
@@ -652,6 +666,33 @@ devient un appel de support, et un appel de support consomme la marge du mois.
   moyen de ne pas découvrir les défauts d'installation chez le client.
 - **Critères d'acceptation :** le travail échoue si l'installateur ou la mise à
   jour régresse.
+
+### C7-T5 — Stabiliser `ServeurEnMarche` sous Windows
+
+- **Effort :** S
+- **Dépendances :** aucune
+- **Périmètre :** `tests/test_integration.py` (démarrage du serveur de test)
+- **Constaté :** le 14 octobre 2026, après C1-T2, les dix tests de
+  `test_integration.ServeurEnMarche` ont échoué sur la seule combinaison
+  Windows + Python 3.9 — délai d'attente en lecture TLS (`ssl.recv_into`), le
+  serveur de test ne répondant pas. Les cinq autres combinaisons étaient
+  vertes, le commit précédent passait sur celle-ci, et une simple relance du
+  même travail, sans aucune modification de code, est repassée au vert. C'est
+  donc un défaut d'instabilité du harnais de test, pas une régression du
+  serveur.
+- **Travail :** rendre déterministe l'attente de disponibilité du serveur de
+  test : attendre que le port accepte réellement une poignée de main TLS
+  complète plutôt qu'une connexion TCP, et faire échouer le démarrage avec un
+  message explicite plutôt que de laisser dix tests expirer un par un.
+  Ce chantier croise trois pièges déjà payés : ALPN, les erreurs TLS avalées
+  par `socketserver.get_request()`, et `SO_REUSEADDR` sous Windows.
+- **Critères d'acceptation :**
+  - Un démarrage de serveur de test qui échoue produit **un** message nommant
+    la cause, et non dix expirations de dix secondes.
+  - Trente exécutions consécutives du travail Windows + Python 3.9 sans échec.
+- **Risque :** un test rouge par intermittence est pire qu'un test absent — on
+  prend l'habitude de relancer, et le jour où l'échec est réel, on relance
+  aussi.
 
 ---
 
