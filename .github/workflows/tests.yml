@@ -44,6 +44,9 @@ jobs:
       - name: Run form tests
         run: node tests/test_file_depots.js
 
+      - name: Run palette tests
+        run: node tests/test_palette.js
+
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -67,6 +70,70 @@ jobs:
             exit 1
           fi
           echo "Aucun secret versionné."
+
+      - name: Check that the palette is not duplicated
+        run: |
+          set -e
+          # Un fichier renommé ou déplacé ferait sortir grep en code 2 (erreur
+          # de lecture, à distinguer du code 1 « aucune correspondance ») ; un
+          # `|| true` placé en bout de pipe l'aurait avalé et laissé passer le
+          # pas sans avoir rien vérifié. On vérifie donc l'existence d'abord,
+          # fort et explicite, avant toute lecture.
+          for fichier in formulaire/style.css formulaire/script.js formulaire/index.html; do
+            if [ ! -f "$fichier" ]; then
+              echo "::error::Fichier introuvable pour le contrôle de palette : $fichier"
+              exit 1
+            fi
+          done
+
+          motif='#(cec1a3|8c6d53|3b4133|3b523a|a39b8b)'
+          # Ligne tolérée dans le CSS : une déclaration de token et rien
+          # d'autre, commentaire de fin éventuel compris. Ancrée des deux
+          # côtés : sans le `$` final, « --fond: #cec1a3; background:
+          # #3B4133; » aurait été tolérée en entier à cause de son début
+          # conforme, alors que la seconde couleur de la même ligne ne l'est
+          # pas.
+          tolere='^[0-9]+: *--[a-zA-Z-]+: *#[0-9a-fA-F]{3,8} *; *(/\*.*\*/)? *$'
+
+          set +e
+          sortie_css=$(grep -niE "$motif" formulaire/style.css)
+          code_css=$?
+          set -e
+          if [ "$code_css" -gt 1 ]; then
+            echo "::error::Erreur de lecture de formulaire/style.css."
+            exit 1
+          fi
+          fautifs=""
+          if [ "$code_css" -eq 0 ]; then
+            fautifs=$(printf '%s\n' "$sortie_css" | grep -vE "$tolere" || true)
+          fi
+
+          # Dans le JS, ces couleurs ne sont tolérées nulle part : il lit les tokens.
+          set +e
+          sortie_js=$(grep -niE "$motif" formulaire/script.js)
+          code_js=$?
+          set -e
+          if [ "$code_js" -gt 1 ]; then
+            echo "::error::Erreur de lecture de formulaire/script.js."
+            exit 1
+          fi
+          if [ "$code_js" -eq 0 ]; then
+            fautifs=$(printf '%s\n%s' "$fautifs" "$sortie_js")
+          fi
+
+          if [ -n "$(printf '%s' "$fautifs" | tr -d '[:space:]')" ]; then
+            echo "$fautifs"
+            echo "::error::Couleur de palette écrite en dur hors des tokens de :root."
+            exit 1
+          fi
+
+          # Apostrophes ou guillemets : les deux formes de style= en ligne
+          # sont incompatibles avec la CSP à venir (C6-T1).
+          if grep -nE "style=['\"]" formulaire/index.html; then
+            echo "::error::Style en ligne dans index.html : incompatible avec la CSP (C6-T1)."
+            exit 1
+          fi
+          echo "Palette non dupliquée."
 
       - name: Check that no contradictory licence notice remains
         run: |

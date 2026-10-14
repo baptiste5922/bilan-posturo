@@ -8,20 +8,99 @@ document.addEventListener('input', function (event) {
 // Format A4 portrait, en millimètres.
 const PDF_LARGEUR = 210;
 const PDF_HAUTEUR = 297;
-const FOND = "#cec1a3";
-const FOND_RGB = [206, 193, 163];   // #cec1a3, pour remplir la marge du PDF
 const MARGE_MM = 12;                // Marge sur les 4 bords, en millimètres réels
-const TEXTE_RGB = [59, 65, 51];     // #3B4133, couleur de texte du document
 const TAILLE_NUMERO = 9;            // Corps du numéro de page, en points
 const DELAI_DEPOT = 20000;          // ms : au-delà, on renonce au dépôt
 
-const OPTIONS_CANVAS = {
-    scale: 2,          // Résolution doublée pour éviter le flou du texte
-    useCORS: true,     // Autorise le chargement des images du dossier images/
-    backgroundColor: FOND,
-    logging: false,
-    onclone: preparerClone
-};
+/**
+ * Convertit une couleur CSS en triplet RVB pour jsPDF.
+ * getPropertyValue() rend la chaîne telle qu'elle est écrite dans la feuille
+ * de style, espaces de tête compris, et non une couleur résolue : la
+ * conversion est à notre charge.
+ * Accepte « #RGB », « #RRGGBB », « rgb(r, g, b) » et « rgba(r, g, b, a) ».
+ * Renvoie null si la valeur est vide, non reconnue, porte une composante hors
+ * 0-255, ou un alpha nul (un fond totalement transparent est inutilisable :
+ * mieux vaut forcer l'appelant vers son propre repli qu'aplatir en noir).
+ */
+function couleurEnRgb(valeur) {
+    const chaine = (valeur || "").trim();
+
+    const court = chaine.match(/^#([0-9a-fA-F])([0-9a-fA-F])([0-9a-fA-F])$/);
+    if (court) {
+        return [parseInt(court[1] + court[1], 16),
+                parseInt(court[2] + court[2], 16),
+                parseInt(court[3] + court[3], 16)];
+    }
+
+    const long = chaine.match(/^#([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})$/);
+    if (long) {
+        return [parseInt(long[1], 16), parseInt(long[2], 16), parseInt(long[3], 16)];
+    }
+
+    // rgb() et rgba() : la forme que rend le navigateur pour le repli sur
+    // document.body. Un alpha nul (transparence totale) est explicitement
+    // rejeté plus bas plutôt que traité comme une couleur valide.
+    const fonction = chaine.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+)\s*)?\)$/i);
+    if (fonction) {
+        if (fonction[4] !== undefined && parseFloat(fonction[4]) === 0) {
+            return null;
+        }
+        const composantes = [parseInt(fonction[1], 10), parseInt(fonction[2], 10), parseInt(fonction[3], 10)];
+        if (composantes.some(function (c) { return c > 255; })) {
+            return null;
+        }
+        return composantes;
+    }
+
+    return null;
+}
+
+/**
+ * Couleurs du document, lues sur les tokens de :root à chaque génération de
+ * PDF : modifier un token change l'écran et le PDF sans recharger la page.
+ * En cas d'échec de lecture, voir le repli décrit dans le contrat C1-T2.
+ */
+function couleursDocument() {
+    const racine = getComputedStyle(document.documentElement);
+
+    let fondCss = racine.getPropertyValue("--fond").trim();
+    let fondRgb = couleurEnRgb(fondCss);
+    if (!fondRgb) {
+        console.warn("Jeton --fond illisible, repli sur la couleur de fond résolue du document.");
+        fondCss = getComputedStyle(document.body).backgroundColor;
+        fondRgb = couleurEnRgb(fondCss);
+    }
+    if (!fondRgb) {
+        // Dernier recours, si même le repli précédent est illisible (fond
+        // transparent, feuille de style absente…) : le blanc n'est pas une
+        // couleur de palette, c'est un neutre déjà littéral ailleurs dans ce
+        // CSS (quatorze occurrences de #FFFFFF). Le préférer au noir qu'un
+        // canevas transparent aplatirait sinon au moment du JPEG : un bilan
+        // illisible est pire qu'un bilan neutre. Ne jamais remplacer cette
+        // valeur par une couleur d'identité : ce n'est pas son rôle.
+        console.warn("Couleur de fond introuvable, repli sur le blanc neutre.");
+        fondCss = "#FFFFFF";
+        fondRgb = [255, 255, 255];
+    }
+
+    const texteCss = racine.getPropertyValue("--texte").trim();
+    const texteRgb = couleurEnRgb(texteCss);
+    if (!texteRgb) {
+        console.warn("Jeton --texte illisible, numéro de page écrit sans couleur.");
+    }
+
+    return { fondCss, fondRgb, texteRgb };
+}
+
+function optionsCanvas(fond) {
+    return {
+        scale: 2,          // Résolution doublée pour éviter le flou du texte
+        useCORS: true,     // Autorise le chargement des images du dossier images/
+        backgroundColor: fond,
+        logging: false,
+        onclone: preparerClone
+    };
+}
 
 // Styles à recopier de la textarea vers son remplaçant, pour un rendu identique
 const STYLES_REPRIS = [
@@ -137,8 +216,13 @@ async function exporterBilanPDF() {
     if (bouton) bouton.style.display = "none";
 
     try {
+        // La lecture des couleurs est dans le try : hors de lui, une
+        // défaillance remonterait sans passer par le catch, donc sans
+        // message, et la praticienne verrait un bouton qui ne fait rien.
+        const couleurs = couleursDocument();
+
         // Une seule capture : tous les blocs partagent ainsi la même échelle
-        const canvas = await html2canvas(element, OPTIONS_CANVAS);
+        const canvas = await html2canvas(element, optionsCanvas(couleurs.fondCss));
 
         const origine = element.getBoundingClientRect();
         const echelle = canvas.width / origine.width;
@@ -176,7 +260,7 @@ async function exporterBilanPDF() {
         pages.forEach(function (page, index) {
             const hauteur = page.fin - page.debut;
 
-            ctx.fillStyle = FOND;
+            ctx.fillStyle = couleurs.fondCss;
             ctx.fillRect(0, 0, tampon.width, tampon.height);
             ctx.drawImage(canvas, 0, page.debut, canvas.width, hauteur,
                                   0, 0, canvas.width, hauteur);
@@ -184,15 +268,19 @@ async function exporterBilanPDF() {
             if (index > 0) pdf.addPage();
 
             // Fond beige sur toute la page : la marge n'apparaît pas en blanc
-            pdf.setFillColor(FOND_RGB[0], FOND_RGB[1], FOND_RGB[2]);
-            pdf.rect(0, 0, PDF_LARGEUR, PDF_HAUTEUR, "F");
+            if (couleurs.fondRgb) {
+                pdf.setFillColor(couleurs.fondRgb[0], couleurs.fondRgb[1], couleurs.fondRgb[2]);
+                pdf.rect(0, 0, PDF_LARGEUR, PDF_HAUTEUR, "F");
+            }
 
             pdf.addImage(tampon.toDataURL("image/jpeg", 0.92), "JPEG",
                          marge, marge, largeurUtile, hauteurUtile);
 
             // Numéro de page, centré dans la marge du bas
             pdf.setFontSize(TAILLE_NUMERO);
-            pdf.setTextColor(TEXTE_RGB[0], TEXTE_RGB[1], TEXTE_RGB[2]);
+            if (couleurs.texteRgb) {
+                pdf.setTextColor(couleurs.texteRgb[0], couleurs.texteRgb[1], couleurs.texteRgb[2]);
+            }
             pdf.text((index + 1) + " / " + pages.length,
                      PDF_LARGEUR / 2, PDF_HAUTEUR - marge / 2,
                      { align: "center" });
