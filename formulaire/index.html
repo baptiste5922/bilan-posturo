@@ -37,6 +37,13 @@
             <button type="button" id="btn-abandonner">Ignorer</button>
         </div>
 
+        <!-- Bilans générés mais pas encore déposés sur le PC. Masquée quand
+             la file est vide : elle ne s'affiche donc qu'en cas de panne. -->
+        <div id="barre-attente" hidden>
+            <span id="texte-attente"></span>
+            <button type="button" id="btn-reessayer">Réessayer maintenant</button>
+        </div>
+
         <!-- Messages d'état : remplace les alert() bloquants -->
         <div id="zone-messages" role="status" aria-live="polite" hidden></div>
 

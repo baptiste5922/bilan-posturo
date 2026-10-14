@@ -203,21 +203,38 @@ async function exporterBilanPDF() {
         const nomFichier = construireNomFichier();
 
         // Deux copies systématiques : une sur le PC, une sur la tablette.
-        // Le dépôt passe en premier pour que le déclenchement du
+        // Le PDF entre d'abord dans la file, avant toute tentative d'envoi :
+        // une coupure entre la génération et le dépôt ne le perdrait pas.
+        const enFile = await mettreEnFile(pdf.output("blob"), nomFichier);
+
+        // Le dépôt passe avant la copie locale pour que le déclenchement du
         // téléchargement ne perturbe pas la requête réseau.
-        const depot = await deposerSurLePC(pdf, nomFichier);
+        const depot = enFile
+            ? await ecoulerFile()
+            : await deposerDirectement(pdf, nomFichier);
         const local = await enregistrerSurTablette(pdf, nomFichier);
 
         const surTablette = local.dossier
             ? "enregistré dans le dossier « " + local.dossier + " »"
             : "téléchargé sur la tablette";
 
-        if (depot.ok) {
+        if (depot.restants) {
+            // Le bilan n'est pas perdu : il est en file et repartira seul.
+            // Le message le dit, pour ne pas alarmer en fin de consultation.
+            const cause = await serveurRepond()
+                ? "le PC refuse le dépôt (" + (depot.motif || "cause inconnue") + ")"
+                : "le serveur du cabinet ne répond pas";
+            annoncer("Bilan " + surTablette + ". Envoi au PC différé : "
+                   + cause + ". " + (depot.restants === 1
+                        ? "Il partira automatiquement."
+                        : depot.restants + " bilans partiront automatiquement."),
+                     "avertissement", true);
+        } else if (depot.refuses) {
+            annoncer("Bilan " + surTablette + ", mais le PC a refusé le fichier ("
+                   + depot.motif + "). Le transférer à la main.", "erreur", true);
+        } else {
             annoncer("Bilan " + surTablette + " et déposé sur le PC : "
                    + depot.fichier, "succes");
-        } else {
-            annoncer("Bilan " + surTablette + ". Dépôt sur le PC impossible ("
-                   + depot.motif + ").", "avertissement");
         }
 
     } catch (erreur) {
@@ -243,18 +260,36 @@ function construireNomFichier() {
 }
 
 /**
+ * Dépôt sans file, pour le cas où IndexedDB est indisponible (navigation
+ * privée, quota saturé). Rend le même compte que ecoulerFile() afin que
+ * l'appelant n'ait pas deux formes de résultat à distinguer.
+ */
+async function deposerDirectement(pdf, nomFichier) {
+    const depot = await deposerSurLePC(pdf.output("blob"), nomFichier);
+    if (depot.ok) {
+        return { envoyes: 1, refuses: 0, restants: 0, motif: null,
+                 fichier: depot.fichier };
+    }
+    // Rien ne conserve ce bilan : l'échec doit rester visible, donc il est
+    // compté comme refusé plutôt que comme différé.
+    return { envoyes: 0, refuses: 1, restants: 0, motif: depot.motif,
+             fichier: null };
+}
+
+/**
  * Envoie le PDF au serveur du cabinet. Le nom voyage en base64 dans un en-tête
  * car un en-tête HTTP ne transporte pas fiablement les accents.
+ *
+ * Retourne `definitif` avec l'échec : vrai quand le serveur a examiné le
+ * fichier et le refuse, cas où le réessayer ne servirait à rien.
  */
-async function deposerSurLePC(pdf, nomFichier) {
+async function deposerSurLePC(blob, nomFichier) {
     // Sans délai maximal, un PC qui accepte la connexion sans jamais répondre
     // bloquerait la fin de consultation.
     const abandon = new AbortController();
     const minuterie = setTimeout(function () { abandon.abort(); }, DELAI_DEPOT);
 
     try {
-        const blob = pdf.output("blob");
-
         const reponse = await fetch("/depot", {
             method: "POST",
             headers: {
@@ -267,7 +302,14 @@ async function deposerSurLePC(pdf, nomFichier) {
 
         if (!reponse.ok) {
             const detail = await reponse.json().catch(function () { return {}; });
-            return { ok: false, motif: detail.erreur || ("code " + reponse.status) };
+            // 400 et 413 portent sur le contenu envoyé : il ne deviendra pas
+            // acceptable en le renvoyant. 401 (mot de passe) et 5xx (disque
+            // plein, droits) se corrigent sur le PC, donc on retente.
+            return {
+                ok: false,
+                definitif: reponse.status === 400 || reponse.status === 413,
+                motif: detail.erreur || ("code " + reponse.status)
+            };
         }
 
         const resultat = await reponse.json();
@@ -276,12 +318,195 @@ async function deposerSurLePC(pdf, nomFichier) {
     } catch (erreur) {
         // fetch ne rejette que sur une panne réseau, pas sur un code d'erreur
         if (erreur.name === "AbortError") {
-            return { ok: false, motif: "le PC n'a pas répondu à temps" };
+            return { ok: false, definitif: false,
+                     motif: "le PC n'a pas répondu à temps" };
         }
-        return { ok: false, motif: "serveur injoignable" };
+        return { ok: false, definitif: false, motif: "serveur injoignable" };
     } finally {
         clearTimeout(minuterie);
     }
+}
+
+/* ===================== File d'attente des dépôts ===================== */
+
+/*
+ * Un bilan généré est un bilan qui doit arriver sur le PC, même si le serveur
+ * est arrêté à cet instant — et il l'est parfois : PC redémarré pendant la
+ * nuit, fenêtre du serveur fermée par mégarde. Sans file, l'échec retombait
+ * sur le praticien, qui devait repérer le bandeau orange puis transférer le
+ * fichier à la main ; un bandeau manqué, et le bilan restait sur la tablette.
+ *
+ * Chaque PDF est donc d'abord écrit dans IndexedDB, puis envoyé. Il n'est
+ * retiré de la file qu'une fois le serveur accusé réception. Tant qu'il y
+ * reste, il est réenvoyé : périodiquement, au retour du réseau, au
+ * rechargement de la page. Une panne du serveur ne fait plus perdre de
+ * bilan : elle le retarde.
+ */
+
+const RELANCE_FILE = 60000;   // ms entre deux tentatives d'écoulement
+
+/** Promesse de l'écoulement en cours : deux tentatives simultanées
+ *  déposeraient le même bilan deux fois. */
+let ecoulementEnCours = null;
+
+function transactionFile(mode, action) {
+    return ouvrirBase().then(function (base) {
+        return new Promise(function (resoudre, rejeter) {
+            const transaction = base.transaction(MAGASIN_FILE, mode);
+            const requete = action(transaction.objectStore(MAGASIN_FILE));
+            requete.onsuccess = function () { resoudre(requete.result); };
+            requete.onerror = function () { rejeter(requete.error); };
+        });
+    });
+}
+
+/** Place le PDF dans la file. Retourne son identifiant, ou null si le
+ *  navigateur refuse d'écrire (navigation privée, quota saturé). */
+async function mettreEnFile(blob, nomFichier) {
+    try {
+        return await transactionFile("readwrite", function (magasin) {
+            return magasin.add({
+                nom: nomFichier,
+                blob: blob,
+                date: new Date().toISOString()
+            });
+        });
+    } catch (erreur) {
+        console.error("Mise en file impossible :", erreur);
+        return null;
+    }
+}
+
+async function listerFile() {
+    try {
+        return await transactionFile("readonly", function (magasin) {
+            return magasin.getAll();
+        }) || [];
+    } catch (erreur) {
+        console.error("Lecture de la file impossible :", erreur);
+        return [];
+    }
+}
+
+function retirerDeLaFile(id) {
+    return transactionFile("readwrite", function (magasin) {
+        return magasin.delete(id);
+    }).catch(function (erreur) {
+        console.error("Retrait de la file impossible :", erreur);
+    });
+}
+
+/**
+ * Tente de déposer tout ce qui attend. Ne lève jamais : un échec laisse la
+ * file en l'état, pour la tentative suivante.
+ */
+function ecoulerFile() {
+    if (ecoulementEnCours) return ecoulementEnCours;
+    ecoulementEnCours = ecoulerVraiment().finally(function () {
+        ecoulementEnCours = null;
+    });
+    return ecoulementEnCours;
+}
+
+async function ecoulerVraiment() {
+    const entrees = await listerFile();
+    let envoyes = 0;
+    let refuses = 0;
+    let dernier = null;
+    let motif = null;
+
+    for (const entree of entrees) {
+        const depot = await deposerSurLePC(entree.blob, entree.nom);
+
+        if (depot.ok) {
+            await retirerDeLaFile(entree.id);
+            envoyes += 1;
+            dernier = depot.fichier;
+            continue;
+        }
+
+        if (depot.definitif) {
+            // Le serveur a examiné ce fichier et le refuse : le renvoyer
+            // indéfiniment ne ferait qu'encombrer la file.
+            console.error("Dépôt refusé définitivement :", entree.nom, depot.motif);
+            await retirerDeLaFile(entree.id);
+            refuses += 1;
+            motif = depot.motif;
+            continue;
+        }
+
+        // Serveur injoignable : inutile d'essayer les suivants, ils
+        // échoueraient de la même façon.
+        motif = depot.motif;
+        break;
+    }
+
+    const restants = (await listerFile()).length;
+    majBarreAttente(restants);
+    return { envoyes: envoyes, refuses: refuses, restants: restants,
+             motif: motif, fichier: dernier };
+}
+
+/**
+ * Distingue les pannes que le navigateur confond toutes en « erreur de
+ * connexion ». La sonde n'est pas authentifiée : elle répond même si le mot
+ * de passe est en cause.
+ */
+async function serveurRepond() {
+    try {
+        const reponse = await fetch("/sante", { cache: "no-store" });
+        return reponse.ok;
+    } catch (erreur) {
+        return false;
+    }
+}
+
+function majBarreAttente(restants) {
+    const barre = document.getElementById("barre-attente");
+    const texte = document.getElementById("texte-attente");
+    if (!barre || !texte) return;
+
+    if (!restants) {
+        barre.hidden = true;
+        return;
+    }
+
+    texte.textContent = restants === 1
+        ? "1 bilan en attente d'envoi vers le PC. Il partira automatiquement."
+        : restants + " bilans en attente d'envoi vers le PC. Ils partiront "
+          + "automatiquement.";
+    barre.hidden = false;
+}
+
+function initFileDepots() {
+    const bouton = document.getElementById("btn-reessayer");
+    if (bouton) {
+        bouton.addEventListener("click", async function () {
+            bouton.disabled = true;
+            const bilan = await ecoulerFile();
+            bouton.disabled = false;
+
+            if (!bilan.restants) {
+                annoncer("Tout est déposé sur le PC.", "succes");
+            } else if (await serveurRepond()) {
+                annoncer("Le PC répond mais refuse le dépôt ("
+                       + (bilan.motif || "cause inconnue")
+                       + "). Les bilans restent en attente.", "erreur", true);
+            } else {
+                annoncer("Le serveur du cabinet ne répond toujours pas. "
+                       + "Vérifier qu'il est bien démarré sur le PC.",
+                         "avertissement", true);
+            }
+        });
+    }
+
+    // Trois occasions de rattraper une panne passée : le rechargement de la
+    // page, le retour du réseau, et le simple passage du temps.
+    ecoulerFile();
+    window.addEventListener("online", function () { ecoulerFile(); });
+    setInterval(function () {
+        if (!ecoulementEnCours) ecoulerFile();
+    }, RELANCE_FILE);
 }
 
 /* ===================== Dessin au stylet ===================== */
@@ -468,6 +693,7 @@ document.addEventListener("DOMContentLoaded", function () {
     initDessin();        // doit précéder : remplit zonesDessin
     initSauvegarde();    // s'appuie sur zonesDessin pour restaurer les traits
     initDossierBilans();
+    initFileDepots();    // rattrape les bilans qu'une panne a laissés en attente
 });
 
 /**
@@ -765,18 +991,33 @@ function annoncer(message, type, persistant) {
 
 const BASE_REGLAGES = "bilan-posturo";
 const MAGASIN_REGLAGES = "reglages";
+const MAGASIN_FILE = "file-depots";
 const CLE_DOSSIER = "dossier-bilans";
+const VERSION_BASE = 2;
 
 function dossierDisponible() {
     return typeof window.showDirectoryPicker === "function" && window.isSecureContext;
 }
 
-/** Un handle de dossier ne tient pas dans localStorage : il faut IndexedDB. */
+/**
+ * Un handle de dossier ne tient pas dans localStorage : il faut IndexedDB.
+ * La même base héberge la file d'attente des dépôts, qui a besoin de stocker
+ * des Blob — hors de portée de localStorage également.
+ */
 function ouvrirBase() {
     return new Promise(function (resoudre, rejeter) {
-        const requete = indexedDB.open(BASE_REGLAGES, 1);
+        const requete = indexedDB.open(BASE_REGLAGES, VERSION_BASE);
         requete.onupgradeneeded = function () {
-            requete.result.createObjectStore(MAGASIN_REGLAGES);
+            // Les tablettes déjà en service portent une base en version 1 :
+            // chaque magasin est créé seulement s'il manque.
+            const base = requete.result;
+            if (!base.objectStoreNames.contains(MAGASIN_REGLAGES)) {
+                base.createObjectStore(MAGASIN_REGLAGES);
+            }
+            if (!base.objectStoreNames.contains(MAGASIN_FILE)) {
+                base.createObjectStore(MAGASIN_FILE,
+                                       { keyPath: "id", autoIncrement: true });
+            }
         };
         requete.onsuccess = function () { resoudre(requete.result); };
         requete.onerror = function () { rejeter(requete.error); };

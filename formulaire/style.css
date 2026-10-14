@@ -506,7 +506,8 @@ header.bloc {
     font-weight: bold;
 }
 
-#barre-brouillon {
+#barre-brouillon,
+#barre-attente {
     display: flex;
     align-items: center;
     flex-wrap: wrap;
@@ -521,7 +522,8 @@ header.bloc {
     font-weight: bold;
 }
 
-#barre-brouillon button {
+#barre-brouillon button,
+#barre-attente button {
     padding: 7px 15px;
     border: none;
     border-radius: 4px;
@@ -530,7 +532,8 @@ header.bloc {
     font-size: 14px;
 }
 
-#btn-restaurer { background-color: #8A5A00; color: #FFFFFF; }
+#btn-restaurer,
+#btn-reessayer { background-color: #8A5A00; color: #FFFFFF; }
 
 #btn-abandonner {
     background-color: transparent;
