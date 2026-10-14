@@ -1,7 +1,7 @@
 # Postural Assessment
 
 [![tests](https://github.com/baptiste5922/bilan-posturo/actions/workflows/tests.yml/badge.svg)](https://github.com/baptiste5922/bilan-posturo/actions/workflows/tests.yml)
-[![licence: MIT](https://img.shields.io/badge/licence-MIT-blue.svg)](LICENSE)
+[![licence: BUSL-1.1](https://img.shields.io/badge/licence-BUSL--1.1-orange.svg)](LICENSE)
 
 Tablet application for recording postural assessments, with PDF generation and
 automatic delivery to the practice workstation.
@@ -298,4 +298,31 @@ disabled, falling back to IPv4 if the stack is absent.
 
 ## Licence
 
-MIT — see [LICENSE](LICENSE). Free to reuse, without warranty.
+**Source-available, not open source.** The code is licensed under the
+[Business Source License 1.1](https://mariadb.com/bsl11/) — see
+[LICENSE](LICENSE), which is the only document that governs. Anyone can read,
+audit, fork, and modify it; the restriction is on *production* use.
+
+- **Reading, auditing, modifying and experimenting is free**, for anyone,
+  with no grant needed. This is deliberate: a healthcare practice must be
+  able to verify for itself that no patient data leaves the local network.
+- **A healthcare practice may run the Licensed Work in production for the
+  patients of its own practitioners** — see the `Additional Use Grant` in
+  [LICENSE](LICENSE).
+- **Providing the Licensed Work to third parties is not covered**: hosting it
+  for others, distributing it, reselling it, embedding it in a commercial
+  offering, or operating it on behalf of another practice all fall outside
+  the grant.
+- **Each version becomes MIT at most four years after its publication** — see
+  `Change Date` in [LICENSE](LICENSE).
+- **Everything up to and including commit `9339ee9`** (tag `frontiere-mit`,
+  2026-10-14) **remains MIT forever** — a published grant cannot be
+  withdrawn. That text is kept verbatim in
+  [LICENSE-MIT-HISTORIQUE](LICENSE-MIT-HISTORIQUE).
+- Running the software at a practice is also governed by a **separate
+  subscription agreement**, which is not the licence: the licence settles
+  what you may do with the code, the agreement settles the service.
+
+Third-party components vendored under `formulaire/lib/` are attributed in
+[TIERS.md](TIERS.md). French-language context for practitioners and auditors
+is in [docs/licence.md](docs/licence.md).

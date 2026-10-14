@@ -68,6 +68,49 @@ jobs:
           fi
           echo "Aucun secret versionné."
 
+      - name: Check that no contradictory licence notice remains
+        run: |
+          set -e
+          motif='"license": *"MIT"|badge/licence-MIT|Permission is hereby granted, free of charge'
+          # Les deux exclusions suivantes s'ajoutent aux trois du contrat : ce pas
+          # scanne le contenu des fichiers (pas seulement leurs noms, à la
+          # différence du contrôle des secrets ci-dessus), et deux fichiers du
+          # dépôt portent eux-mêmes le motif en toutes lettres pour le définir —
+          # ce pas lui-même, et son miroir Python en local.
+          # Ancré des deux côtés : sans le `$`, un `TIERS.md.bak` porteur
+          # d'une mention contradictoire aurait été exclu comme s'il était
+          # TIERS.md — soit exactement le trou que ce pas doit fermer. Seul
+          # `formulaire/lib/` reste un préfixe, puisqu'il désigne un dossier.
+          exclus='^(LICENSE-MIT-HISTORIQUE|TIERS\.md|package-lock\.json|\.github/workflows/tests\.yml|tests/test_licence\.py)$|^formulaire/lib/'
+          # `git ls-files -z` et non `git ls-files | tr` : sans `-z`, git
+          # échappe les chemins non ASCII à la façon du C et les entoure de
+          # guillemets. grep recevait alors un nom de fichier inexistant, et
+          # un document accentué — ils le sont tous ici — porteur d'une
+          # mention contradictoire passait le contrôle sans bruit.
+          #
+          # La boucle remplace un `xargs -0 grep`, qui rendait 123 aussi bien
+          # pour « aucune correspondance » que pour une erreur réelle : les
+          # deux cas étaient indistinguables, et un `|| true` les avalait.
+          suivis=$(mktemp)
+          trap 'rm -f "$suivis"' EXIT
+          git ls-files -z > "$suivis"
+          suspects=""
+          while IFS= read -r -d '' fichier; do
+            printf '%s\n' "$fichier" | grep -qE "$exclus" && continue
+            if [ ! -f "$fichier" ]; then
+              echo "::error::Chemin listé par git mais introuvable : $fichier"
+              exit 1
+            fi
+            if grep -IqE "$motif" "$fichier"; then
+              suspects="$suspects $fichier"
+            fi
+          done < "$suivis"
+          if [ -n "$suspects" ]; then
+            echo "::error::Mention de licence MIT contradictoire :$suspects"
+            exit 1
+          fi
+          echo "Aucune mention de licence contradictoire."
+
   scripts-windows:
     # Les scripts d'installation ne tournent qu'au cabinet, sous Windows :
     # sans ce controle, une faute de syntaxe ne se decouvrirait que la-bas.

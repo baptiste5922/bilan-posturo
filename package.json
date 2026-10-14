@@ -2,7 +2,7 @@
   "name": "bilan-posturo",
   "version": "1.0.0",
   "description": "Tablet postural-assessment form with client-side PDF generation and delivery to a local practice server",
-  "license": "MIT",
+  "license": "BUSL-1.1",
   "private": true,
   "scripts": {
     "vendor": "mkdir -p formulaire/lib && cp node_modules/jspdf/dist/jspdf.umd.min.js node_modules/html2canvas/dist/html2canvas.min.js formulaire/lib/",
