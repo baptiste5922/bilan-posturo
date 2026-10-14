@@ -78,10 +78,15 @@ MOTIF_MIT_CONTRADICTOIRE = re.compile(
 # contradictoire serait exclu comme s'il était TIERS.md, soit exactement le
 # trou que ce contrôle doit fermer. Seul `formulaire/lib/` reste un préfixe,
 # puisqu'il désigne un dossier.
+# Les documents de la chaîne contrat → audit → revue sont exclus pour la même
+# raison que ce fichier-ci : ils citent les motifs en toutes lettres, parce
+# qu'ils prescrivent et vérifient le contrôle. Un contrat qui exige
+# « LICENSE ne doit plus contenir cette phrase » doit écrire la phrase.
 EXCLUS_DU_CONTROLE = re.compile(
     r"^(LICENSE-MIT-HISTORIQUE|TIERS\.md|package-lock\.json"
     r"|\.github/workflows/tests\.yml|tests/test_licence\.py)$"
     r"|^formulaire/lib/"
+    r"|^docs/(contrats|audits|revues)/"
 )
 
 

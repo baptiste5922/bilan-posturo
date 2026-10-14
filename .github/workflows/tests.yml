@@ -81,7 +81,11 @@ jobs:
           # d'une mention contradictoire aurait été exclu comme s'il était
           # TIERS.md — soit exactement le trou que ce pas doit fermer. Seul
           # `formulaire/lib/` reste un préfixe, puisqu'il désigne un dossier.
-          exclus='^(LICENSE-MIT-HISTORIQUE|TIERS\.md|package-lock\.json|\.github/workflows/tests\.yml|tests/test_licence\.py)$|^formulaire/lib/'
+          # Les documents de la chaîne contrat → audit → revue citent ces
+          # motifs en toutes lettres, puisqu'ils prescrivent et vérifient le
+          # contrôle lui-même : un contrat qui exige « LICENSE ne doit plus
+          # contenir cette phrase » doit écrire la phrase.
+          exclus='^(LICENSE-MIT-HISTORIQUE|TIERS\.md|package-lock\.json|\.github/workflows/tests\.yml|tests/test_licence\.py)$|^formulaire/lib/|^docs/(contrats|audits|revues)/'
           # `git ls-files -z` et non `git ls-files | tr` : sans `-z`, git
           # échappe les chemins non ASCII à la façon du C et les entoure de
           # guillemets. grep recevait alors un nom de fichier inexistant, et
