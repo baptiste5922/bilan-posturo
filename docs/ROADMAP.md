@@ -154,10 +154,13 @@ l'en-tête ; le moteur de rendu, identique chez tous les clients, produit le DOM
 
 > **État : livré le 14 octobre 2026, sous réserve du contrôle visuel.**
 > Cinq tokens, 36 littéraux remplacés, lecture par `getComputedStyle` à
-> chaque génération de PDF. 13 des 18 critères sont vérifiés ; les cinq
-> autres demandent un navigateur et restent à exécuter par le praticien —
-> procédure dans `docs/references-visuelles/LISEZMOI.md`. **Pas de
-> déploiement sur la tablette avant.**
+> chaque génération de PDF. 15 des 18 critères sont vérifiés, **dont les deux
+> critères de changement de thème**, confirmés par Baptiste le 14 octobre :
+> forcer `--fond` rend magenta le fond de l'écran et la marge du PDF, forcer
+> `--texte` rend rouge le numéro de page. Les deux chemins — html2canvas pour
+> le fond, `setTextColor` pour le texte — sont donc validés, ce qui lève le
+> seul point susceptible de faire échouer la tâche. Restent les six fichiers
+> de référence, utiles à C1-T3 : `docs/references-visuelles/LISEZMOI.md`.
 
 - **Effort :** S
 - **Dépendances :** aucune (peut partir en premier, gain immédiat)
