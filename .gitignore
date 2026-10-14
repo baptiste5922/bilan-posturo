@@ -7,6 +7,10 @@ autorite.crt
 bilans/
 Bilan_entrants/
 journal.log
+journal.log.*
+
+# Documents internes : prix, marges, analyse concurrentielle
+docs/projection.md
 
 # Dépendances et archives de distribution
 node_modules/
@@ -18,3 +22,7 @@ BilanPosturo-*.zip
 # Python
 __pycache__/
 *.pyc
+
+#claude
+
+.claude/**
