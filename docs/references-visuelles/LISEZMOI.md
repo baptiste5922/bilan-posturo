@@ -1,11 +1,18 @@
 # Contrôle visuel manuel — C1-T2
 
-> **Tant que la section 4 de cette procédure n'a pas été exécutée, pas de
-> déploiement de cette tâche sur la tablette du cabinet.** Rien ne prouve
-> encore que html2canvas résout `var(--fond)` dans l'iframe qu'il construit
-> pour la capture : c'est la seule partie de C1-T2 qui touche réellement au
-> rendu du PDF, et elle n'a pas pu être vérifiée faute de navigateur pendant
-> l'implémentation.
+> **Section 4 exécutée le 14 octobre 2026 : concluante.** Forcer `--fond`
+> rend magenta le fond du formulaire à l'écran **et** la marge du PDF ;
+> forcer `--texte` rend rouge tout le texte des champs, numéro de page
+> compris. html2canvas résout donc bien les variables CSS dans l'iframe
+> qu'il construit pour la capture — c'était le seul point de C1-T2 que
+> rien ne permettait de vérifier sans navigateur, et il est levé. Le
+> déploiement n'est plus bloqué par ce motif ; résultats détaillés dans
+> `docs/audits/C1-T2.md`.
+>
+> Les sections 1 à 3 et 5 restent à exécuter pour produire les six fichiers
+> de référence. Ils ne conditionnent plus la validité de C1-T2 : ils
+> serviront à C1-T3, pour établir qu'un PDF issu du moteur à schéma est
+> superposable à celui de la V1.
 
 Cette procédure vérifie ce qu'aucun test automatisé ne peut vérifier ici :
 que le rendu à l'écran et le PDF produit sont **identiques au pixel** avant

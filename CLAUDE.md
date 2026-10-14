@@ -5,8 +5,9 @@ formulaire et annote les schémas au stylet, le PDF est fabriqué dans le
 navigateur et déposé sur le PC du cabinet. Utilisée quotidiennement depuis
 août 2026 par une pédicure-podologue à Morlaix, pour la totalité de ses bilans.
 
-**Dernière mise à jour :** 1er octobre 2026, par `/cloture-projet`
-**Version :** V1 en production  **Jalon en cours :** V2 (voir `docs/ROADMAP.md`)
+**Dernière mise à jour :** 14 octobre 2026, par `/cloture-projet`
+**Version :** V1 en production, sous **BUSL 1.1** depuis le 14 octobre 2026
+**Jalon en cours :** V2 — 2 tâches sur 36 livrées (voir `docs/ROADMAP.md`)
 
 ## Architecture en bref
 
@@ -25,9 +26,10 @@ août 2026 par une pédicure-podologue à Morlaix, pour la totalité de ses bila
 |---|---|
 | `serveur/serveur.py` (632 l.) | HTTPS, dépôt des PDF, authentification, sonde `/sante`, journal |
 | `serveur/generer_autorite.py` (248 l.) | Autorité de certification locale + certificat serveur |
-| `formulaire/script.js` (1135 l.) | PDF, stylet, brouillon, dépôt, file d'attente persistante |
+| `formulaire/script.js` (1223 l.) | PDF, stylet, brouillon, dépôt, file d'attente, lecture des tokens de couleur |
 | `formulaire/index.html` (388 l.) | Le formulaire, 17 blocs, ~78 champs — **écrit à la main** |
-| `tests/` | 57 tests Python + 7 scénarios Node sur la file d'attente |
+| `formulaire/style.css` | La palette du cabinet : cinq tokens sur `:root`, **source unique** |
+| `tests/` | 67 tests Python + 7 scénarios Node (file) + 8 groupes (palette) |
 | `installer-demarrage.ps1` | Tâche planifiée Windows, jamais exécuté hors du cabinet |
 
 Le PDF est produit **côté navigateur** : le serveur ne reçoit qu'un fichier déjà
@@ -58,25 +60,35 @@ une image et non une donnée.
 
 | Chantier | Intitulé | État |
 |---|---|---|
-| C0 | Cadre juridique et licence | à faire — **décision en amont de tout** |
-| C1 | Moteur de formulaire à schéma | à faire — le cœur du produit |
+| C0 | Cadre juridique et licence | C0-T1 **livré** (BUSL 1.1) ; C0-T2 à faire |
+| C1 | Moteur de formulaire à schéma | C1-T2 **livré** (tokens) ; C1-T1 est la suite |
 | C2 | Identité du cabinet en configuration | à faire |
 | C3 | Adressage, certificat et installateur | à faire — verrou n°1, bloquant |
 | C4 | Observabilité et support à distance | à faire |
 | C5 | Mises à jour signées | à faire |
 | C6 | Durcissement de sécurité (CSP, tentatives) | à faire |
-| C7 | Filet de tests (pagination, moteur) | à faire |
+| C7 | Filet de tests (pagination, moteur) | à faire — C7-T5 ouverte le 14/10 |
 | C8 | Mécanisme de licence d'abonnement | à faire |
 | C9 | Atelier de fabrication d'un client | à faire |
+
+**Licence.** Les développements depuis le commit `9339ee9` (étiqueté
+`frontiere-mit`) sont sous **BUSL 1.1** : lecture, fork et modification libres,
+usage en production réservé à un cabinet pour ses propres patients, bascule en
+MIT au bout de quatre ans. L'historique antérieur reste MIT à jamais. Explication
+en français : `docs/licence.md` ; seul `LICENSE` fait foi. **Ne pas rouvrir ce
+choix** ; il se corrige vers l'avant si besoin.
 
 Détail par tâche, critères d'acceptation et ordre d'exécution :
 `docs/ROADMAP.md`. Analyse produit, prix et cadre juridique :
 `docs/projection.md` (document interne, ne pas diffuser).
 
-**Tests :** 57 Python + 7 Node, tous verts au 1er octobre 2026.
+**Tests :** 67 Python + 7 Node (file) + 8 groupes (palette), tous verts au
+14 octobre 2026, en intégration continue sur Linux, Windows et macOS.
 
 ## Dernières sessions
 
+- [2026-10-14 — Licence BUSL et palette unifiée](docs/resumes/2026-10-14-licence-et-tokens.md) :
+  V1 enfin versionnée (elle n'existait que sur un disque), C0-T1 et C1-T2 livrées.
 - [2026-10-01 — Outillage de la V2](docs/resumes/2026-10-01-outillage-v2.md) :
   feuille de route V2, quatre agents, quatre compétences.
 
@@ -117,10 +129,13 @@ Ils ont déjà coûté du temps ; ils le recoûteront.
 - **Double pile** — `localhost` résout d'abord en `::1` : un serveur lié au seul
   `0.0.0.0` y est injoignable. On écoute en IPv6 avec `IPV6_V6ONLY` désactivé,
   avec repli IPv4.
-- **Palette dupliquée** — les couleurs sont écrites à trois endroits :
-  `style.css`, `script.js` (`FOND`, `FOND_RGB`, `TEXTE_RGB`) et un style en
-  ligne dans `index.html:26`. Changer de palette sans les unifier fait sortir un
-  PDF aux couleurs du cabinet précédent. C'est la tâche C1-T2.
+- **Palette — piège refermé par C1-T2, à ne pas rouvrir.** Les cinq couleurs
+  d'identité vivent **uniquement** sur `:root` dans `style.css` ; le PDF les lit
+  par `getComputedStyle` à chaque génération. Réécrire une de ces valeurs
+  ailleurs fait ressortir le défaut d'origine — un PDF aux couleurs du cabinet
+  précédent — et un pas d'intégration continue le refuse. La lecture doit rester
+  **dans** la génération : au niveau module, elle casse les tests de la file
+  d'attente, dont le contexte `vm` n'a pas `getComputedStyle`.
 - **`dossier_pdf` et le compte SYSTEM** — la tâche planifiée tourne en SYSTEM :
   un lecteur réseau monté dans la session du praticien n'existe pas pour elle.
   Chemin local absolu ou chemin UNC.
@@ -128,6 +143,25 @@ Ils ont déjà coûté du temps ; ils le recoûteront.
   elle est validée sur un double simulé (tâche C7-T3).
 - **Les scripts PowerShell n'ont jamais été exécutés hors du cabinet** : seule
   leur syntaxe est contrôlée en intégration continue.
+- **`actions/checkout` clone à la profondeur 1.** `.git` existe donc en
+  intégration continue, mais pas les commits antérieurs à `HEAD` : un test qui a
+  besoin d'un autre commit doit vérifier **l'objet** (`git cat-file -e`), pas le
+  dossier. Et `git log -1 -- <fichier>` y rend la date de `HEAD`, donc toute
+  mesure de date tirée de l'historique y est silencieusement fausse.
+- **`git ls-files` sans `-z`** échappe les chemins non ASCII à la façon du C et
+  les entoure de guillemets. Tous les documents de ce dépôt portent des noms
+  français : un contrôle de contenu bâti dessus les manque sans rien dire. Et
+  `xargs -0 grep` rend 123 aussi bien pour « rien trouvé » que pour une erreur
+  réelle — les deux cas y sont indistinguables, il faut une boucle.
+- **Un contrôle qui lit l'index Git doit être éprouvé sur des fichiers indexés.**
+  Validé sur des fichiers non suivis, il ne voit rien : `git ls-files` ne les
+  liste pas. C'est ainsi que six travaux d'intégration continue ont échoué le
+  14 octobre.
+- **`ServeurEnMarche` est instable sous Windows et Python 3.9** : ses dix tests
+  ont expiré en lecture TLS une fois, puis sont repassés au vert sur simple
+  relance, sans modification de code. C'est le harnais, pas le serveur (C7-T5).
+  Ne pas prendre l'habitude de relancer : le jour où l'échec sera réel, on
+  relancera aussi.
 
 ## Fichiers à ne jamais toucher
 
