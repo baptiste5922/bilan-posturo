@@ -59,7 +59,7 @@ class ServeurEnMarche(unittest.TestCase):
         os.mkdir(os.path.join(cls.dossier, "formulaire"))
         for nom in ("serveur/serveur.py", "serveur/generer_autorite.py",
                     "formulaire/index.html", "formulaire/style.css",
-                    "formulaire/script.js"):
+                    "formulaire/script.js", "formulaire/schema.json"):
             shutil.copy(os.path.join(PROJET, nom),
                         os.path.join(cls.dossier, nom))
 
@@ -200,18 +200,46 @@ class ServeurEnMarche(unittest.TestCase):
     # --- surface exposée ---------------------------------------------------
 
     def test_fichiers_sensibles_inatteignables(self):
-        for chemin in ("/config.json", "/serveur.py", "/cle.pem",
+        # Filtrés par extension (.py, .pem, .log n'entrent jamais dans
+        # EXTENSIONS_SERVIES) : toujours 403, quelle que soit la racine web.
+        for chemin in ("/serveur.py", "/cle.pem",
                        "/autorite-cle.pem", "/journal.log"):
             for methode in ("GET", "HEAD"):
                 with self.subTest(chemin=chemin, methode=methode):
                     statut, _, _ = self.requete(methode, chemin)
                     self.assertEqual(statut, 403)
 
+    def test_config_json_inatteignable(self):
+        # Depuis que .json est servi (C1-T3, pour schema.json), /config.json
+        # n'est plus filtré par extension : il l'est par l'emplacement. Le
+        # fichier vit à la racine du projet (RACINE), pas dans la racine web
+        # (FORMULAIRE) : la requête devient 404 (fichier introuvable dans
+        # formulaire/), là où elle était 403 (type de fichier) auparavant.
+        # Les deux codes disent la même chose — inatteignable — donc les deux
+        # sont acceptés ici plutôt que de figer un comportement interne.
+        for methode in ("GET", "HEAD"):
+            with self.subTest(methode=methode):
+                statut, _, _ = self.requete(methode, "/config.json")
+                self.assertIn(statut, (403, 404))
+
     def test_ressources_du_formulaire_servies(self):
         for chemin in ("/", "/index.html", "/style.css", "/script.js"):
             with self.subTest(chemin=chemin):
                 statut, _, _ = self.requete("GET", chemin)
                 self.assertEqual(statut, 200)
+
+    def test_json_du_formulaire_servi(self):
+        # schema.json (C1-T3) doit être lisible, authentifié, avec le bon
+        # type de contenu : c'est ce que lit formulaire/moteur/rendu.js.
+        statut, entetes, corps = self.requete("GET", "/schema.json")
+        self.assertEqual(statut, 200)
+        entetes = {c.lower(): v for c, v in entetes}
+        self.assertTrue(entetes.get("content-type", "").startswith("application/json"))
+        json.loads(corps)  # le fichier copié dans le bac à sable est un JSON valide
+
+    def test_json_du_formulaire_toujours_authentifie(self):
+        statut, _, _ = self.requete("GET", "/schema.json", utilisateur=None)
+        self.assertEqual(statut, 401)
 
     def test_entetes_de_securite(self):
         _, entetes, _ = self.requete("GET", "/")

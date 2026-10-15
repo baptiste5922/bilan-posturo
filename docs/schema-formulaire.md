@@ -330,9 +330,24 @@ convention.
 
 Règle d'évolution : on n'incrémente `version_schema` que pour un changement
 incompatible (un type retiré, un attribut obligatoire ajouté à un type
-existant) ; un ajout purement facultatif ne change pas la version ; le moteur
-refuse de rendre une version qu'il ne connaît pas, plutôt que de rendre au
-mieux.
+existant) ; le moteur refuse de rendre une version qu'il ne connaît pas,
+plutôt que de rendre au mieux.
+
+**Amendement D8 — le jeu des clés racine est fermé, sans exception.** La
+règle 1 de la section 7 l'emporte : toute clé racine inconnue, y compris
+facultative, est refusée sans rendu. La phrase « un ajout purement facultatif
+ne change pas la version », ci-dessus dans la version initiale de ce document,
+contredisait cette règle dès le premier attribut racine facultatif — c'était
+une contradiction, pas une nuance, et elle est levée ici plutôt que rouverte
+ailleurs. Elle ne s'applique donc plus qu'aux attributs facultatifs **des
+blocs et des champs** (section 5.2 et 5.3), où une clé inconnue est au
+contraire ignorée avec un avertissement en console, jamais un refus, jamais un
+silence. Conséquence assumée : ajouter une clé racine facultative est, pour un
+moteur plus ancien, un changement **incompatible**, qui exige d'incrémenter
+`version_schema` au même titre qu'un changement structurant. Raison : la
+racine est le seul endroit où le moteur peut détecter à coût nul un fichier
+produit par un atelier plus récent (C9) ; refuser franchement vaut mieux que
+rendre un formulaire auquel il manque un bloc, sur un document de santé.
 
 ### 5.2 Bloc
 
@@ -346,11 +361,21 @@ pagination.
 | `en_tete` | non | `false` | `true` pour le bloc 1 uniquement ; ce bloc ne porte que le champ `date-bilan`, le reste (titre, logo, coordonnées) vient du thème (C2-T1). |
 | `disposition` | non | `"empilee"` | Une des cinq valeurs fermées : `empilee`, `en-ligne`, `en-ligne-bas`, `atcd`, `chaussures` (D5). |
 | `titre` | non | — | Libellé visible du bloc, quand il en a un dans le HTML actuel (ex. « Informations Patient », bloc 2) ; dix des 29 blocs en portent un, voir « Titre de bloc » en section 2. C'est toujours une donnée du schéma, jamais du thème, y compris pour les blocs dont l'`id` de titre est une clé gelée (`patient_info_title`). |
+| `titre_apparence` | non | `"label"` | Amendement D10. Une des trois valeurs fermées `h3`, `label`, `label_bloc`, qui fixe la forme HTML du titre du bloc. |
+| `titre_cle` | non | — | Amendement D10. Émis comme `id` de l'élément de titre ; obligatoire en pratique pour le bloc 2, dont le titre porte la clé gelée `patient_info_title`. |
 | `champs` | oui | — | Liste ordonnée d'objets champ (section 5.3). Peut contenir des types `tableau` ou `image-annotable` au même titre que les autres. |
 
 Le schéma ne porte aucune largeur (D5) : la mise en page détaillée reste
 entièrement dans le CSS du thème. Les largeurs observées dans l'inventaire
 (section 3) sont documentaires.
+
+**Amendement D10 (`titre_apparence` et `titre_cle`, facultatifs).**
+`titre_apparence` ∈ `h3` → `<h3 class="Title">` (blocs 2, 3), `label` (défaut)
+→ `<label class="titre_section">` (blocs 7, 8, 9, 10, 13, 18), `label_bloc` →
+`<label class="titre_section_bloc">` (bloc 23). Raison : le HTML V1 rend
+`bloc.titre` sous trois formes visuellement différentes ; sans cet attribut,
+le moteur en choisirait une et dix blocs changeraient d'aspect. Un titre de
+bloc reste une donnée du **schéma**, jamais du thème (revue de C1-T1).
 
 ### 5.3 Champ — attributs communs
 
@@ -360,15 +385,34 @@ entièrement dans le CSS du thème. Les largeurs observées dans l'inventaire
 | `cle` | selon le type (voir ci-dessous) | Clé de brouillon, identique à l'`id` actuel (D2). |
 | `libelle` | oui, sauf exception documentée | Texte visible, relevé dans le HTML. |
 | `defaut` | non | Valeur préremplie. **Aucun champ de la V1 n'en porte** (D4) : un champ clinique prérempli est un risque de bilan faux. Le moteur ne préremplit rien en son absence. Interdit sur `radio`, `tableau` et `image-annotable`. |
+| `indication` | non | Amendement D11. Autorisé sur `texte` et `zone-texte` uniquement, émis comme `placeholder`. |
 | `valeurs` | oui pour `radio` uniquement | Liste d'options, chacune `{ "cle": "...", "valeur": "...", "libelle": "..." }`. |
 | `entetes` | oui pour `tableau` uniquement | En-tête de colonnes, partagé par toutes les lignes. |
 | `lignes` | oui pour `tableau` uniquement | Liste de `{ "nom": "...", "cle": "...", "colonnes": [{ "valeur": "...", "libelle": "..." }, ...] }`. |
 | `fichier` | oui pour `image-annotable` uniquement | Chemin de l'image à annoter. |
 | `texte_alternatif` | oui pour `image-annotable` uniquement | Texte alternatif de l'image. |
+| `apparence` | non | Amendement D9. Autorisé sur `image-annotable` uniquement, une des deux valeurs fermées `squelette` (défaut) ou `encadree`. |
 
 `type`, `cle` (ou `valeurs`/`lignes` selon le type) et `libelle` forment
 l'ensemble fermé des attributs structurants ; `disposition` ne vit qu'au
 niveau du bloc (section 5.2), jamais au niveau du champ.
+
+**Amendement D9 (`apparence` sur `image-annotable`, facultatif, valeurs
+fermées).** `"squelette"` (défaut) → `class="squelette dessinable"`, image
+émise directement dans le bloc (bloc 8) ; `"encadree"` → `class="dessinable"`,
+image enveloppée dans `<div class="appareillage-container"><div
+class="empreintes-box">` avec les autres champs du bloc à la suite (bloc 23).
+Raison : `style.css:330, 342, 348` et `445` dépendent de ces deux enveloppes,
+que le schéma ne portait pas et que rien ne permet de déduire du type seul.
+Une table de correspondance par clé de bloc **à l'intérieur du moteur** est
+formellement refusée : ce serait du HTML client réintroduit dans le code
+commun, soit exactement le verrou que C1 existe pour lever.
+
+**Amendement D11 (`indication` sur `texte` et `zone-texte`, facultatif).**
+Émis comme `placeholder`. Un seul emploi aujourd'hui (`plan_texte`,
+`index.html:350`) ; ce n'est pas un préremplissage et D4 n'est pas concernée —
+le champ reste vide, donc aucun risque de bilan faux. Sans cet attribut, le
+texte d'aide disparaît de l'écran **et du PDF** quand le champ est vide.
 
 **Interdiction normative (D2, exception des radios de tableau) :** pour le
 type `tableau`, il est interdit au moteur d'attribuer un `id` aux boutons
@@ -548,13 +592,28 @@ la mettre en échec (C7-T2).
     même si elle produit un document JSON valide.
 11. L'attribut facultatif `defaut` n'est autorisé que sur `texte`,
     `zone-texte`, `date` et `case`. Présent sur `radio`, `tableau` ou
-    `image-annotable`, il est refusé en nommant le champ.
+    `image-annotable`, il est refusé en nommant le champ. De même,
+    l'attribut facultatif `indication` (D11) n'est autorisé que sur `texte`
+    et `zone-texte` ; présent sur tout autre type, il est refusé en nommant
+    le champ.
 12. `libelle` est obligatoire pour `texte`, `zone-texte`, `date`, `case`,
     `tableau` (titre du tableau) et `image-annotable` (sert alors de texte
     alternatif). Il est facultatif pour `radio`, dont les options portent
     chacune leur propre `libelle` — un groupe de radios peut n'avoir aucun
     libellé propre quand le HTML actuel n'en porte pas (cas de
     `isthme_cote`, regroupé visuellement sous le libellé du bloc « Podo »).
+13. L'attribut facultatif `apparence` (D9) n'est autorisé que sur
+    `image-annotable`, et doit valoir `squelette` ou `encadree` quand il est
+    présent. Une autre valeur, ou sa présence sur un type différent, est
+    refusée en nommant le champ et la valeur fautive.
+14. Les attributs facultatifs `titre_apparence` et `titre_cle` (D10) ne
+    vivent qu'au niveau du **bloc**, jamais du champ. `titre_apparence`, quand
+    il est présent, doit valoir `h3`, `label` ou `label_bloc` ; toute autre
+    valeur est refusée en la citant. `titre_cle`, quand il est présent, doit
+    être une chaîne non vide ; sa présence sans `titre` associé n'est pas une
+    erreur — un bloc peut vouloir fixer un `id` de titre avant d'avoir un
+    texte — mais `titre_cle` n'est jamais émis comme `id` du bloc lui-même
+    (c'est l'attribut `cle` du bloc qui en fait office, section 5.2).
 
 ## 8. Anomalies du HTML consignées, non corrigées
 

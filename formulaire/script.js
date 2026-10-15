@@ -777,11 +777,50 @@ function majBoutons(etat) {
     etat.boutons.forEach(function (bouton) { bouton.disabled = vide; });
 }
 
-document.addEventListener("DOMContentLoaded", function () {
+let applicationDemarree = false;
+
+/**
+ * Démarre le stylet, le brouillon, le dossier choisi et la file de dépôts.
+ * Idempotente : un second appel ne fait rien, pour que le moteur de rendu
+ * (formulaire/moteur/rendu.js) puisse l'appeler après son propre rendu sans
+ * se soucier de ce qu'a déjà fait ce fichier.
+ */
+function demarrerApplication() {
+    if (applicationDemarree) return;
+    applicationDemarree = true;
+
+    // Câblage du bouton d'export sans onclick= en ligne, mais seulement sur
+    // la page provisoire du moteur (constat n°10, audit C1-T3 : onclick= est
+    // incompatible avec la CSP à venir, C6-T1). Conditionné à data-moteur :
+    // formulaire/index.html porte toujours son onclick= (index.html:26,
+    // hors périmètre de cette tâche), et ajouter ce même écouteur là aussi
+    // déclencherait exporterBilanPDF() deux fois par clic.
+    const formulaire = document.getElementById("form-bilan");
+    if (formulaire && formulaire.dataset && formulaire.dataset.moteur !== undefined) {
+        const bouton = document.getElementById("btn-export");
+        if (bouton) bouton.addEventListener("click", exporterBilanPDF);
+    }
+
     initDessin();        // doit précéder : remplit zonesDessin
     initSauvegarde();    // s'appuie sur zonesDessin pour restaurer les traits
     initDossierBilans();
     initFileDepots();    // rattrape les bilans qu'une panne a laissés en attente
+}
+
+document.addEventListener("DOMContentLoaded", function () {
+    // Point de couture avec le moteur de rendu (contrat C1-T3) : quand
+    // #form-bilan porte l'attribut data-moteur, le formulaire n'est pas
+    // encore dans le DOM à cet instant — rendu.js l'y insère plus tard et
+    // appelle lui-même demarrerApplication() une fois son rendu terminé.
+    // Démarrer ici rendrait zonesDessin vide (script.js:619-626) : plus
+    // aucun dessin, et les traits d'un brouillon restauré tomberaient dans
+    // le vide. La garde tolère l'absence de `dataset` (tests/test_file_depots.js
+    // fournit un double d'élément qui n'en a pas).
+    const formulaire = document.getElementById("form-bilan");
+    if (formulaire && formulaire.dataset && formulaire.dataset.moteur !== undefined) {
+        return;
+    }
+    demarrerApplication();
 });
 
 /**

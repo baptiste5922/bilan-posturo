@@ -6,7 +6,7 @@
   "private": true,
   "scripts": {
     "vendor": "mkdir -p formulaire/lib && cp node_modules/jspdf/dist/jspdf.umd.min.js node_modules/html2canvas/dist/html2canvas.min.js formulaire/lib/",
-    "test": "python3 -m unittest discover -s tests -v && node tests/test_file_depots.js && node tests/test_palette.js",
+    "test": "python3 -m unittest discover -s tests -v && node tests/test_file_depots.js && node tests/test_palette.js && node tests/test_inventaire_formulaire.js && node tests/test_comparaison_dom.js",
     "test:js": "node tests/test_file_depots.js"
   },
   "dependencies": {
