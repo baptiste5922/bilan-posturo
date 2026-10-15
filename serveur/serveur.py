@@ -58,7 +58,10 @@ JOURNAL_ARCHIVES = 3
 
 # Seuls ces fichiers sont servis. Le filtre double la séparation des dossiers :
 # même si la racine web venait à contenir autre chose, rien d'autre ne sortirait.
-EXTENSIONS_SERVIES = {".html", ".css", ".js", ".png", ".jpg", ".jpeg", ".svg", ".ico"}
+# .json y figure pour schema.json (moteur de rendu, C1-T3) : la racine web ne
+# contient que le formulaire, et config.json vit un niveau au-dessus (RACINE,
+# pas FORMULAIRE) — inatteignable même maintenant que l'extension est servie.
+EXTENSIONS_SERVIES = {".html", ".css", ".js", ".json", ".png", ".jpg", ".jpeg", ".svg", ".ico"}
 
 CONFIG_DEFAUT = {
     "port": 8000,

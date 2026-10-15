@@ -5,9 +5,10 @@ formulaire et annote les schémas au stylet, le PDF est fabriqué dans le
 navigateur et déposé sur le PC du cabinet. Utilisée quotidiennement depuis
 août 2026 par une pédicure-podologue à Morlaix, pour la totalité de ses bilans.
 
-**Dernière mise à jour :** 15 octobre 2026, par `/cloture-projet`
+**Dernière mise à jour :** 15 octobre 2026 (seconde session), par `/cloture-projet`
 **Version :** V1 en production, sous **BUSL 1.1** depuis le 14 octobre 2026
-**Jalon en cours :** V2 — 3 tâches sur 36 livrées (voir `docs/ROADMAP.md`)
+**Jalon en cours :** V2 — 3 tâches livrées, C1-T3 aux trois quarts
+(voir `docs/ROADMAP.md`)
 
 ## Architecture en bref
 
@@ -29,7 +30,9 @@ août 2026 par une pédicure-podologue à Morlaix, pour la totalité de ses bila
 | `formulaire/script.js` (1223 l.) | PDF, stylet, brouillon, dépôt, file d'attente, lecture des tokens de couleur |
 | `formulaire/index.html` (388 l.) | Le formulaire, 17 blocs, ~78 champs — **écrit à la main** |
 | `formulaire/style.css` | La palette du cabinet : cinq tokens sur `:root`, **source unique** |
-| `tests/` | 67 tests Python + 7 scénarios Node (file) + 8 groupes (palette) + 6 (inventaire) |
+| `formulaire/moteur/rendu.js` | Valide un schéma et construit le DOM du formulaire (C1-T3) |
+| `formulaire/schema.json` | Les 28 blocs du corps du bilan, en données |
+| `tests/` | 73 Python + Node : 7 (file), 8 (palette), 7 (inventaire), 8 (comparaison de DOM) |
 | `installer-demarrage.ps1` | Tâche planifiée Windows, jamais exécuté hors du cabinet |
 
 Le PDF est produit **côté navigateur** : le serveur ne reçoit qu'un fichier déjà
@@ -61,7 +64,7 @@ une image et non une donnée.
 | Chantier | Intitulé | État |
 |---|---|---|
 | C0 | Cadre juridique et licence | C0-T1 **livré** (BUSL 1.1) ; C0-T2 à faire |
-| C1 | Moteur de formulaire à schéma | C1-T2 et C1-T1 **livrés** ; C1-T3 est la suite — point de non-retour |
+| C1 | Moteur de formulaire à schéma | C1-T2 et C1-T1 **livrés** ; C1-T3 livré **sauf la bascule**, devenue C1-T3b — le point de non-retour |
 | C2 | Identité du cabinet en configuration | à faire |
 | C3 | Adressage, certificat et installateur | à faire — verrou n°1, bloquant |
 | C4 | Observabilité et support à distance | à faire |
@@ -88,12 +91,22 @@ fermés, clés reprises à l'identique des `id` du formulaire, version du format
 en première clé. C1-T3, C1-T4, C7-T2 et C9-T1 s'y règlent sans rouvrir le
 débat.
 
-**Tests :** 67 Python + 7 Node (file) + 8 groupes (palette) + 6 groupes
-(inventaire), tous verts au 15 octobre 2026, en intégration continue sur
-Linux, Windows et macOS.
+**Le moteur existe, mais n'est pas branché.** `formulaire/index.html` est
+toujours le formulaire V1 écrit à la main, intact : c'est lui qui sert les
+consultations. Le moteur ne se visite que par `formulaire/index-moteur.html`,
+page provisoire exclue du paquet livré au cabinet. La bascule est **C1-T3b**, et
+elle attend le jeu de référence visuelle de la V1 — quatre fichiers à produire
+au navigateur, impossibles à obtenir après la bascule.
+
+**Tests :** 103 au total, tous verts au 15 octobre 2026, en intégration continue
+sur Linux, Windows et macOS : 73 Python, 7 Node (file), 8 (palette),
+7 (inventaire), 8 (comparaison de DOM).
 
 ## Dernières sessions
 
+- [2026-10-15 (2) — Le moteur de rendu, sans la bascule](docs/resumes/2026-10-15-moteur-de-rendu.md) :
+  C1-T3 étapes 1 à 8. Moteur, schéma, comparateur V1 ↔ moteur. `index.html` intact.
+  Non commité, branche `c1-t3-moteur-rendu-schema`.
 - [2026-10-15 — Le vocabulaire du schéma de formulaire](docs/resumes/2026-10-15-vocabulaire-de-schema.md) :
   C1-T1 livrée. 29 blocs et 45 champs inventoriés, sept types fermés, clés gelées.
   Travail non commité, sur la branche `c1-t1-inventaire-formulaire`.
@@ -167,6 +180,20 @@ Ils ont déjà coûté du temps ; ils le recoûteront.
   Validé sur des fichiers non suivis, il ne voit rien : `git ls-files` ne les
   liste pas. C'est ainsi que six travaux d'intégration continue ont échoué le
   14 octobre.
+- **Un garde-fou non mis en échec ne garde rien.** Deux fois le 15 octobre, le
+  même défaut : des listes normatives recopiées à la main (C1-T1), puis un
+  comparateur qui aplatissait l'arbre et sautait deux blocs sur 29 (C1-T3). Les
+  deux passaient au vert sur un formulaire modifié. **Dériver du code, jamais
+  transcrire ; et éprouver chaque test par une mutation volontaire.** Corollaire :
+  une tolérance ajoutée pendant l'implémentation est le moyen le plus simple de
+  faire taire un comparateur — celui de C1-T3 en compte neuf, toutes motivées,
+  mais la neuvième ne tient que parce qu'aucun sélecteur enfant `>` n'existe
+  encore dans `style.css`.
+- **Le rendu ne doit pas démarrer après `DOMContentLoaded`.** `initDessin()`
+  exige que les quatre images soient déjà dans le DOM ; sinon `zonesDessin` est
+  vide, le stylet ne répond plus et les traits d'un brouillon restauré tombent
+  dans le vide. D'où `demarrerApplication()`, appelée **par le moteur, après
+  rendu**.
 - **Les clés de brouillon sont gelées — piège refermé par C1-T1.** Les `id` du
   formulaire *sont* les clés du brouillon `localStorage` (`cleChamp()`,
   `script.js:863-867`). Les renommer — même pour corriger `familliaux`,

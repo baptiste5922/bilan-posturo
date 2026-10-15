@@ -50,6 +50,9 @@ jobs:
       - name: Run form inventory tests
         run: node tests/test_inventaire_formulaire.js
 
+      - name: Run rendering engine comparison tests
+        run: node tests/test_comparaison_dom.js
+
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -82,7 +85,12 @@ jobs:
           # `|| true` placé en bout de pipe l'aurait avalé et laissé passer le
           # pas sans avoir rien vérifié. On vérifie donc l'existence d'abord,
           # fort et explicite, avant toute lecture.
-          for fichier in formulaire/style.css formulaire/script.js formulaire/index.html; do
+          # formulaire/moteur/rendu.js et formulaire/index-moteur.html entrent
+          # ici avec C1-T3 : un nouveau fichier JS ou HTML dans formulaire/
+          # qui écrirait une couleur de palette en dur ne serait sinon couvert
+          # par aucune garde (constat de l'audit C1-T1).
+          for fichier in formulaire/style.css formulaire/script.js formulaire/index.html \
+                          formulaire/moteur/rendu.js formulaire/index-moteur.html; do
             if [ ! -f "$fichier" ]; then
               echo "::error::Fichier introuvable pour le contrôle de palette : $fichier"
               exit 1
@@ -112,17 +120,21 @@ jobs:
           fi
 
           # Dans le JS, ces couleurs ne sont tolérées nulle part : il lit les tokens.
-          set +e
-          sortie_js=$(grep -niE "$motif" formulaire/script.js)
-          code_js=$?
-          set -e
-          if [ "$code_js" -gt 1 ]; then
-            echo "::error::Erreur de lecture de formulaire/script.js."
-            exit 1
-          fi
-          if [ "$code_js" -eq 0 ]; then
-            fautifs=$(printf '%s\n%s' "$fautifs" "$sortie_js")
-          fi
+          # formulaire/moteur/rendu.js est un second fichier JS de production
+          # depuis C1-T3 : même règle, même absence de tolérance.
+          for fichier_js in formulaire/script.js formulaire/moteur/rendu.js; do
+            set +e
+            sortie_js=$(grep -niE "$motif" "$fichier_js")
+            code_js=$?
+            set -e
+            if [ "$code_js" -gt 1 ]; then
+              echo "::error::Erreur de lecture de $fichier_js."
+              exit 1
+            fi
+            if [ "$code_js" -eq 0 ]; then
+              fautifs=$(printf '%s\n%s' "$fautifs" "$sortie_js")
+            fi
+          done
 
           if [ -n "$(printf '%s' "$fautifs" | tr -d '[:space:]')" ]; then
             echo "$fautifs"
@@ -132,10 +144,12 @@ jobs:
 
           # Apostrophes ou guillemets : les deux formes de style= en ligne
           # sont incompatibles avec la CSP à venir (C6-T1).
-          if grep -nE "style=['\"]" formulaire/index.html; then
-            echo "::error::Style en ligne dans index.html : incompatible avec la CSP (C6-T1)."
-            exit 1
-          fi
+          for fichier_html in formulaire/index.html formulaire/index-moteur.html; do
+            if grep -nE "style=['\"]" "$fichier_html"; then
+              echo "::error::Style en ligne dans $fichier_html : incompatible avec la CSP (C6-T1)."
+              exit 1
+            fi
+          done
           echo "Palette non dupliquée."
 
       - name: Check that no contradictory licence notice remains
@@ -185,18 +199,44 @@ jobs:
           fi
           echo "Aucune mention de licence contradictoire."
 
-      - name: Check that cabinet identity is not copied into the C1-T1 schema documents
+      - name: Check that cabinet identity is not copied into the schema documents
         run: |
           set -e
           # Chemins fixes et ASCII, à la façon du contrôle de palette plus haut :
           # pas de git ls-files (échapperait les chemins accentués), pas de
           # xargs -0 (rendrait 123 pour « rien trouvé » comme pour une erreur
           # réelle). Les motifs sont dérivés de formulaire/index.html à
-          # l'exécution, jamais écrits en dur : en cas d'échec, seul un numéro
-          # de ligne est nommé, jamais le contenu, sans quoi ce journal
-          # deviendrait lui-même le canal de fuite qu'il doit empêcher.
+          # l'exécution, jamais écrits en dur : en cas d'échec, seul un nom de
+          # fichier et un numéro de ligne *source* sont nommés, jamais le
+          # contenu, sans quoi ce journal deviendrait lui-même le canal de
+          # fuite qu'il doit empêcher.
+          #
+          # R3 (audit C1-T1, réaudit C1-T3) : la version précédente ancrait le
+          # bloc d'identité sur des numéros de ligne figés (72-75) et ignorait
+          # une ligne au texte vide par un simple `continue`, sans jamais
+          # vérifier qu'il restait quelque chose à contrôler — une insertion de
+          # lignes au-dessus du bloc (ce que C1-T3 fait en ajoutant
+          # formulaire/index-moteur.html à côté) rendait la garde muette, verte
+          # à vide, plutôt qu'absente. Elle localise désormais le bloc par son
+          # ancre `<section id="infos_podo">` … `</section>`, et échoue si
+          # cette ancre est introuvable ou si aucune ligne de texte non vide
+          # n'en est extraite.
+          #
+          # Constat n°10 (audit C1-T3) : formulaire/index-moteur.html n'est
+          # DÉLIBÉRÉMENT PAS une cible ci-dessous, et c'est écrit ici plutôt
+          # que laissé implicite. Ce fichier recopie l'en-tête de
+          # formulaire/index.html à l'identique (octet pour octet, espaces
+          # mis à part) : il N'EST PAS un endroit où l'identité du cabinet
+          # pourrait fuiter sans bruit, c'est la source elle-même, répétée
+          # une seconde fois par nécessité (page provisoire du moteur de
+          # rendu, étapes 1 à 8). Cette répétition précise est sous
+          # surveillance séparée et continue, par un mécanisme plus strict
+          # qu'une recherche de sous-chaîne : tests/test_comparaison_dom.js
+          # échoue si les deux en-têtes dérivent l'un de l'autre. L'ajouter
+          # ici le ferait échouer par construction, sur un fichier qui fait
+          # exactement ce qu'on lui demande.
           source="formulaire/index.html"
-          cibles="docs/schema-formulaire.md tests/test_inventaire_formulaire.js"
+          cibles="docs/schema-formulaire.md tests/test_inventaire_formulaire.js formulaire/schema.json formulaire/moteur/rendu.js tests/test_comparaison_dom.js"
           for fichier in "$source" $cibles; do
             if [ ! -f "$fichier" ]; then
               echo "::error::Fichier introuvable pour le contrôle d'identité du cabinet : $fichier"
@@ -204,19 +244,44 @@ jobs:
             fi
           done
 
+          ancre_debut=$(grep -n '<section id="infos_podo">' "$source" | head -1 | cut -d: -f1)
+          if [ -z "$ancre_debut" ]; then
+            echo "::error::Ancre <section id=\"infos_podo\"> introuvable dans $source : la garde ne peut plus localiser le bloc d'identité."
+            exit 1
+          fi
+
+          decalage_fin=$(tail -n "+$ancre_debut" "$source" | grep -n '</section>' | head -1 | cut -d: -f1)
+          if [ -z "$decalage_fin" ]; then
+            echo "::error::Balise fermante </section> introuvable après la ligne $ancre_debut de $source."
+            exit 1
+          fi
+          ancre_fin=$((ancre_debut + decalage_fin - 1))
+
+          set +e
+          lignes_extraites=$(sed -n "${ancre_debut},${ancre_fin}p" "$source" |
+            sed -E 's/<[^>]*>//g' | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' | grep -v '^$')
+          set -e
+          if [ -z "$lignes_extraites" ]; then
+            echo "::error::Aucune ligne de texte non vide extraite de l'ancre <section id=\"infos_podo\"> ($source, lignes $ancre_debut-$ancre_fin) : la garde n'a plus rien à contrôler."
+            exit 1
+          fi
+
+          fichier_lignes=$(mktemp)
+          trap 'rm -f "$fichier_lignes"' EXIT
+          printf '%s\n' "$lignes_extraites" > "$fichier_lignes"
+
           fautifs=""
-          for num in 72 73 74 75; do
-            texte=$(sed -n "${num}p" "$source" | sed -E 's/<[^>]*>//g' | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')
-            if [ -z "$texte" ]; then continue; fi
+          while IFS= read -r texte; do
+            [ -z "$texte" ] && continue
             for fichier in $cibles; do
               if grep -qF -- "$texte" "$fichier"; then
-                fautifs="$fautifs $fichier:$num"
+                fautifs="$fautifs $fichier"
               fi
             done
-          done
+          done < "$fichier_lignes"
 
           if [ -n "$fautifs" ]; then
-            echo "::error::Coordonnée du cabinet recopiée, voir $source ligne(s) :$fautifs"
+            echo "::error::Coordonnée du cabinet recopiée, voir $source ligne(s) $ancre_debut-$ancre_fin, dans :$fautifs"
             exit 1
           fi
           echo "Aucune coordonnée du cabinet recopiée."

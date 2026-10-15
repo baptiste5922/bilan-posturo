@@ -28,6 +28,7 @@ const CHEMIN_HTML = path.join(__dirname, "..", "formulaire", "index.html");
 const CHEMIN_CSS = path.join(__dirname, "..", "formulaire", "style.css");
 const CHEMIN_JS = path.join(__dirname, "..", "formulaire", "script.js");
 const CHEMIN_SPEC = path.join(__dirname, "..", "docs", "schema-formulaire.md");
+const CHEMIN_SCHEMA = path.join(__dirname, "..", "formulaire", "schema.json");
 
 function lireNormalise(chemin) {
     return fs.readFileSync(chemin, "utf-8").replace(/\r\n/g, "\n");
@@ -47,14 +48,22 @@ function corpsFormulaire() {
     return html.slice(debut);
 }
 
+// R2 (audit C1-T1) : compte les appels à lireAttribut() pour pouvoir nommer
+// une position (numéro d'occurrence) dans le message de refus, sans jamais
+// recopier le contenu lu — ce journal est public, et formulaire/index.html
+// deviendra un fichier **client** avec C1-T3.
+let compteurLectureAttribut = 0;
+
 /**
  * Lit un attribut sous ses trois formes réelles du fichier : guillemets
  * doubles, apostrophes, ou sans guillemet (anomalie A6, `index.html:309`).
  * Si le nom d'attribut est présent mais sous une forme qu'aucune des trois
  * ne reconnaît, le test refuse explicitement plutôt que d'ignorer
- * silencieusement l'attribut — un faux vert y coûterait un bilan perdu.
+ * silencieusement l'attribut — un faux vert y coûterait un bilan perdu. Le
+ * message nomme l'attribut et le numéro d'occurrence, jamais le texte lu.
  */
 function lireAttribut(attributs, nom) {
+    compteurLectureAttribut++;
     const present = new RegExp("\\b" + nom + "\\s*=", "i");
     if (!present.test(attributs)) return undefined;
     const motif = new RegExp(
@@ -63,8 +72,8 @@ function lireAttribut(attributs, nom) {
     const m = attributs.match(motif);
     if (!m) {
         throw new Error(
-            `attribut « ${nom} » de forme non reconnue (ni "...", ni '...', ni sans guillemet) ` +
-            `dans : ${attributs.trim()}`
+            `attribut « ${nom} » de forme non reconnue (ni "...", ni '...', ni sans guillemet), ` +
+            `occurrence numéro ${compteurLectureAttribut} de lireAttribut()`
         );
     }
     return m[1] !== undefined ? m[1] : (m[2] !== undefined ? m[2] : m[3]);
@@ -146,7 +155,7 @@ function imagesHtml() {
  * remplit les deux conditions à la fois (« form-bilan », « logo »… portent
  * des lettres hors a-f ou une longueur différente).
  */
-function idsReferences(texte) {
+function idsReferences(texte, nomFichier) {
     const ids = new Set();
     const motif = /#([A-Za-z_][\w-]*)/g;
     let m;
@@ -155,8 +164,37 @@ function idsReferences(texte) {
         const estCouleur = /^[0-9a-fA-F]+$/.test(jeton) && [3, 4, 6, 8].includes(jeton.length);
         if (!estCouleur) ids.add(jeton);
     }
-    const motifGetElementById = /getElementById\(\s*"([^"]+)"\s*\)/g;
-    while ((m = motifGetElementById.exec(texte)) !== null) ids.add(m[1]);
+
+    // R1 (audit C1-T1) : les deux styles de citation littérale réellement
+    // utilisés dans ce dépôt (guillemets doubles, apostrophes) sont
+    // reconnus. Un argument qui n'est ni l'un ni l'autre, mais qui est un
+    // simple identifiant (`getElementById(id)`, script.js:340, un paramètre
+    // de fonction) ne porte aucun `id` littéral : rien à ajouter, à juste
+    // titre. Toute AUTRE forme (gabarit littéral, concaténation, guillemet
+    // mal fermé…) fait refuser le test plutôt que d'être ignorée en
+    // silence — un `id` qui ne passerait que par cette forme deviendrait
+    // invisible à la dérivation des clés gelées.
+    const motifAppel = /getElementById\(\s*([^)]*?)\s*\)/g;
+    const motifIdentifiant = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
+    let numeroAppel = 0;
+    while ((m = motifAppel.exec(texte)) !== null) {
+        numeroAppel++;
+        const argument = m[1];
+        const double = argument.match(/^"([^"]*)"$/);
+        const simple = argument.match(/^'([^']*)'$/);
+        if (double) {
+            ids.add(double[1]);
+        } else if (simple) {
+            ids.add(simple[1]);
+        } else if (motifIdentifiant.test(argument)) {
+            // Argument dynamique (variable, paramètre) : aucun id littéral.
+        } else {
+            throw new Error(
+                `getElementById() d'une forme non reconnue (ni "...", ni '...', ni identifiant) ` +
+                `dans ${nomFichier}, occurrence numéro ${numeroAppel}`
+            );
+        }
+    }
     return ids;
 }
 
@@ -181,9 +219,46 @@ function idsPresentsDansLeFormulaire() {
  * d'exclusion à maintenir à la main.
  */
 function idsGelesAttendus() {
-    const references = new Set([...idsReferences(css), ...idsReferences(js)]);
+    const references = new Set([
+        ...idsReferences(css, "formulaire/style.css"),
+        ...idsReferences(js, "formulaire/script.js")
+    ]);
     const presents = idsPresentsDansLeFormulaire();
     return [...references].filter(function (id) { return presents.has(id); });
+}
+
+/**
+ * Les clés de brouillon dérivables de `formulaire/schema.json`, par les
+ * mêmes règles que `cleChamp()` : la `cle` du champ pour tout type qui en
+ * porte une, la `cle` de chaque option pour `radio`, et `ligne.cle + "#" +
+ * colonne.valeur` pour chaque colonne de `tableau` — exactement la forme
+ * que produit un champ sans `id` dans `cleChamp()`.
+ */
+function clesDuSchemaJson() {
+    const schema = JSON.parse(lireNormalise(CHEMIN_SCHEMA));
+    const cles = new Set();
+    schema.blocs.forEach(function (bloc) {
+        (bloc.champs || []).forEach(function (champ) {
+            if (champ.type === "image-annotable") {
+                // Les images ne passent pas par cleChamp() (script.js:863-867,
+                // #form-bilan input/textarea/select uniquement) : leurs traits
+                // sont indexés par position (D7), pas par clé de brouillon.
+                return;
+            }
+            if (champ.type === "radio") {
+                (champ.valeurs || []).forEach(function (option) { cles.add(option.cle); });
+            } else if (champ.type === "tableau") {
+                (champ.lignes || []).forEach(function (ligne) {
+                    (ligne.colonnes || []).forEach(function (colonne) {
+                        cles.add(ligne.cle + "#" + colonne.valeur);
+                    });
+                });
+            } else if (champ.cle) {
+                cles.add(champ.cle);
+            }
+        });
+    });
+    return cles;
 }
 
 /** Extrait le texte entre un titre de section et le prochain titre de même rang ou plus large. */
@@ -419,6 +494,25 @@ try {
         throw new Error(`id gelé(s) référencé(s) par script.js ou style.css mais absent(s) de la liste « Clés gelées » : ${geleesManquantes.join(", ")}`);
     }
     console.log(`6. clés gelées exhaustives (${attendus.length} id attendus, conteneur #form-bilan compris)`);
+
+    // 7. Bijection clés du HTML <-> clés de formulaire/schema.json (C1-T3).
+    //    formulaire/index.html n'est pas encore une coquille dans cette passe
+    //    (étapes 1 à 8 du contrat C1-T3 seulement) : `clesHtml` compte donc
+    //    encore `date-bilan`, seule clé que `schema.json` ne porte pas — son
+    //    bloc d'en-tête reste écrit en dur, hors du schéma (section 4 du
+    //    contrat). C'est la seule différence tolérée ; toute autre fait
+    //    échouer ce test en la nommant, et renommer une clé dans schema.json
+    //    (p. ex. « familliaux » en « familiaux ») la fait apparaître ici.
+    const clesSchema = clesDuSchemaJson();
+    const manquantesDuSchema = [...clesHtml].filter(function (c) { return c !== "date-bilan" && !clesSchema.has(c); });
+    const enTropDansSchema = [...clesSchema].filter(function (c) { return !clesHtml.has(c); });
+    if (manquantesDuSchema.length > 0) {
+        throw new Error(`clé(s) du formulaire absente(s) de formulaire/schema.json : ${manquantesDuSchema.join(", ")}`);
+    }
+    if (enTropDansSchema.length > 0) {
+        throw new Error(`clé(s) de formulaire/schema.json absente(s) du formulaire : ${enTropDansSchema.join(", ")}`);
+    }
+    console.log(`7. bijection clés HTML <-> formulaire/schema.json (${clesSchema.size} clés, « date-bilan » exceptée)`);
 
     console.log("\nTout est vert.");
 } catch (erreur) {

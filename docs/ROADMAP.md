@@ -9,7 +9,7 @@
 > est la traduction opérationnelle. La projection dit *pourquoi* ; cette feuille
 > de route dit *quoi faire, dans quel ordre, et comment savoir que c'est fini*.
 
-**Dernière mise à jour :** 14 octobre 2026
+**Dernière mise à jour :** 15 octobre 2026
 **État de départ :** V1 en production chez un cabinet depuis deux mois.
 
 ---
@@ -47,8 +47,38 @@ correctif se propage à tout le parc sans déplacement, et une panne se diagnost
   XL = au-delà, à découper avant d'être attaqué.
 - **Critères d'acceptation** : rédigés pour être vérifiables sans interprétation.
   Une tâche dont les critères ne sont pas tous verts n'est pas livrée.
-- Toute tâche touchant au serveur ou au dépôt de fichiers passe par l'**audit de
-  sécurité** (`/implementer-tache` enchaîne l'auditeur) avant la revue de code.
+- **Process** : le niveau de chaîne à appliquer à la tâche, défini ci-dessous.
+  Il est fixé une fois pour toutes ici et ne se renégocie pas au moment de coder.
+
+### Les trois niveaux de process
+
+La chaîne complète — contrat, implémentation, audit, revue, clôture — a été
+écrite pour les tâches qui peuvent casser une consultation ou ouvrir une faille.
+L'appliquer à l'écriture d'un document commercial coûte une session entière pour
+rien. Chaque tâche porte donc un niveau, choisi sur une seule question :
+**qu'est-ce qui se passe si c'est faux ?**
+
+| Niveau | Chaîne | Pour quoi |
+|---|---|---|
+| **Direct** | Une consigne, l'implémentation, une vérification humaine. Pas de contrat, pas d'agent. | Documents, décisions, procédures, tests seuls, outillage hors production. Si c'est faux, on le voit et on le réécrit. |
+| **Allégé** | Contrat court (périmètre + critères, pas de plan détaillé) → implémentation → tests. La revue est faite dans la foulée, sans agent séparé. | Code qui ne touche ni l'authentification, ni les données de santé, ni le formulaire de production. Si c'est faux, un test le voit. |
+| **Allégé + audit** | Idem, plus l'auditeur de sécurité sur **un point nommé** dans le contrat. | Petites tâches de sécurité dont l'enjeu tient en une phrase : remontée de répertoire, purge de fichiers, validation d'entrée. L'audit cible, il ne balaie pas. |
+| **Complet** | `/lancer-tache` → `/implementer-tache` (audit compris) → `/revue-code` → `/cloture-projet`. | Serveur, authentification, cryptographie, journalisation, formulaire de production, code installé chez un client. Si c'est faux, un cabinet s'en aperçoit avant nous. |
+
+Trois règles qui ne se discutent pas :
+
+1. **On peut monter de niveau en cours de route, jamais descendre.** Une tâche
+   « Direct » qui se révèle toucher le serveur s'arrête et repart en contrat.
+2. **Tout ce qui est marqué Complet le reste**, même si la modification paraît
+   tenir en trois lignes le jour venu. C'est précisément là que la V1 a produit
+   ses pièges.
+3. **Le niveau ne change pas l'exigence de tests.** Il change qui écrit le
+   cadrage et combien d'agents relisent — pas le fait qu'une tâche livrée soit
+   verte en intégration continue.
+
+**Répartition.** Sur les 33 tâches restantes : 9 en Direct, 7 en Allégé,
+5 en Allégé + audit, 12 en Complet. La moitié du reste à faire n'a jamais eu
+besoin de la chaîne complète.
 
 ---
 
@@ -92,6 +122,7 @@ conditionne la valeur de tout le reste.
 ### C0-T2 — Contrat de sous-traitance et registre
 
 - **Effort :** M (dont une grande part hors code)
+- **Process :** Direct — hors code ; la relecture par un conseil tient lieu de revue.
 - **Dépendances :** C0-T1
 - **Périmètre :** `docs/juridique/` (nouveau dossier, non versionné publiquement
   si le dépôt reste ouvert)
@@ -216,7 +247,25 @@ l'en-tête ; le moteur de rendu, identique chez tous les clients, produit le DOM
 
 ### C1-T3 — Moteur de rendu du schéma
 
+> **État : étapes 1 à 8 livrées le 15 octobre 2026. La bascule est C1-T3b.**
+> Le moteur (`formulaire/moteur/rendu.js`), son validateur et le schéma de
+> production (`formulaire/schema.json`, 28 blocs) existent et sont comparés
+> automatiquement au formulaire V1 : `tests/test_comparaison_dom.js` vérifie
+> les 29 blocs avec leur chaîne d'ancêtres, les champs, les deux tableaux et
+> les 4 images, sous neuf tolérances écrites et motivées.
+> **`formulaire/index.html` n'a pas été touché** — la V1 sert toujours les
+> consultations — et le moteur n'est atteignable que par la page provisoire
+> `formulaire/index-moteur.html`, exclue du paquet livré au cabinet.
+> Audit **CONFORME** après correction de onze constats ; revue **À LIVRER**
+> (0 bloquant, 0 important). 7 des 10 critères vérifiés : les trois autres
+> (jeu de référence, PDF superposable, retour arrière éprouvé) exigent un
+> navigateur et relèvent de C1-T3b.
+> Contrat : `docs/contrats/C1-T3.md` ; audit : `docs/audits/C1-T3.md` ;
+> revue : `docs/revues/C1-T3.md` ; journal des mises en échec :
+> `docs/audits/C1-T3-mises-en-echec.md`.
+
 - **Effort :** L
+- **Process :** Complet — point de non-retour du chantier C1.
 - **Dépendances :** C1-T1, C1-T2
 - **Périmètre :** `formulaire/moteur/rendu.js` (nouveau),
   `formulaire/index.html` réduit à une coquille
@@ -263,9 +312,41 @@ l'en-tête ; le moteur de rendu, identique chez tous les clients, produit le DOM
 - **Risque :** c'est la tâche la plus lourde du chantier et le point de
   non-retour. À ne pas démarrer avant que C1-T1 soit relu.
 
+### C1-T3b — Basculer le formulaire de production sur le moteur
+
+> **Ouverte le 15 octobre 2026.** C'est l'étape 9 du contrat de C1-T3,
+> détachée parce que son préalable — le jeu de référence visuelle de la V1 —
+> n'a pas pu être produit le jour même. **C'est le point de non-retour du
+> chantier.**
+
+- **Effort :** M
+- **Dépendances :** C1-T3 étapes 1 à 8 (livrées), **et le jeu de référence
+  visuelle de la V1** : `docs/references-visuelles/LISEZMOI.md`, quatre
+  fichiers, à produire par Baptiste au navigateur **avant** de commencer. Après
+  la bascule, le critère « PDF superposable » est définitivement invérifiable.
+- **Périmètre :** `formulaire/index.html` réduit à la coquille,
+  `formulaire/index-v1.html` (copie gelée du repli), `tests/test_coquille.py`,
+  réancrage des groupes 1 et 6 de `tests/test_inventaire_formulaire.js` sur
+  « coquille + schéma », suppression de `formulaire/index-moteur.html`.
+- **Travail :** la section 6, étape 9 du contrat de C1-T3, qui reste la
+  référence — y compris le favori « Formulaire — secours V1 » à poser sur la
+  tablette **avant** la bascule, et l'essai réel du repli.
+- **Critères d'acceptation :** les critères 1, 3 et 9 du contrat de C1-T3, non
+  cochés à ce jour. Le 3 est un critère **humain**, attribué à Baptiste.
+- **Hérité du réaudit de C1-T3** : les `id` de la coquille situés **hors** de
+  `#form-bilan` (`btn-export`, `barre-brouillon`, `zone-messages`, les boutons
+  de la barre d'outils — seize au total) ne sont protégés que par l'ordre du
+  document, puisqu'ils précèdent tous `#form-bilan`. Une `cle` de schéma valant
+  `btn-export` rendrait un jour le bouton d'export inerte. À inscrire comme
+  contrainte, ou à ajouter à `IDS_RESERVES_COQUILLE`.
+- **Risque :** une consultation cassée le lendemain matin. Le retour arrière de
+  niveau 1 — un favori, aucune ligne de commande — est la seule parade qui
+  compte, et il se vérifie avant la bascule, pas après.
+
 ### C1-T4 — Rendre le formulaire de production depuis un schéma
 
 - **Effort :** M
+- **Process :** Complet — touche le formulaire de production, celui d'une consultation du lendemain.
 - **Dépendances :** C1-T3
 - **Périmètre :** `clients/morlaix/schema.json`, `clients/morlaix/theme.json`,
   suppression du HTML sur mesure
@@ -284,6 +365,7 @@ l'en-tête ; le moteur de rendu, identique chez tous les clients, produit le DOM
 ### C1-T5 — Bibliothèque de blocs et templates de départ
 
 - **Effort :** M
+- **Process :** Allégé — bibliothèque de départ, rien en production.
 - **Dépendances :** C1-T4
 - **Périmètre :** `blocs/` (fragments de schéma réutilisables),
   `templates/podologue-complet.json`, `templates/podologue-court.json`
@@ -308,6 +390,7 @@ HTML.
 ### C2-T1 — Bloc `cabinet` dans `config.json` et route `GET /cabinet`
 
 - **Effort :** M
+- **Process :** Complet — nouvelle route serveur.
 - **Dépendances :** C1-T2 souhaitable
 - **Périmètre :** `serveur/serveur.py`, `formulaire/script.js`, `tests/test_serveur.py`
 - **Travail :**
@@ -322,6 +405,11 @@ HTML.
      afficher l'en-tête vide plutôt qu'un gabarit avec les coordonnées d'un
      autre cabinet — un faux en-tête sur un document de santé est pire qu'un
      en-tête absent.
+  5. **Deux en-têtes à purger, pas un** (relevé par la revue de C1-T3) :
+     `formulaire/index.html` et `formulaire/index-moteur.html` portent chacun
+     l'identité en dur. Le second est la page du moteur, provisoire jusqu'à la
+     bascule de C1-T3b ; si elle a disparu d'ici là, il n'y en aura qu'un. Le
+     critère par `grep` couvre les deux de toute façon.
 - **Critères d'acceptation :**
   - `grep -i "LE GOFF\|Grand'Rue\|legoffpodologue\|02 98 88" formulaire/` ne
     renvoie rien.
@@ -336,6 +424,7 @@ HTML.
 ### C2-T2 — Logo et actifs propres au client
 
 - **Effort :** S
+- **Process :** Allégé + audit — sert un fichier depuis un chemin configuré : la remontée de répertoire est le seul vrai risque, et l'audit ne regarde qu'elle.
 - **Dépendances :** C2-T1
 - **Périmètre :** `formulaire/images/`, `serveur/serveur.py`
 - **Travail :** servir le logo depuis un chemin déclaré en configuration, en
@@ -356,6 +445,7 @@ Android abandonne, ou le fait mal et appelle au support chaque semaine. À
 ### C3-T1 — Décider la stratégie de nom et de certificat
 
 - **Effort :** M (étude), décision bloquante
+- **Process :** Direct — étude et décision, aucune ligne de code.
 - **Dépendances :** aucune
 - **Périmètre :** `docs/adressage.md`
 - **Travail :** comparer, pour chaque voie, la fiabilité constatée sur Chrome
@@ -379,6 +469,7 @@ Android abandonne, ou le fait mal et appelle au support chaque semaine. À
 ### C3-T2 — Renouvellement automatique du certificat
 
 - **Effort :** L
+- **Process :** Complet — renouvellement de certificat, en plein chemin TLS.
 - **Dépendances :** C3-T1 (si voie 1 retenue)
 - **Périmètre :** `serveur/certificat.py` (nouveau), tâche planifiée
 - **Travail :**
@@ -399,6 +490,7 @@ Android abandonne, ou le fait mal et appelle au support chaque semaine. À
 ### C3-T3 — Installateur en un geste
 
 - **Effort :** L
+- **Process :** Complet — écrit sur le poste d'un client ; le retour arrière y coûte un déplacement.
 - **Dépendances :** C3-T1, C3-T2, C2-T1
 - **Périmètre :** `outils/installateur/`, `installer-demarrage.ps1` absorbé
 - **Travail :**
@@ -424,6 +516,7 @@ Android abandonne, ou le fait mal et appelle au support chaque semaine. À
 ### C3-T4 — Procédure de recette d'installation
 
 - **Effort :** S
+- **Process :** Direct — procédure écrite et liste de contrôle.
 - **Dépendances :** C3-T3
 - **Périmètre :** `docs/recette-installation.md`
 - **Travail :** liste de contrôle à dérouler chez le client : bilan de bout en
@@ -444,6 +537,7 @@ d'une installation à distance. L'éditeur est à Lille, le cabinet en Bretagne.
 ### C4-T1 — Journal technique non identifiant
 
 - **Effort :** M
+- **Process :** Complet — journal : le risque est d'y laisser passer une donnée de santé.
 - **Dépendances :** aucune
 - **Périmètre :** `serveur/serveur.py` (autour de `journaliser()`, lignes
   209-288), `tests/test_serveur.py`
@@ -469,6 +563,7 @@ d'une installation à distance. L'éditeur est à Lille, le cabinet en Bretagne.
 ### C4-T2 — Durée de conservation des journaux
 
 - **Effort :** S
+- **Process :** Allégé + audit — la purge supprime des fichiers ; vérifier qu'elle ne sort pas du dossier d'archives.
 - **Dépendances :** C0-T2, C4-T1
 - **Périmètre :** `serveur/serveur.py`, configuration
 - **Travail :** la rotation borne la taille, pas la durée. Ajouter une purge par
@@ -480,6 +575,7 @@ d'une installation à distance. L'éditeur est à Lille, le cabinet en Bretagne.
 ### C4-T3 — Page de diagnostic authentifiée `GET /etat`
 
 - **Effort :** M
+- **Process :** Complet — nouvelle route authentifiée qui expose l'état du serveur.
 - **Dépendances :** C4-T1
 - **Périmètre :** `serveur/serveur.py`, `tests/test_serveur.py`
 - **Travail :**
@@ -498,6 +594,7 @@ d'une installation à distance. L'éditeur est à Lille, le cabinet en Bretagne.
 ### C4-T4 — Numéro de version affiché
 
 - **Effort :** S
+- **Process :** Allégé — une constante propagée, couverte par un test de divergence.
 - **Dépendances :** aucune
 - **Périmètre :** `serveur/serveur.py`, `formulaire/`, `package.json`
 - **Travail :** une constante de version, unique, lue par le serveur, le
@@ -511,6 +608,7 @@ d'une installation à distance. L'éditeur est à Lille, le cabinet en Bretagne.
 ### C4-T5 — Réseau privé Tailscale et ACL
 
 - **Effort :** M (dont exploitation)
+- **Process :** Complet — ouvre un accès distant ; le périmètre des ACL est tout le sujet.
 - **Dépendances :** C4-T3, C0-T2
 - **Périmètre :** `docs/support-distance.md`, configuration des postes
 - **Travail :**
@@ -534,6 +632,7 @@ d'une installation à distance. L'éditeur est à Lille, le cabinet en Bretagne.
 ### C4-T6 — Chiffrement au repos
 
 - **Effort :** S
+- **Process :** Direct — étape d'installation, pas de code applicatif.
 - **Dépendances :** aucune
 - **Périmètre :** `docs/recette-installation.md`, liste de contrôle
   d'installation
@@ -555,6 +654,7 @@ avant toute nouvelle fonctionnalité. La fiabilité est la marge.
 ### C5-T1 — Format de paquet et signature Ed25519
 
 - **Effort :** M
+- **Process :** Complet — format signé : une erreur ici se corrige mal une fois diffusée.
 - **Dépendances :** C4-T4
 - **Périmètre :** `outils/faire-paquet.sh`, `outils/signer-paquet.py` (nouveau)
 - **Travail :**
@@ -573,6 +673,7 @@ avant toute nouvelle fonctionnalité. La fiabilité est la marge.
 ### C5-T2 — Client de mise à jour
 
 - **Effort :** L
+- **Process :** Complet — remplace du code sur le parc, vérification de signature comprise.
 - **Dépendances :** C5-T1
 - **Périmètre :** `serveur/maj.py` (nouveau), tâche planifiée
 - **Travail :**
@@ -598,6 +699,7 @@ avant toute nouvelle fonctionnalité. La fiabilité est la marge.
 ### C5-T3 — Canal de publication
 
 - **Effort :** S
+- **Process :** Allégé — outil de publication interne, jamais exécuté chez un client.
 - **Dépendances :** C5-T1
 - **Périmètre :** `outils/publier.sh`
 - **Travail :** emplacement de publication, canaux `stable` et `pilote`, et une
@@ -617,6 +719,7 @@ gratuits.
 ### C6-T1 — Politique de sécurité de contenu
 
 - **Effort :** S
+- **Process :** Allégé + audit — la politique elle-même est l'objet de l'audit ; le contrat serait une paraphrase.
 - **Dépendances :** C1-T2 (le style inline doit avoir disparu)
 - **Périmètre :** `formulaire/index.html`, `serveur/serveur.py` (`end_headers`,
   ligne 394)
@@ -631,6 +734,7 @@ gratuits.
 ### C6-T2 — Limitation des tentatives d'authentification
 
 - **Effort :** S
+- **Process :** Complet — touche l'authentification.
 - **Dépendances :** aucune
 - **Périmètre :** `serveur/serveur.py` (`authentifie`, ligne 363)
 - **Travail :** compteur d'échecs par source avec temporisation progressive, et
@@ -643,6 +747,7 @@ gratuits.
 ### C6-T3 — Validation des données relues
 
 - **Effort :** S
+- **Process :** Allégé + audit — validation des données relues.
 - **Dépendances :** aucune
 - **Périmètre :** `formulaire/script.js` (`restaurerBilan`, ligne 845)
 - **Travail :** contrôler la forme de ce qui sort de `localStorage` avant de le
@@ -655,6 +760,7 @@ gratuits.
 ### C6-T4 — Nettoyage du dépôt
 
 - **Effort :** S
+- **Process :** Direct — retrait de fichiers du suivi Git et contrôle d'intégration continue.
 - **Dépendances :** aucune
 - **Périmètre :** `.DS_Store`, `.gitignore`
 - **Travail :** retirer `.DS_Store` du suivi Git (il est versionné) et vérifier
@@ -663,6 +769,32 @@ gratuits.
 - **Critères d'acceptation :** `git ls-files | grep DS_Store` est vide ; le
   contrôle de l'intégration continue échoue si l'on ajoute volontairement une
   clé de publication.
+
+### C6-T5 — Une requête malformée reçoit un code, pas un silence
+
+> **Ouverte le 15 octobre 2026**, par l'audit de C1-T3. Défaut **pré-existant**,
+> non introduit par cette tâche : il est antérieur à l'ajout de `.json` dans la
+> liste blanche, et se reproduit à l'identique sur `.html` et `.css`.
+
+- **Effort :** S
+- **Process :** Allégé + audit — codes de réponse sur requête malformée.
+- **Dépendances :** aucune
+- **Périmètre :** `serveur/serveur.py`, `autorise_lecture()` (lignes 404-434)
+- **Constaté :** un octet nul encodé dans le chemin ferme la connexion sans
+  réponse. `GET /journal.log%00.json` rend un `RemoteDisconnected` : l'exception
+  n'est pas rattrapée dans le fil de la requête. Le serveur survit — la requête
+  suivante répond 200 — et l'appel exige des identifiants valides. `/index%00.html`
+  et `/style%00.css` produisent le même effet. Cause : l'extension est calculée
+  sur le chemin **non décodé**, la résolution sur le chemin décodé.
+- **Travail :** rattraper le cas, répondre un code d'erreur, et calculer
+  l'extension et la résolution sur la **même** forme du chemin.
+- **Critères d'acceptation :** les formes malformées — octet nul compris —
+  reçoivent 400, 403 ou 404, jamais un silence ; test d'intégration couvrant
+  l'octet nul sur une extension servie et une extension refusée.
+- **Déjà vérifié, à ne pas refaire :** la remontée de chemin est propre. Les
+  22 formes essayées contre un serveur réel (`..`, `%2e%2e`, `..%2f`, `..\`,
+  `%5c`, `/....//`, `//`, `/config%2Ejson`, `?`, `#`, `/moteur/../`) laissent
+  `config.json` inatteignable, en 403 ou 404.
 
 ---
 
@@ -677,6 +809,7 @@ devient un appel de support, et un appel de support consomme la marge du mois.
 ### C7-T1 — Tester `calculerPages()`
 
 - **Effort :** S
+- **Process :** Direct — tests seuls, aucun code de production modifié.
 - **Dépendances :** aucune
 - **Périmètre :** `tests/test_pagination.js` (nouveau), `formulaire/script.js:94`
 - **Travail :** `calculerPages(blocs, hauteurPagePx, hauteurTotalePx)` est une
@@ -689,6 +822,7 @@ devient un appel de support, et un appel de support consomme la marge du mois.
 ### C7-T2 — Tester le moteur de rendu
 
 - **Effort :** M
+- **Process :** Allégé — le contrat court sert à fixer les cas couverts, pas à cadrer du code.
 - **Dépendances :** C1-T3
 - **Périmètre :** `tests/test_moteur.js`
 - **Travail :** un schéma de référence produit un DOM attendu ; chaque type de
@@ -699,6 +833,7 @@ devient un appel de support, et un appel de support consomme la marge du mois.
 ### C7-T3 — Vérifier la file d'attente dans un vrai navigateur
 
 - **Effort :** S
+- **Process :** Direct — essai manuel sur la tablette du cabinet, à consigner.
 - **Dépendances :** aucune
 - **Périmètre :** `docs/recette-installation.md`
 - **Travail :** la file n'a jamais tourné sur un IndexedDB réel ; elle est
@@ -711,6 +846,7 @@ devient un appel de support, et un appel de support consomme la marge du mois.
 ### C7-T4 — Recette du parc en intégration continue
 
 - **Effort :** M
+- **Process :** Allégé — intégration continue, hors du chemin d'exécution du cabinet.
 - **Dépendances :** C5-T2
 - **Périmètre :** `.github/workflows/`
 - **Travail :** ajouter un travail qui installe le paquet dans une VM Windows
@@ -722,6 +858,7 @@ devient un appel de support, et un appel de support consomme la marge du mois.
 ### C7-T5 — Stabiliser `ServeurEnMarche` sous Windows
 
 - **Effort :** S
+- **Process :** Allégé — harnais de test ; le diagnostic compte plus que le correctif.
 - **Dépendances :** aucune
 - **Périmètre :** `tests/test_integration.py` (démarrage du serveur de test)
 - **Constaté :** le 14 octobre 2026, après C1-T2, les dix tests de
@@ -756,6 +893,7 @@ abonné d'un ex-abonné. À cadrer pendant l'industrialisation, pas après.
 ### C8-T1 — Clé de licence signée à durée limitée
 
 - **Effort :** M
+- **Process :** Complet — clé signée et vérification : même exigence que C5-T1.
 - **Dépendances :** C5-T1 (même outillage de signature), C0-T1
 - **Périmètre :** `serveur/licence.py` (nouveau)
 - **Travail :**
@@ -787,6 +925,7 @@ détermine le prix du setup **et** le plafond de croissance.
 ### C9-T1 — Questionnaire de feuille de route
 
 - **Effort :** S
+- **Process :** Direct — document commercial, aucune ligne de code.
 - **Dépendances :** C1-T1 (le vocabulaire du schéma détermine les questions
   utiles)
 - **Périmètre :** `docs/feuille-de-route-client.md`
@@ -801,6 +940,7 @@ détermine le prix du setup **et** le plafond de croissance.
 ### C9-T2 — Outil d'atelier de composition
 
 - **Effort :** M
+- **Process :** Allégé — outil d'atelier interne, jamais vendu ni installé.
 - **Dépendances :** C1-T5, C9-T1
 - **Périmètre :** `outils/atelier/`
 - **Travail :** un outil interne — **jamais une fonctionnalité vendue** — qui
@@ -812,6 +952,7 @@ détermine le prix du setup **et** le plafond de croissance.
 ### C9-T3 — Politique d'évolution après livraison
 
 - **Effort :** S
+- **Process :** Direct — décision commerciale, écrite dans les CGV.
 - **Dépendances :** C9-T2
 - **Périmètre :** CGV
 - **Travail :** « Ajoutez-moi un champ » arrivera dès la deuxième semaine, chez
@@ -864,7 +1005,9 @@ technique conditionne tout le support à distance.
 
 ## Comment ce document s'utilise
 
-Chaque tâche suit la même chaîne, outillée par les compétences du dépôt :
+Chaque tâche porte un **niveau de process** (voir
+[Les trois niveaux](#les-trois-niveaux-de-process)) qui dit quelle part de la
+chaîne lui appliquer. La chaîne pleine, pour les tâches marquées **Complet** :
 
 | Étape | Commande | Produit |
 |---|---|---|
@@ -873,5 +1016,19 @@ Chaque tâche suit la même chaîne, outillée par les compétences du dépôt :
 | 3. Revue | `/revue-code C1-T3` | verdict et corrections |
 | 4. Clôture | `/cloture-projet` | `CLAUDE.md` à jour, `docs/resumes/<date>.md` |
 
+Pour les niveaux inférieurs, on retire des étapes par le haut :
+
+| Niveau | 1. Contrat | 2. Implémentation | Audit | 3. Revue | 4. Clôture |
+|---|---|---|---|---|---|
+| Direct | — | à la main, en conversation | — | relecture humaine | groupée |
+| Allégé | court | `/implementer-tache` | — | dans la foulée | groupée |
+| Allégé + audit | court, avec le point à auditer | `/implementer-tache` | ciblé | dans la foulée | groupée |
+| Complet | `/lancer-tache` | `/implementer-tache` | complet | `/revue-code` | `/cloture-projet` |
+
+« Clôture groupée » : plusieurs tâches de niveau Direct ou Allégé sont closes
+ensemble en fin de session, en un seul `/cloture-projet`. C'est le second gain
+de temps du dispositif, après la suppression des contrats inutiles.
+
 Une tâche n'est cochée ici que lorsque ses critères d'acceptation sont tous
-vérifiés et que la revue est passée.
+vérifiés — quel que soit son niveau. Le process allégé allège le cadrage, pas
+les critères.

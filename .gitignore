@@ -15,6 +15,10 @@ docs/projection.md
 # Dépendances et archives de distribution
 node_modules/
 BilanPosturo-*.zip
+# Le dossier que `outils/faire-paquet.sh` assemble avant de le compresser :
+# sans cette ligne, un `git add -A` après fabrication d'un paquet verserait
+# une copie complète de formulaire/ et serveur/ dans le dépôt.
+BilanPosturo-*/
 
 # Système
 .DS_Store
