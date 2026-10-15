@@ -1,184 +1,119 @@
-# Contrôle visuel manuel — C1-T2
+# Jeu de référence visuelle de la V1 — à produire avant C1-T3
 
-> **Section 4 exécutée le 14 octobre 2026 : concluante.** Forcer `--fond`
-> rend magenta le fond du formulaire à l'écran **et** la marge du PDF ;
-> forcer `--texte` rend rouge tout le texte des champs, numéro de page
-> compris. html2canvas résout donc bien les variables CSS dans l'iframe
-> qu'il construit pour la capture — c'était le seul point de C1-T2 que
-> rien ne permettait de vérifier sans navigateur, et il est levé. Le
-> déploiement n'est plus bloqué par ce motif ; résultats détaillés dans
-> `docs/audits/C1-T2.md`.
->
-> Les sections 1 à 3 et 5 restent à exécuter pour produire les six fichiers
-> de référence. Ils ne conditionnent plus la validité de C1-T2 : ils
-> serviront à C1-T3, pour établir qu'un PDF issu du moteur à schéma est
-> superposable à celui de la V1.
+> **Pourquoi ce dossier existe.** Un critère d'acceptation de C1-T3 exige
+> qu'« un PDF généré depuis le moteur soit superposable à un PDF de la V1 ».
+> Ce PDF de la V1 ne peut être fabriqué que **tant que la V1 tourne encore** :
+> C1-T3 réduit `formulaire/index.html` à une coquille, et après cette bascule
+> il n'existe plus aucun moyen de l'obtenir. Produire ce jeu de référence est
+> donc la dernière chose à faire avant d'attaquer le moteur, et la seule qui
+> ne peut pas être rattrapée ensuite.
 
-Cette procédure vérifie ce qu'aucun test automatisé ne peut vérifier ici :
-que le rendu à l'écran et le PDF produit sont **identiques au pixel** avant
-et après l'extraction des couleurs en tokens CSS.
+**À faire par Baptiste**, sur la tablette de développement ou dans Chrome à la
+taille de la tablette. Compter vingt minutes, l'essentiel du temps étant la
+saisie du bilan de référence. Aucun navigateur n'est disponible pendant le
+développement assisté — ni Chrome, ni Playwright, ni Puppeteer — donc rien de
+tout ceci ne peut être automatisé ici.
 
-Aucun navigateur n'était disponible pendant l'implémentation (ni Chrome, ni
-Playwright, ni Puppeteer) : cette procédure n'a **pas** été exécutée, et les
-six fichiers qu'elle produit n'existent **pas encore**. À faire par Baptiste,
-sur la tablette de développement ou dans Chrome à la taille de la tablette —
-compter une dizaine de minutes.
+## Historique : le contrôle de C1-T2 est derrière nous
 
-## 0. Avant de commencer
+La version précédente de ce document décrivait une comparaison *avant / après*
+l'extraction des couleurs en tokens (C1-T2), destinée à prouver qu'aucune
+teinte n'avait bougé. **Cette comparaison n'a plus d'objet** et ne doit pas
+être exécutée : le contrôle de thème du 14 octobre 2026 l'a rendue inutile.
+Forcer `--fond` rend magenta le fond du formulaire à l'écran *et* la marge du
+PDF ; forcer `--texte` rend rouge le texte des champs, numéro de page compris.
+Les deux chemins — html2canvas pour le fond, `setTextColor` pour le texte —
+sont donc validés, ce qui était le seul point de C1-T2 que rien ne permettait
+de vérifier sans navigateur. Résultats détaillés dans `docs/audits/C1-T2.md`.
 
-Partir d'un formulaire vide, sans brouillon résiduel d'une saisie
-précédente : si le bouton « Restaurer » est visible au chargement, cliquer
-d'abord « Restaurer » puis « Nouveau bilan » pour vider ce brouillon avant de
-continuer. Si rien ne s'affiche, il n'y a rien à faire.
+Il ne reste donc **qu'un seul jeu de fichiers à produire**, sur `main` tel
+qu'il est aujourd'hui, sans aucun changement de branche.
 
-## 1. Avant la bascule — sur le code d'avant C1-T2
-
-Se placer sur le commit **avant** les modifications de cette tâche (avant
-`68845a0`.. les commits de la branche `c1-t2-tokens-couleur`), ou sur
-`main`, selon ce qui est déployé sur la tablette au moment du contrôle.
-
-### 1.1 Remplir le bilan de référence
-
-Un seul bilan sert de référence aux deux passages. **Aucune donnée patient
-réelle** : utiliser le nom « Témoin Référence » et une date de naissance
-fictive (par exemple 01/01/1980).
-
-Remplir au moins :
-
-- un champ texte (ex. nom, profession) ;
-- un champ date (date de naissance) ;
-- une case à cocher ;
-- un bouton radio ;
-- un champ liste déroulante, s'il y en a un dans le bloc rempli ;
-- une zone de texte (`textarea`), avec assez de contenu sur plusieurs blocs
-  pour obtenir **au moins trois pages** de PDF (remplir plusieurs zones de
-  texte longuement, par exemple « Antécédents », « Plaintes », « Examen
-  clinique ») ;
-- un trait de stylet sur **chacun des quatre schémas** : squelette gauche,
-  squelette droite, squelette dos, empreintes plantaires.
-
-### 1.2 Enregistrer le bilan saisi
-
-Sans recharger la page, ouvrir les outils de développement du navigateur
-(F12), onglet Application/Stockage → Local Storage → l'origine du
-formulaire. Copier la valeur de la clé `bilan-posturo-brouillon` (une chaîne
-JSON) et l'enregistrer telle quelle dans :
+## Les quatre fichiers attendus
 
 ```
-docs/references-visuelles/bilan-reference.json
+docs/references-visuelles/bilan-reference.json       le bilan, rejouable
+docs/references-visuelles/V1-reference.pdf           le PDF de la V1
+docs/references-visuelles/V1-reference-ecran-1.png   formulaire, haut de page
+docs/references-visuelles/V1-reference-ecran-2.png   formulaire, bas de page
 ```
 
-Ce fichier doit permettre de rejouer le même bilan après la bascule, en le
-recollant dans la même clé avant de cliquer « Restaurer ».
+C1-T3 produira plus tard ses homologues (`C1-T3-moteur.pdf`,
+`C1-T3-moteur-ecran-*.png`) pour la comparaison ; ne pas s'en occuper
+maintenant.
 
-### 1.3 Générer le PDF « avant »
+## 0. Partir d'un formulaire vide
 
-Cliquer « Générer le PDF ». Enregistrer le fichier produit sous :
+Si le bouton « Restaurer » est visible au chargement, un brouillon traîne
+d'une saisie précédente : cliquer « Restaurer », puis « Nouveau bilan » pour le
+vider. Si rien ne s'affiche, il n'y a rien à faire.
 
-```
-docs/references-visuelles/C1-T2-avant.pdf
-```
+## 1. Remplir le bilan de référence
 
-### 1.4 Capturer l'écran
+**Aucune donnée patient réelle.** Nom « Témoin Référence », date de naissance
+fictive — par exemple 01/01/1980. Ce dépôt est public : voir la section 4.
 
-Capture plein écran du formulaire rempli, en deux morceaux (haut puis bas de
-la page, défilement entre les deux) :
+Le bilan doit exercer tout ce que le moteur devra savoir rendre. Remplir donc
+au moins :
 
-```
-docs/references-visuelles/C1-T2-avant-ecran-1.png   (haut de page)
-docs/references-visuelles/C1-T2-avant-ecran-2.png   (bas de page)
-```
+- un champ **texte** (nom, métier, sport…) ;
+- le champ **date** (`date-bilan`, en tête du formulaire) ;
+- une **case à cocher** (par exemple dans le bloc Pouls ou Podo) ;
+- un **bouton radio** simple (Appui, Spin test) ;
+- un radio **de tableau** (Rotation tête, Posturo dynamique) — ce sont les
+  seuls champs dont la clé a une autre forme, il faut qu'ils soient couverts ;
+- plusieurs **zones de texte** remplies longuement — assez pour obtenir **au
+  moins trois pages** de PDF, afin que la pagination et le numéro de page
+  soient dans la comparaison ;
+- un **trait de stylet sur chacun des quatre schémas** : squelette gauche,
+  squelette droite, squelette dos, empreintes plantaires. L'ordre compte : les
+  traits sont enregistrés par position, pas par nom.
 
-Le bouton « Générer le PDF » doit être visible sur au moins l'une des deux.
+Il n'y a **aucune liste déroulante** dans ce formulaire : l'ancienne version de
+ce document en demandait une, c'était une erreur.
 
-## 2. Après la bascule — sur le code de C1-T2
+## 2. Enregistrer le bilan saisi
 
-Basculer sur la branche `c1-t2-tokens-couleur` (ou le commit qui porte les
-modifications de l'étape 6 du contrat). Vider le cache du navigateur
-(Ctrl+Maj+R, ou « Actualiser » maintenu → « Vider le cache et actualiser ») :
-`style.css` et `script.js` sont servis sans mise en cache par le serveur,
-mais le navigateur peut avoir gardé son propre cache.
+Sans recharger la page, ouvrir les outils de développement (F12), onglet
+Application ou Stockage → Local Storage → l'origine du formulaire. Copier la
+valeur de la clé `bilan-posturo-brouillon` — une chaîne JSON — et l'enregistrer
+telle quelle dans `bilan-reference.json`.
 
-### 2.1 Rejouer le même bilan
+C'est ce fichier qui permettra, en C1-T3, de rejouer exactement le même bilan
+dans le formulaire rendu par le moteur : on le recolle dans la même clé, puis
+on clique « Restaurer ». Sans lui, les deux PDF ne sont pas comparables.
 
-Ouvrir les outils de développement, recoller le contenu de
-`bilan-reference.json` dans la clé `bilan-posturo-brouillon` du Local
-Storage, recharger la page, cliquer « Restaurer » si proposé. Le formulaire
-doit réafficher exactement la même saisie qu'à l'étape 1.1 (textes, cases,
-traits de stylet compris).
+## 3. Produire le PDF et les captures
 
-### 2.2 Générer le PDF « après »
+1. Cliquer « Générer le PDF », enregistrer sous `V1-reference.pdf`.
+2. Capturer le formulaire rempli en deux morceaux, haut puis bas de page :
+   `V1-reference-ecran-1.png` et `V1-reference-ecran-2.png`. Le bouton
+   « Générer le PDF » doit être visible sur au moins l'une des deux.
 
-Cliquer « Générer le PDF ». Enregistrer sous :
+Noter au passage, dans `docs/contrats/C1-T3.md` quand il existera, le nombre de
+pages obtenu : c'est la première chose que la comparaison vérifiera.
 
-```
-docs/references-visuelles/C1-T2-apres.pdf
-```
+## 4. Avant de verser les fichiers dans Git
 
-### 2.3 Capturer l'écran
+**C'est le seul chemin par lequel une donnée de santé réelle pourrait entrer
+dans ce dépôt**, et le dépôt est désormais public sur GitHub, sous BUSL.
 
-```
-docs/references-visuelles/C1-T2-apres-ecran-1.png   (haut de page)
-docs/references-visuelles/C1-T2-apres-ecran-2.png   (bas de page)
-```
+- Relire `bilan-reference.json` et ouvrir `V1-reference.pdf` : le nom doit être
+  « Témoin Référence », la date de naissance fictive, et aucune annotation ne
+  doit évoquer un patient réel.
+- **Ouvrir les deux captures PNG et les regarder.** Une capture d'écran montre
+  bien plus que le formulaire : onglets du navigateur, barre de favoris,
+  notification, fenêtre en arrière-plan. C'est le fichier le plus susceptible
+  de contenir ce qu'on n'y cherchait pas.
 
-## 3. Comparer et consigner le verdict
+En cas de doute sur un seul des quatre fichiers, recommencer la procédure
+plutôt que de verser le fichier douteux. Une donnée de santé publiée ne se
+reprend pas : l'historique Git la conserve même après suppression.
 
-Ouvrir `C1-T2-avant.pdf` et `C1-T2-apres.pdf` côte à côte, page par page.
-Comparer aussi les deux paires de captures d'écran.
+## Tolérance, pour mémoire
 
-Tolérance : **aucune** différence sur les couleurs, les marges ou le
-positionnement. Seul le bruit de compression JPEG (propre à chaque export,
-`toDataURL("image/jpeg", 0.92)`) est admis.
-
-Remplir le tableau ci-dessous, une ligne par page du PDF, puis le recopier
-dans `docs/audits/C1-T2.md` avec le verdict global :
-
-| Page | Fond identique | Texte identique | Titres identiques | Bordures identiques | Numéro de page identique | Écart constaté |
-|---|---|---|---|---|---|---|
-| 1 | | | | | | |
-| 2 | | | | | | |
-| 3 | | | | | | |
-
-Vérifier en particulier :
-
-- le bouton « Générer le PDF » est visuellement identique entre
-  `C1-T2-avant-ecran-1.png` et `C1-T2-apres-ecran-1.png` (couleur, taille,
-  position, marge de 20 px sur les quatre côtés) ;
-- aucune zone du formulaire ou du PDF n'a gardé une ancienne teinte isolée
-  (effet d'un littéral oublié dans le CSS).
-
-## 4. Contrôle du changement de thème (critères d'acceptation dédiés)
-
-Ces deux manipulations se font sur le code **après** la bascule :
-
-1. Dans les outils de développement, éditer temporairement `formulaire/style.css`
-   (ou utiliser l'inspecteur pour forcer la règle `:root`) : remplacer
-   `--fond: #cec1a3` par `--fond: #ff00ff`. Recharger la page : le fond du
-   formulaire **à l'écran** doit devenir magenta. Cliquer « Générer le PDF » :
-   la marge du PDF généré doit aussi être magenta, sur le même document.
-   Rétablir `--fond: #cec1a3` ensuite.
-2. Même manipulation sur `--texte` (remplacer par une couleur vive) :
-   le numéro de page du PDF généré doit changer de couleur. Rétablir
-   `--texte: #3B4133` ensuite.
-
-Consigner le résultat de ces deux manipulations dans `docs/audits/C1-T2.md`.
-
-## 5. Avant de verser les fichiers dans Git
-
-Cette section est le seul chemin par lequel une donnée de santé réelle
-pourrait entrer dans ce dépôt public : elle porte sur les **six** fichiers
-produits, pas seulement sur le JSON et les PDF.
-
-- Relire `bilan-reference.json` et les deux PDF (`C1-T2-avant.pdf`,
-  `C1-T2-apres.pdf`) ligne à ligne.
-- **Ouvrir chacune des quatre captures PNG** (`C1-T2-avant-ecran-1.png`,
-  `-2.png`, `C1-T2-apres-ecran-1.png`, `-2.png`) et vérifier à l'œil qu'aucun
-  nom, date de naissance ou annotation réelle n'y figure — une capture
-  d'écran peut montrer un onglet de navigateur, une barre de favoris ou une
-  fenêtre arrière-plan qui n'apparaîtrait dans aucun des deux autres
-  fichiers.
-
-Dans tous les cas, le nom doit rester « Témoin Référence » et la date de
-naissance fictive. En cas de doute sur un seul des six fichiers, recommencer
-la procédure plutôt que de verser le fichier douteux.
+Lors de la comparaison en C1-T3 : **aucune** différence admise sur les
+couleurs, les marges ou le positionnement. Seul le bruit de compression JPEG
+est admis, l'export passant par `toDataURL("image/jpeg", 0.92)`
+(`formulaire/script.js:276`) — il diffère à chaque génération, y compris entre
+deux exports du même formulaire.

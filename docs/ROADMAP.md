@@ -184,8 +184,11 @@ l'en-tête ; le moteur de rendu, identique chez tous les clients, produit le DOM
 > forcer `--fond` rend magenta le fond de l'écran et la marge du PDF, forcer
 > `--texte` rend rouge le numéro de page. Les deux chemins — html2canvas pour
 > le fond, `setTextColor` pour le texte — sont donc validés, ce qui lève le
-> seul point susceptible de faire échouer la tâche. Restent les six fichiers
-> de référence, utiles à C1-T3 : `docs/references-visuelles/LISEZMOI.md`.
+> seul point susceptible de faire échouer la tâche. Reste à produire le jeu de
+> référence visuelle de la V1 — quatre fichiers, à faire **avant** C1-T3, qui
+> rend la V1 inobservable : `docs/references-visuelles/LISEZMOI.md`. La
+> comparaison avant/après C1-T2 qu'annonçait ce document est sans objet depuis
+> le contrôle de thème, et a été retirée le 15 octobre.
 
 - **Effort :** S
 - **Dépendances :** aucune (peut partir en premier, gain immédiat)
