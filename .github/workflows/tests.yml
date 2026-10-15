@@ -47,6 +47,9 @@ jobs:
       - name: Run palette tests
         run: node tests/test_palette.js
 
+      - name: Run form inventory tests
+        run: node tests/test_inventaire_formulaire.js
+
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -181,6 +184,42 @@ jobs:
             exit 1
           fi
           echo "Aucune mention de licence contradictoire."
+
+      - name: Check that cabinet identity is not copied into the C1-T1 schema documents
+        run: |
+          set -e
+          # Chemins fixes et ASCII, à la façon du contrôle de palette plus haut :
+          # pas de git ls-files (échapperait les chemins accentués), pas de
+          # xargs -0 (rendrait 123 pour « rien trouvé » comme pour une erreur
+          # réelle). Les motifs sont dérivés de formulaire/index.html à
+          # l'exécution, jamais écrits en dur : en cas d'échec, seul un numéro
+          # de ligne est nommé, jamais le contenu, sans quoi ce journal
+          # deviendrait lui-même le canal de fuite qu'il doit empêcher.
+          source="formulaire/index.html"
+          cibles="docs/schema-formulaire.md tests/test_inventaire_formulaire.js"
+          for fichier in "$source" $cibles; do
+            if [ ! -f "$fichier" ]; then
+              echo "::error::Fichier introuvable pour le contrôle d'identité du cabinet : $fichier"
+              exit 1
+            fi
+          done
+
+          fautifs=""
+          for num in 72 73 74 75; do
+            texte=$(sed -n "${num}p" "$source" | sed -E 's/<[^>]*>//g' | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')
+            if [ -z "$texte" ]; then continue; fi
+            for fichier in $cibles; do
+              if grep -qF -- "$texte" "$fichier"; then
+                fautifs="$fautifs $fichier:$num"
+              fi
+            done
+          done
+
+          if [ -n "$fautifs" ]; then
+            echo "::error::Coordonnée du cabinet recopiée, voir $source ligne(s) :$fautifs"
+            exit 1
+          fi
+          echo "Aucune coordonnée du cabinet recopiée."
 
   scripts-windows:
     # Les scripts d'installation ne tournent qu'au cabinet, sous Windows :

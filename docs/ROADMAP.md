@@ -115,9 +115,10 @@ conditionne la valeur de tout le reste.
 ## C1 — Moteur de formulaire à schéma
 
 **Pourquoi.** `formulaire/index.html` compte 388 lignes de HTML écrit à la main
-pour une praticienne : 17 blocs, ~78 champs identifiés, l'identité du cabinet en
-dur lignes 65-68. Face au deuxième cabinet, les deux seules réponses possibles
-sans moteur sont mauvaises : imposer le template (on devient le Cegedim que l'on
+pour une praticienne : 29 blocs, 45 champs logiques et 4 images annotables
+identifiés (inventaire C1-T1), l'identité du cabinet en dur lignes 72-75.
+Face au deuxième cabinet, les deux seules réponses possibles sans moteur sont
+mauvaises : imposer le template (on devient le Cegedim que l'on
 dénonce) ou maintenir un HTML par client (10 clients = 10 divergences, et le
 premier correctif de pagination devient impossible à propager).
 
@@ -127,13 +128,37 @@ l'en-tête ; le moteur de rendu, identique chez tous les clients, produit le DOM
 
 ### C1-T1 — Inventorier le formulaire existant et en déduire le vocabulaire de schéma
 
+> **État : livré le 15 octobre 2026.** `docs/schema-formulaire.md` inventorie
+> les 29 blocs, 45 champs logiques et 4 images annotables de `#form-bilan`
+> (contre l'estimation initiale de 17 blocs et d'une petite centaine de
+> champs). Jeu fermé de sept types (`texte`, `zone-texte`, `date`, `case`,
+> `radio`, `tableau`, `image-annotable`), trois types écartés et justifiés
+> (`nombre`, `liste`, `paragraphe`), clés de brouillon reprises à l'identique
+> des `id` actuels, fautes et accents compris — aucune table de
+> correspondance. Les 13 critères sont vérifiés, dont les mises en échec
+> délibérées (retrait d'une ligne de champ, retrait d'une justification,
+> image annotable surnuméraire, attribut non guillemeté).
+> `tests/test_inventaire_formulaire.js` (6 groupes) couvre la bijection clés
+> HTML ↔ inventaire — avec recomptage des 29 blocs et des 4 images dans le
+> HTML à chaque exécution, et contrôle de leur ordre —, la version du format,
+> un exemple JSON par type, l'absence de type écarté dans un exemple, les
+> justifications, et l'exhaustivité des clés gelées, conteneur `#form-bilan`
+> compris. Un pas d'intégration continue vérifie en outre qu'aucune
+> coordonnée du cabinet n'est recopiée dans les documents de la tâche. Aucun
+> octet de `formulaire/` ni `serveur/` modifié. Contrat :
+> `docs/contrats/C1-T1.md` ; audit : `docs/audits/C1-T1.md` (CONFORME) ;
+> revue : `docs/revues/C1-T1.md` (une contradiction interne sur le titre du
+> bloc 2, corrigée : un titre de bloc est une donnée du schéma, jamais du
+> thème).
+
 - **Effort :** M
 - **Dépendances :** aucune
 - **Périmètre :** `docs/schema-formulaire.md` (spécification), lecture de
   `formulaire/index.html`
 - **Travail :**
-  1. Lister les 17 blocs et les ~78 champs, avec pour chacun : type
-     (`texte`, `nombre`, `date`, `case`, `radio`, `liste`, `zone-texte`,
+  1. Lister les blocs et les champs du formulaire (une première estimation,
+     révisée par l'inventaire, en comptait 17 et une petite centaine), avec
+     pour chacun : type (`texte`, `nombre`, `date`, `case`, `radio`, `liste`, `zone-texte`,
      `image-annotable`, `paragraphe`, `tableau`), libellé, nom de clé, valeurs
      possibles, largeur, groupement.
   2. En déduire le **jeu minimal de types** qui couvre 100 % de l'existant. Tout
@@ -211,6 +236,27 @@ l'en-tête ; le moteur de rendu, identique chez tous les clients, produit le DOM
     visuel documenté, captures conservées).
   - Un champ ajouté au schéma apparaît sans toucher une ligne de JavaScript.
   - Un schéma volontairement cassé produit un message d'erreur lisible.
+- **Hérité de l'audit de C1-T1** (`docs/audits/C1-T1.md`, faibles résiduelles,
+  à traiter dans cette tâche) :
+  - La garde d'intégration continue « aucune coordonnée du cabinet recopiée »
+    est ancrée sur les **numéros** de ligne 72-75 de `formulaire/index.html`.
+    C1-T3 réduit ce fichier à une coquille : la garde deviendra silencieusement
+    verte. La réancrer sur le **contenu** du bloc d'identité, pas sur sa
+    position, et conserver la règle « en cas d'échec, ne nommer qu'un numéro de
+    ligne, jamais le contenu ».
+  - La dérivation des clés gelées de `tests/test_inventaire_formulaire.js` ne
+    reconnaît `getElementById` qu'en guillemets doubles (17 occurrences sur 17
+    aujourd'hui). Un `getElementById('…')` en apostrophes y échapperait.
+  - Le chemin de refus de `lireAttribut()` recopie les attributs du tag dans le
+    journal d'intégration continue, qui est public. Sans exposition réelle —
+    D4 interdit le préremplissage — mais à resserrer dès que le moteur écrit
+    des attributs.
+  - **À trancher avant d'écrire le validateur de schéma** (relevé par l'audit,
+    puis par la revue) : la règle 1 de la section 7 de
+    `docs/schema-formulaire.md` refuse toute clé supplémentaire à la racine,
+    alors que la règle d'évolution de sa section 5.1 admet qu'« un ajout
+    purement facultatif ne change pas la version ». Les deux se contredisent
+    dès qu'un attribut racine facultatif est ajouté.
 - **Risque :** c'est la tâche la plus lourde du chantier et le point de
   non-retour. À ne pas démarrer avant que C1-T1 soit relu.
 

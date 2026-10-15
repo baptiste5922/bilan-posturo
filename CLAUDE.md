@@ -5,9 +5,9 @@ formulaire et annote les schémas au stylet, le PDF est fabriqué dans le
 navigateur et déposé sur le PC du cabinet. Utilisée quotidiennement depuis
 août 2026 par une pédicure-podologue à Morlaix, pour la totalité de ses bilans.
 
-**Dernière mise à jour :** 14 octobre 2026, par `/cloture-projet`
+**Dernière mise à jour :** 15 octobre 2026, par `/cloture-projet`
 **Version :** V1 en production, sous **BUSL 1.1** depuis le 14 octobre 2026
-**Jalon en cours :** V2 — 2 tâches sur 36 livrées (voir `docs/ROADMAP.md`)
+**Jalon en cours :** V2 — 3 tâches sur 36 livrées (voir `docs/ROADMAP.md`)
 
 ## Architecture en bref
 
@@ -29,7 +29,7 @@ août 2026 par une pédicure-podologue à Morlaix, pour la totalité de ses bila
 | `formulaire/script.js` (1223 l.) | PDF, stylet, brouillon, dépôt, file d'attente, lecture des tokens de couleur |
 | `formulaire/index.html` (388 l.) | Le formulaire, 17 blocs, ~78 champs — **écrit à la main** |
 | `formulaire/style.css` | La palette du cabinet : cinq tokens sur `:root`, **source unique** |
-| `tests/` | 67 tests Python + 7 scénarios Node (file) + 8 groupes (palette) |
+| `tests/` | 67 tests Python + 7 scénarios Node (file) + 8 groupes (palette) + 6 (inventaire) |
 | `installer-demarrage.ps1` | Tâche planifiée Windows, jamais exécuté hors du cabinet |
 
 Le PDF est produit **côté navigateur** : le serveur ne reçoit qu'un fichier déjà
@@ -61,7 +61,7 @@ une image et non une donnée.
 | Chantier | Intitulé | État |
 |---|---|---|
 | C0 | Cadre juridique et licence | C0-T1 **livré** (BUSL 1.1) ; C0-T2 à faire |
-| C1 | Moteur de formulaire à schéma | C1-T2 **livré** (tokens) ; C1-T1 est la suite |
+| C1 | Moteur de formulaire à schéma | C1-T2 et C1-T1 **livrés** ; C1-T3 est la suite — point de non-retour |
 | C2 | Identité du cabinet en configuration | à faire |
 | C3 | Adressage, certificat et installateur | à faire — verrou n°1, bloquant |
 | C4 | Observabilité et support à distance | à faire |
@@ -82,11 +82,21 @@ Détail par tâche, critères d'acceptation et ordre d'exécution :
 `docs/ROADMAP.md`. Analyse produit, prix et cadre juridique :
 `docs/projection.md` (document interne, ne pas diffuser).
 
-**Tests :** 67 Python + 7 Node (file) + 8 groupes (palette), tous verts au
-14 octobre 2026, en intégration continue sur Linux, Windows et macOS.
+**Vocabulaire du schéma.** Fixé par C1-T1, le 15 octobre :
+`docs/schema-formulaire.md` est la source de vérité du format — sept types
+fermés, clés reprises à l'identique des `id` du formulaire, version du format
+en première clé. C1-T3, C1-T4, C7-T2 et C9-T1 s'y règlent sans rouvrir le
+débat.
+
+**Tests :** 67 Python + 7 Node (file) + 8 groupes (palette) + 6 groupes
+(inventaire), tous verts au 15 octobre 2026, en intégration continue sur
+Linux, Windows et macOS.
 
 ## Dernières sessions
 
+- [2026-10-15 — Le vocabulaire du schéma de formulaire](docs/resumes/2026-10-15-vocabulaire-de-schema.md) :
+  C1-T1 livrée. 29 blocs et 45 champs inventoriés, sept types fermés, clés gelées.
+  Travail non commité, sur la branche `c1-t1-inventaire-formulaire`.
 - [2026-10-14 — Licence BUSL et palette unifiée](docs/resumes/2026-10-14-licence-et-tokens.md) :
   V1 enfin versionnée (elle n'existait que sur un disque), C0-T1 et C1-T2 livrées.
 - [2026-10-01 — Outillage de la V2](docs/resumes/2026-10-01-outillage-v2.md) :
@@ -157,6 +167,18 @@ Ils ont déjà coûté du temps ; ils le recoûteront.
   Validé sur des fichiers non suivis, il ne voit rien : `git ls-files` ne les
   liste pas. C'est ainsi que six travaux d'intégration continue ont échoué le
   14 octobre.
+- **Les clés de brouillon sont gelées — piège refermé par C1-T1.** Les `id` du
+  formulaire *sont* les clés du brouillon `localStorage` (`cleChamp()`,
+  `script.js:863-867`). Les renommer — même pour corriger `familliaux`,
+  `spécialistes`, `symétrique`, `pédieux` — perd le bilan d'une consultation en
+  cours. `docs/schema-formulaire.md` les documente comme volontairement
+  conservés ; la tentation de « nettoyer » est le principal risque de C1-T3.
+- **Une liste normative recopiée à la main finit fausse.** Les trois constats
+  sérieux de C1-T1 étaient la même erreur : clés gelées recopiées donc
+  incomplètes, décompte figé en constante dans un test, liste de « 9 blocs » qui
+  en contenait 10. Dériver du code, jamais transcrire. Et toute garde ancrée sur
+  des **numéros** de ligne devient silencieusement verte quand le fichier bouge :
+  celle de l'identité du cabinet le fera en C1-T3.
 - **`ServeurEnMarche` est instable sous Windows et Python 3.9** : ses dix tests
   ont expiré en lecture TLS une fois, puis sont repassés au vert sur simple
   relance, sans modification de code. C'est le harnais, pas le serveur (C7-T5).
