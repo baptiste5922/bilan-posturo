@@ -45,7 +45,19 @@ def _lire(chemin):
 
 
 def _empreinte(chemin):
-    return hashlib.sha256(chemin.read_bytes()).hexdigest()
+    """Empreinte du contenu, insensible à la convention de fin de ligne.
+
+    `actions/checkout` extrait le dépôt avec `core.autocrlf` à la valeur du
+    lanceur : sous Windows, les `\n` du fichier versionné deviennent des
+    `\r\n`, et une empreinte calculée sur les octets bruts diffère alors de
+    celle calculée ailleurs. Les deux travaux `windows-latest` ont ainsi
+    échoué à la première exécution de C1-T3b, sur un fichier pourtant intact.
+    `.gitattributes` fixe désormais `eol=lf` pour les fichiers servis, donc la
+    cause est traitée ; cette normalisation reste la ceinture, pour que le
+    contrôle ne dépende pas de la configuration Git du poste.
+    """
+    contenu = chemin.read_bytes().replace(b"\r\n", b"\n")
+    return hashlib.sha256(contenu).hexdigest()
 
 
 def _extraire_balise(texte, nom_balise, nom_fichier):
