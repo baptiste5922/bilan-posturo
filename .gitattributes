@@ -1,0 +1,30 @@
+# Conventions de fin de ligne.
+#
+# Sans ce fichier, `actions/checkout` extrait le dépôt avec le `core.autocrlf`
+# du lanceur : sous Windows les `\n` deviennent des `\r\n`, et tout contrôle
+# portant sur les octets d'un fichier — une empreinte SHA-256, un motif exigeant
+# `\n` — échoue sur un fichier pourtant intact. Cela a coûté deux échecs
+# d'intégration continue à C1-T1 (motif de bloc JSON) puis à C1-T3b (empreinte
+# de la fiche de secours).
+#
+# Les fichiers servis à la tablette et le code sont donc gelés en LF ; seuls les
+# scripts qui s'exécutent sous Windows gardent CRLF, par prudence.
+* text=auto
+
+*.html text eol=lf
+*.css  text eol=lf
+*.js   text eol=lf
+*.json text eol=lf
+*.py   text eol=lf
+*.md   text eol=lf
+*.yml  text eol=lf
+*.sh   text eol=lf
+
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+*.pdf binary
