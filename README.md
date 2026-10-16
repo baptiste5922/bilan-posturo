@@ -224,7 +224,10 @@ committed, so a fresh clone generates PDFs without any install step.
 ```
 bilan-posturo/
 ├── formulaire/             everything served to the tablet — the web root
-│   ├── index.html
+│   ├── index.html          production shell: renders the schema at load time
+│   ├── index-v1.html       frozen V1, the one-tap fallback (C1-T3b)
+│   ├── moteur/rendu.js     the rendering engine (C1-T3)
+│   ├── schema.json         the form's content, read by moteur/rendu.js
 │   ├── script.js           PDF, stylus, draft, delivery
 │   ├── style.css
 │   ├── lib/                jspdf + html2canvas, committed

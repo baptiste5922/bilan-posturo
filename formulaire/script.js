@@ -789,12 +789,14 @@ function demarrerApplication() {
     if (applicationDemarree) return;
     applicationDemarree = true;
 
-    // Câblage du bouton d'export sans onclick= en ligne, mais seulement sur
-    // la page provisoire du moteur (constat n°10, audit C1-T3 : onclick= est
-    // incompatible avec la CSP à venir, C6-T1). Conditionné à data-moteur :
-    // formulaire/index.html porte toujours son onclick= (index.html:26,
-    // hors périmètre de cette tâche), et ajouter ce même écouteur là aussi
-    // déclencherait exporterBilanPDF() deux fois par clic.
+    // Câblage du bouton d'export sans onclick= en ligne (constat n°10,
+    // audit C1-T3 : onclick= est incompatible avec la CSP à venir, C6-T1).
+    // Conditionné à data-moteur : depuis la bascule (C1-T3b), c'est
+    // `formulaire/index.html` (la coquille de production) qui porte cet
+    // attribut et plus d'onclick= ; c'est `formulaire/index-v1.html` (la
+    // fiche de secours gelée) qui porte toujours son onclick= d'origine.
+    // Ajouter ce même écouteur là aussi déclencherait exporterBilanPDF()
+    // deux fois par clic.
     const formulaire = document.getElementById("form-bilan");
     if (formulaire && formulaire.dataset && formulaire.dataset.moteur !== undefined) {
         const bouton = document.getElementById("btn-export");

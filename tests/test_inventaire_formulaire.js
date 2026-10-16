@@ -2,15 +2,25 @@
  * Test de l'inventaire du formulaire (docs/schema-formulaire.md), produit
  * par la tâche C1-T1.
  *
- * Ce document fige le vocabulaire du futur moteur de rendu (C1-T3) : un
- * champ oublié dans l'inventaire, ou une clé qui diverge du brouillon
- * `localStorage` réel (cleChamp(), script.js:863-867), ne se verrait qu'en
- * production, après coup, sur le poste de la praticienne. Ce test recompte
- * donc mécaniquement, à chaque exécution, tout ce que la spécification
- * présente comme normatif — les clés de brouillon, le nombre de blocs,
- * l'ordre et le nombre des images annotables, l'ensemble des `id` gelés —
- * plutôt que de figer ces nombres en constantes qui dériveraient du HTML
- * réel sans que rien ne le signale (défaut relevé à l'audit).
+ * Ce document fige le vocabulaire du moteur de rendu (C1-T3, basculé en
+ * production par C1-T3b) : un champ oublié dans l'inventaire, ou une clé qui
+ * diverge du brouillon `localStorage` réel (cleChamp(), script.js:863-867),
+ * ne se verrait qu'en production, après coup, sur le poste de la
+ * praticienne. Ce test recompte donc mécaniquement, à chaque exécution, tout
+ * ce que la spécification présente comme normatif — les clés de brouillon,
+ * le nombre de blocs, l'ordre et le nombre des images annotables, l'ensemble
+ * des `id` gelés — plutôt que de figer ces nombres en constantes qui
+ * dériveraient du HTML réel sans que rien ne le signale (défaut relevé à
+ * l'audit).
+ *
+ * Depuis la bascule (C1-T3b), `formulaire/index.html` est une coquille qui
+ * ne porte plus les 29 blocs à la main : le témoin indépendant des groupes 1
+ * et 7 devient `formulaire/index-v1.html`, la V1 gelée (son intégrité, empreinte
+ * SHA-256 comprise, est sous la garde de `tests/test_coquille.py`). Un test
+ * qui dériverait sa référence du schéma qu'il contrôle ne contrôlerait rien.
+ * Le groupe 6 lit désormais l'union des `id` de la coquille et de ceux
+ * qu'émet le schéma ; le groupe 8, nouveau, vérifie que la coquille ne
+ * contient plus que l'en-tête.
  *
  * Les fichiers lus sont normalisés en fin de ligne `\n` dès la lecture : le
  * reste du fichier peut donc écrire ses motifs sans jamais répéter `\r?\n`,
@@ -24,7 +34,8 @@
 const fs = require("fs");
 const path = require("path");
 
-const CHEMIN_HTML = path.join(__dirname, "..", "formulaire", "index.html");
+const CHEMIN_V1 = path.join(__dirname, "..", "formulaire", "index-v1.html");
+const CHEMIN_COQUILLE = path.join(__dirname, "..", "formulaire", "index.html");
 const CHEMIN_CSS = path.join(__dirname, "..", "formulaire", "style.css");
 const CHEMIN_JS = path.join(__dirname, "..", "formulaire", "script.js");
 const CHEMIN_SPEC = path.join(__dirname, "..", "docs", "schema-formulaire.md");
@@ -34,29 +45,38 @@ function lireNormalise(chemin) {
     return fs.readFileSync(chemin, "utf-8").replace(/\r\n/g, "\n");
 }
 
-const html = lireNormalise(CHEMIN_HTML);
+const htmlV1 = lireNormalise(CHEMIN_V1);
+const htmlCoquille = lireNormalise(CHEMIN_COQUILLE);
 const css = lireNormalise(CHEMIN_CSS);
 const js = lireNormalise(CHEMIN_JS);
 const spec = lireNormalise(CHEMIN_SPEC);
 
-/** Le sous-arbre `#form-bilan`, hors barre d'outils (lignes 26-63, section 1). */
-function corpsFormulaire() {
-    const debut = html.indexOf('<div id="form-bilan">');
-    if (debut === -1) {
-        throw new Error("« #form-bilan » introuvable dans formulaire/index.html");
+/**
+ * Le sous-arbre `#form-bilan` d'un texte HTML donné, hors barre d'outils.
+ * Localise le conteneur par motif plutôt que par littéral exact
+ * (`<div id="form-bilan">`) : la coquille de production porte désormais
+ * `data-moteur` sur ce même `div` (`<div id="form-bilan" data-moteur>`),
+ * qu'un littéral exact ne reconnaîtrait plus. Lève toujours si le motif est
+ * introuvable — jamais un sous-arbre vide passé sous silence.
+ */
+function corpsFormulaire(texte, nomFichier) {
+    const motif = /<div\s+id="form-bilan"[^>]*>/;
+    const m = motif.exec(texte);
+    if (!m) {
+        throw new Error(`« #form-bilan » introuvable dans ${nomFichier}`);
     }
-    return html.slice(debut);
+    return texte.slice(m.index);
 }
 
 // R2 (audit C1-T1) : compte les appels à lireAttribut() pour pouvoir nommer
 // une position (numéro d'occurrence) dans le message de refus, sans jamais
 // recopier le contenu lu — ce journal est public, et formulaire/index.html
-// deviendra un fichier **client** avec C1-T3.
+// est un fichier **client** depuis C1-T3b.
 let compteurLectureAttribut = 0;
 
 /**
  * Lit un attribut sous ses trois formes réelles du fichier : guillemets
- * doubles, apostrophes, ou sans guillemet (anomalie A6, `index.html:309`).
+ * doubles, apostrophes, ou sans guillemet (anomalie A6, `index-v1.html:309`).
  * Si le nom d'attribut est présent mais sous une forme qu'aucune des trois
  * ne reconnaît, le test refuse explicitement plutôt que d'ignorer
  * silencieusement l'attribut — un faux vert y coûterait un bilan perdu. Le
@@ -96,9 +116,8 @@ function cleDepuisAttributs(attributs) {
     return null;
 }
 
-/** Les clés de brouillon réellement dérivables du formulaire aujourd'hui. */
-function clesDuFormulaire() {
-    const corps = corpsFormulaire();
+/** Les clés de brouillon réellement dérivables d'un corps #form-bilan donné. */
+function clesDuFormulaire(corps) {
     const cles = new Set();
     const motif = /<(input|textarea|select)\b([^>]*)>/gi;
     let m;
@@ -114,8 +133,7 @@ function clesDuFormulaire() {
  * avec leur `id` ou `null` : c'est l'unité de pagination (script.js:234-239,
  * `b.id || b.className`), recomptée ici plutôt que supposée égale à 29.
  */
-function blocsHtml() {
-    const corps = corpsFormulaire();
+function blocsHtml(corps) {
     const blocs = [];
     const motif = /<([a-zA-Z][a-zA-Z0-9]*)\b([^>]*)>/g;
     let m;
@@ -134,8 +152,7 @@ function blocsHtml() {
  * l'ordre réels de ces images sont ce que D7 rend normatif — pas une
  * constante du test.
  */
-function imagesHtml() {
-    const corps = corpsFormulaire();
+function imagesHtml(corps) {
     const images = [];
     const motif = /<img\b([^>]*)>/g;
     let m;
@@ -198,9 +215,8 @@ function idsReferences(texte, nomFichier) {
     return ids;
 }
 
-/** Tous les `id` présents dans #form-bilan, pour restreindre idsReferences() au périmètre du schéma. */
-function idsPresentsDansLeFormulaire() {
-    const corps = corpsFormulaire();
+/** Tous les `id` présents dans un corps #form-bilan donné. */
+function idsPresentsDansLeFormulaire(corps) {
     const ids = new Set();
     const motif = /<[a-zA-Z][a-zA-Z0-9]*\b([^>]*)>/g;
     let m;
@@ -212,18 +228,65 @@ function idsPresentsDansLeFormulaire() {
 }
 
 /**
- * L'ensemble des `id` que la spécification doit déclarer gelés : présents
- * dans le formulaire ET référencés par script.js ou style.css. La barre
- * d'outils (btn-export, barre-brouillon…) est hors de #form-bilan et se
- * trouve donc naturellement écartée par cette intersection, sans liste
- * d'exclusion à maintenir à la main.
+ * Les `id` qu'émet le moteur de rendu à partir de `formulaire/schema.json` :
+ * la `cle` de chaque bloc (y compris un bloc `tableau`, `rendu.js:827`), son
+ * `titre_cle` quand il en porte un (`rendu.js:648`), la `cle` de chaque
+ * champ pour tout type qui en pose une en `id` (texte, zone-texte, date,
+ * case, image-annotable — `rendu.js:693,709,716,727,818`), et la `cle` de
+ * chaque option d'un champ `radio` (`rendu.js:760`). Les lignes d'un champ
+ * `tableau` ne reçoivent jamais d'`id` — seul leur `name` synthétisé les
+ * distingue (`rendu.js`, aucun `setAttribute("id", …)` sur ce chemin) — donc
+ * rien n'y est ajouté pour ce type.
+ *
+ * Distincte de clesDuSchemaJson() plus bas, qui dérive les clés DE
+ * BROUILLON (forme `ligne.cle + "#" + colonne.valeur` pour un tableau) : un
+ * `id` du DOM et une clé de `localStorage` ne sont pas la même chose pour ce
+ * type précis.
  */
-function idsGelesAttendus() {
+function idsEmisParLeSchema() {
+    const schema = JSON.parse(lireNormalise(CHEMIN_SCHEMA));
+    const ids = new Set();
+    schema.blocs.forEach(function (bloc) {
+        if (bloc.cle) ids.add(bloc.cle);
+        if (bloc.titre_cle) ids.add(bloc.titre_cle);
+        (bloc.champs || []).forEach(function (champ) {
+            if (champ.type === "radio") {
+                (champ.valeurs || []).forEach(function (option) {
+                    if (option.cle) ids.add(option.cle);
+                });
+            } else if (champ.type === "tableau") {
+                // Les lignes de tableau ne reçoivent jamais d'id (voir le
+                // commentaire de la fonction) : rien à ajouter.
+            } else if (champ.cle) {
+                ids.add(champ.cle);
+            }
+        });
+    });
+    return ids;
+}
+
+/**
+ * L'ensemble des `id` que la spécification doit déclarer gelés : présents
+ * dans le formulaire ET référencés par script.js ou style.css. Depuis la
+ * bascule (C1-T3b), « présents dans le formulaire » est l'UNION des `id` de
+ * la coquille (`#form-bilan` d'`index.html`, barre d'outils comprise hors
+ * de cette union puisqu'elle en est exclue) et des `id` qu'émet le schéma
+ * (`idsEmisParLeSchema()`) : aucun des deux seuls ne suffit — la coquille
+ * n'en porte plus que 6 (`form-bilan`, `maintitle`, `logo`, `date-bilan`,
+ * `infos_podo`, `attente-moteur`), et le schéma ne modélise jamais le
+ * conteneur `form-bilan` lui-même. La barre d'outils (btn-export,
+ * barre-brouillon…) reste hors de #form-bilan et se trouve donc naturellement
+ * écartée par cette intersection, sans liste d'exclusion à maintenir à la main.
+ */
+function idsGelesAttendus(corpsCoquille) {
     const references = new Set([
         ...idsReferences(css, "formulaire/style.css"),
         ...idsReferences(js, "formulaire/script.js")
     ]);
-    const presents = idsPresentsDansLeFormulaire();
+    const presents = new Set([
+        ...idsPresentsDansLeFormulaire(corpsCoquille),
+        ...idsEmisParLeSchema()
+    ]);
     return [...references].filter(function (id) { return presents.has(id); });
 }
 
@@ -377,9 +440,19 @@ function justificationDuRetrait(sectionTypesEcartes, nom) {
 }
 
 try {
-    // 1. Bijection entre les clés dérivables du HTML et celles citées dans l'inventaire,
+    // Témoin indépendant des 29 blocs, 45 champs et 4 images : la V1 gelée
+    // (formulaire/index-v1.html), dont l'intégrité — empreinte SHA-256
+    // comprise — est sous la garde de tests/test_coquille.py. Un test qui
+    // dériverait sa référence du schéma qu'il contrôle ne contrôlerait rien
+    // (contrat C1-T3b, section 7).
+    const corpsV1 = corpsFormulaire(htmlV1, "formulaire/index-v1.html");
+    // La coquille de production : le seul fichier HTML servi à la tablette
+    // depuis la bascule. Les groupes 6 et 8 la lisent directement.
+    const corpsCoquille = corpsFormulaire(htmlCoquille, "formulaire/index.html");
+
+    // 1. Bijection entre les clés dérivables du HTML V1 et celles citées dans l'inventaire,
     //    et recomptage mécanique des blocs et des images (plus de constantes figées).
-    const clesHtml = clesDuFormulaire();
+    const clesHtml = clesDuFormulaire(corpsV1);
     const { clesChamps, ordreImages, lignesChamps } = clesDeLaSpecification();
 
     const manquantes = [...clesHtml].filter(function (c) { return !clesChamps.has(c); });
@@ -394,9 +467,9 @@ try {
         throw new Error(`l'inventaire compte ${lignesChamps} ligne(s) de champ, 45 attendues`);
     }
 
-    const blocs = blocsHtml();
+    const blocs = blocsHtml(corpsV1);
     if (blocs.length !== 29) {
-        throw new Error(`formulaire/index.html compte ${blocs.length} bloc(s) (.bloc), 29 attendus`);
+        throw new Error(`formulaire/index-v1.html compte ${blocs.length} bloc(s) (.bloc), 29 attendus`);
     }
     const sansIdReels = blocs
         .map(function (id, i) { return id === null ? i + 1 : null; })
@@ -409,9 +482,9 @@ try {
         );
     }
 
-    const images = imagesHtml();
+    const images = imagesHtml(corpsV1);
     if (images.length !== 4) {
-        throw new Error(`formulaire/index.html compte ${images.length} image(s) dessinable(s), 4 attendues`);
+        throw new Error(`formulaire/index-v1.html compte ${images.length} image(s) dessinable(s), 4 attendues`);
     }
     if (ordreImages.length !== 4) {
         throw new Error(`l'inventaire compte ${ordreImages.length} ligne(s) d'image, 4 attendues`);
@@ -444,7 +517,7 @@ try {
         );
     }
     console.log(
-        `1. bijection clés HTML <-> inventaire (${clesHtml.size} clés, ${lignesChamps} champs) ; ` +
+        `1. bijection clés HTML (index-v1.html) <-> inventaire (${clesHtml.size} clés, ${lignesChamps} champs) ; ` +
         `${blocs.length} blocs et ${images.length} images recomptés dans le HTML, ordre des images vérifié`
     );
 
@@ -486,23 +559,33 @@ try {
     });
     console.log("5. les trois retraits sont justifiés (au moins 40 caractères chacun)");
 
-    // 6. Les clés gelées (id dont dépendent script.js/style.css) sont toutes déclarées.
-    const attendus = idsGelesAttendus();
+    // 6. Les clés gelées (id dont dépendent script.js/style.css) sont toutes déclarées,
+    //    ET toutes encore présentes : l'union coquille + schéma ne doit ni en
+    //    taire une nouvelle, ni en avoir perdu une déclarée (contrat C1-T3b,
+    //    étape 7 — sans quoi le groupe passerait "vert à vide" dès que la
+    //    coquille ne porte plus que l'en-tête).
+    const attendus = idsGelesAttendus(corpsCoquille);
     const cites = clesGeleesCitees();
-    const geleesManquantes = attendus.filter(function (id) { return !cites.has(id); });
-    if (geleesManquantes.length > 0) {
-        throw new Error(`id gelé(s) référencé(s) par script.js ou style.css mais absent(s) de la liste « Clés gelées » : ${geleesManquantes.join(", ")}`);
+    const geleesNonDeclarees = attendus.filter(function (id) { return !cites.has(id); });
+    if (geleesNonDeclarees.length > 0) {
+        throw new Error(`id gelé(s) référencé(s) par script.js ou style.css mais absent(s) de la liste « Clés gelées » : ${geleesNonDeclarees.join(", ")}`);
+    }
+    const geleesDisparues = [...cites].filter(function (id) { return !attendus.includes(id); });
+    if (geleesDisparues.length > 0) {
+        throw new Error(`id gelé(s) déclaré(s) dans la liste « Clés gelées » mais plus émis ni par la coquille (formulaire/index.html) ni par formulaire/schema.json : ${geleesDisparues.join(", ")}`);
+    }
+    if (attendus.length !== 7) {
+        throw new Error(`${attendus.length} id(s) gelé(s) exigé(s) trouvé(s) (${attendus.join(", ")}), 7 attendus (conteneur #form-bilan compris)`);
     }
     console.log(`6. clés gelées exhaustives (${attendus.length} id attendus, conteneur #form-bilan compris)`);
 
-    // 7. Bijection clés du HTML <-> clés de formulaire/schema.json (C1-T3).
-    //    formulaire/index.html n'est pas encore une coquille dans cette passe
-    //    (étapes 1 à 8 du contrat C1-T3 seulement) : `clesHtml` compte donc
-    //    encore `date-bilan`, seule clé que `schema.json` ne porte pas — son
-    //    bloc d'en-tête reste écrit en dur, hors du schéma (section 4 du
-    //    contrat). C'est la seule différence tolérée ; toute autre fait
-    //    échouer ce test en la nommant, et renommer une clé dans schema.json
-    //    (p. ex. « familliaux » en « familiaux ») la fait apparaître ici.
+    // 7. Bijection clés du HTML (V1 gelée) <-> clés de formulaire/schema.json (C1-T3).
+    //    `date-bilan` est la seule clé du HTML que schema.json ne porte pas :
+    //    son bloc d'en-tête reste écrit en dur, hors du schéma (section 4 du
+    //    contrat C1-T3b — l'en-tête sort en configuration avec C2-T1, pas ici).
+    //    C'est la seule différence tolérée ; toute autre fait échouer ce test
+    //    en la nommant, et renommer une clé dans schema.json (p. ex.
+    //    « familliaux » en « familiaux ») la fait apparaître ici.
     const clesSchema = clesDuSchemaJson();
     const manquantesDuSchema = [...clesHtml].filter(function (c) { return c !== "date-bilan" && !clesSchema.has(c); });
     const enTropDansSchema = [...clesSchema].filter(function (c) { return !clesHtml.has(c); });
@@ -512,7 +595,67 @@ try {
     if (enTropDansSchema.length > 0) {
         throw new Error(`clé(s) de formulaire/schema.json absente(s) du formulaire : ${enTropDansSchema.join(", ")}`);
     }
+    // L'exception « date-bilan » ne doit pas être un laissez-passer
+    // inconditionnel : si cette clé disparaissait un jour de la coquille,
+    // elle resterait acceptée ci-dessus sans que rien ne le remarque. Cette
+    // assertion rend l'exception non vacante.
+    if (!idsPresentsDansLeFormulaire(corpsCoquille).has("date-bilan")) {
+        throw new Error(`« date-bilan » est exceptée de la bijection HTML <-> schema.json, mais n'est plus présente dans la coquille (formulaire/index.html)`);
+    }
     console.log(`7. bijection clés HTML <-> formulaire/schema.json (${clesSchema.size} clés, « date-bilan » exceptée)`);
+
+    // 8. La coquille de production ne contient plus que l'en-tête : rien
+    //    n'empêche sinon de recopier un bloc à la main dans index.html, ce
+    //    qui réintroduirait exactement le verrou que C1 existe pour lever
+    //    (contrat C1-T3b, étape 7, point 5).
+    const blocsCoquille = blocsHtml(corpsCoquille);
+    if (blocsCoquille.length !== 1) {
+        throw new Error(`#form-bilan de formulaire/index.html compte ${blocsCoquille.length} élément(s) de classe « bloc » (${blocsCoquille.join(", ")}), 1 attendu (l'en-tête)`);
+    }
+    const imagesCoquille = imagesHtml(corpsCoquille);
+    if (imagesCoquille.length !== 0) {
+        throw new Error(`#form-bilan de formulaire/index.html compte ${imagesCoquille.length} image(s) dessinable(s), 0 attendue`);
+    }
+    const clesCoquille = clesDuFormulaire(corpsCoquille);
+    if (clesCoquille.size !== 1 || !clesCoquille.has("date-bilan")) {
+        throw new Error(`#form-bilan de formulaire/index.html compte ${clesCoquille.size} champ(s) de saisie (${[...clesCoquille].join(", ")}), 1 attendu : date-bilan`);
+    }
+    // <main> ne doit contenir que le paragraphe statique #attente-moteur —
+    // ni un bloc recopié à la main, ni un second message, rien d'autre.
+    const motifMain = /<main[^>]*>/;
+    const mDebutMain = motifMain.exec(corpsCoquille);
+    if (!mDebutMain) {
+        throw new Error("« <main> » introuvable dans #form-bilan de formulaire/index.html");
+    }
+    const motifBalisesMain = /<(\/?)main\b[^>]*>/g;
+    motifBalisesMain.lastIndex = mDebutMain.index;
+    let profondeurMain = 0;
+    let finMain = -1;
+    let mBaliseMain;
+    while ((mBaliseMain = motifBalisesMain.exec(corpsCoquille)) !== null) {
+        if (mBaliseMain[1] === "/") {
+            profondeurMain--;
+            if (profondeurMain === 0) { finMain = motifBalisesMain.lastIndex; break; }
+        } else {
+            profondeurMain++;
+        }
+    }
+    if (finMain === -1) {
+        throw new Error("balise fermante « </main> » introuvable dans formulaire/index.html");
+    }
+    const interieurMain = corpsCoquille
+        .slice(mDebutMain.index + mDebutMain[0].length, finMain - "</main>".length)
+        .replace(/<!--[\s\S]*?-->/g, "");
+    const balisesDansMain = [...interieurMain.matchAll(/<([a-zA-Z][a-zA-Z0-9]*)\b[^>]*>/g)]
+        .map(function (m) { return m[1].toLowerCase(); });
+    if (balisesDansMain.length !== 1 || balisesDansMain[0] !== "p" || !/<p\s+id="attente-moteur"/.test(interieurMain)) {
+        throw new Error(
+            `<main> de formulaire/index.html ne se réduit pas au seul paragraphe #attente-moteur ` +
+            `(balise(s) trouvée(s) : ${balisesDansMain.join(", ") || "aucune"})`
+        );
+    }
+    console.log("8. la coquille (formulaire/index.html) ne contient que l'en-tête : "
+        + "1 bloc, 0 image, 1 champ (date-bilan), <main> réduit à #attente-moteur");
 
     console.log("\nTout est vert.");
 } catch (erreur) {

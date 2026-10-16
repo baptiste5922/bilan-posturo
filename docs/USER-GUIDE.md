@@ -55,6 +55,11 @@ footprints are saved into the final PDF.
 > **The draft is saved automatically.** If the tablet shuts down or Chrome
 > closes, the entry is offered for recovery at the next launch.
 
+> **If the form does not display, or a red message says so,** tap the
+> **"Formulaire — secours V1"** bookmark — or, if it is gone, add
+> `index-v1.html` to the end of the usual address. It is the same form, the
+> same draft, the same delivery; the entry in progress is kept.
+
 ---
 
 ## 3. At the end of the consultation — generate the assessment
@@ -217,3 +222,4 @@ To be excluded from any Git repository.
 | Assessments arrive in | `C:\Bilan_entrants` |
 | Project folder | `C:\BilanPosturo` |
 | Start | `demarrer-serveur.bat` |
+| Fallback | *Formulaire — secours V1* bookmark, or `index-v1.html` |

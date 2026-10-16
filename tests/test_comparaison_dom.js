@@ -3,15 +3,15 @@
  * chemins de refus du validateur (critère 6) et l'ajout d'un champ sans
  * JavaScript (critère 5).
  *
- * Portée de cette passe (étapes 1 à 8 seulement, voir le compte rendu de la
- * tâche) : `formulaire/index.html` reste la V1 intacte — il n'y a pas encore
- * de coquille ni d'`index-v1.html`. La comparaison lit donc `#form-bilan`
- * directement dans `formulaire/index.html`, et reconstitue côté moteur un
- * conteneur équivalent : l'en-tête recopié tel quel depuis
- * `formulaire/index-moteur.html` (vérifié identique à celui d'`index.html`)
- * suivi des 28 blocs rendus par `formulaire/moteur/rendu.js` à partir de
- * `formulaire/schema.json`. Les deux côtés comptent ainsi 29 blocs, comme
- * l'exige le critère 2.
+ * Depuis la bascule (C1-T3b), `formulaire/index.html` est la coquille de
+ * production, et la V1 intacte vit désormais dans `formulaire/index-v1.html`
+ * (gelée, empreinte vérifiée par `tests/test_coquille.py`). La comparaison
+ * lit donc `#form-bilan` dans `formulaire/index-v1.html` (le côté V1), et
+ * reconstitue côté moteur un conteneur équivalent : l'en-tête recopié tel
+ * quel dans la coquille `formulaire/index.html` (vérifié identique à celui
+ * de la fiche de secours) suivi des 28 blocs rendus par
+ * `formulaire/moteur/rendu.js` à partir de `formulaire/schema.json`. Les
+ * deux côtés comptent ainsi 29 blocs, comme l'exige le critère 2.
  *
  * Aucune dépendance : pas de `jsdom` (indisponible en intégration continue,
  * aucun `npm ci` n'y est exécuté). Le DOM des deux côtés est le double de
@@ -29,8 +29,8 @@ const assert = require("assert");
 
 const dom = require("./outils/dom-minimal.js");
 
-const CHEMIN_HTML = path.join(__dirname, "..", "formulaire", "index.html");
-const CHEMIN_INDEX_MOTEUR = path.join(__dirname, "..", "formulaire", "index-moteur.html");
+const CHEMIN_HTML = path.join(__dirname, "..", "formulaire", "index-v1.html");
+const CHEMIN_COQUILLE = path.join(__dirname, "..", "formulaire", "index.html");
 const CHEMIN_MOTEUR = path.join(__dirname, "..", "formulaire", "moteur", "rendu.js");
 const CHEMIN_SCHEMA = path.join(__dirname, "..", "formulaire", "schema.json");
 
@@ -501,7 +501,7 @@ function comparerProjections(blocsV1, blocsMoteur) {
 
 try {
     const htmlV1 = lireNormalise(CHEMIN_HTML);
-    const htmlIndexMoteur = lireNormalise(CHEMIN_INDEX_MOTEUR);
+    const htmlCoquille = lireNormalise(CHEMIN_COQUILLE);
 
     // --- Charger le moteur dans le double DOM, comme le ferait le navigateur,
     //     mais sans jamais déclencher DOMContentLoaded (le double n'a pas de
@@ -519,8 +519,9 @@ try {
     const schemaProduction = JSON.parse(lireNormalise(CHEMIN_SCHEMA));
 
     // --- 1. Construire la projection complète côté V1 : tout #form-bilan,
-    //        en-tête compris (29 blocs), lu dans formulaire/index.html,
-    //        encore la V1 intacte à ce stade de la tâche.
+    //        en-tête compris (29 blocs), lu dans formulaire/index-v1.html,
+    //        la fiche de secours gelée (empreinte sous garde de
+    //        tests/test_coquille.py).
     const htmlFormBilan = extraireElement(htmlV1, '<div id="form-bilan">', "div");
     const racineV1 = analyserHtml(dom.creerDocument(), htmlFormBilan)[0];
     const blocsV1 = collecterBlocsAvecAncetres(racineV1);
@@ -529,41 +530,45 @@ try {
     }
 
     // --- 2. Construire la projection côté moteur : l'en-tête, recopié tel
-    //        quel dans formulaire/index-moteur.html (vérifié identique à
-    //        celui de la V1), puis un <main> dans lequel rendre() insère les
-    //        28 blocs du schéma — jamais directement dans #form-bilan
-    //        (constat n°1, audit C1-T3 : en V1 les blocs vivent DANS <main>,
-    //        `main { padding: 10px }`, style.css:23, pas après lui).
+    //        quel dans la coquille de production formulaire/index.html
+    //        (vérifié identique à celui de la V1), puis un <main> dans
+    //        lequel rendre() insère les 28 blocs du schéma — jamais
+    //        directement dans #form-bilan (constat n°1, audit C1-T3 : en V1
+    //        les blocs vivent DANS <main>, `main { padding: 10px }`,
+    //        style.css:23, pas après lui).
     const headerV1 = extraireElement(htmlV1, "<header", "header");
-    const headerIndexMoteur = extraireElement(htmlIndexMoteur, "<header", "header");
-    if (headerV1.replace(/\s+/g, " ").trim() !== headerIndexMoteur.replace(/\s+/g, " ").trim()) {
+    const headerCoquille = extraireElement(htmlCoquille, "<header", "header");
+    if (headerV1.replace(/\s+/g, " ").trim() !== headerCoquille.replace(/\s+/g, " ").trim()) {
         throw new Error(
-            "formulaire/index-moteur.html ne recopie pas l'en-tête de formulaire/index.html à l'identique " +
-            "(espaces mis à part) : la coquille provisoire a dérivé de la V1."
+            "formulaire/index.html ne recopie pas l'en-tête de formulaire/index-v1.html à l'identique " +
+            "(espaces mis à part) : la coquille de production a dérivé de la V1."
         );
     }
 
     // Constat n°9 (audit C1-T3) : le message qui dirige vers la fiche de
     // secours doit survivre même si formulaire/moteur/rendu.js ne se charge
     // jamais — il doit donc exister dans le HTML statique, pas uniquement
-    // être écrit par du JavaScript.
-    if (!/id="attente-moteur"[^>]*>[^<]*secours V1/i.test(htmlIndexMoteur)) {
+    // être écrit par du JavaScript. Faible (audit C1-T3b, §11 du contrat) :
+    // le favori ET l'adresse doivent tous les deux y figurer — le second
+    // sert justement si le favori a disparu.
+    if (!/id="attente-moteur"[^>]*>[^<]*secours V1[^<]*index-v1\.html[^<]*/i.test(htmlCoquille)) {
         throw new Error(
-            "formulaire/index-moteur.html : aucun message statique #attente-moteur dirigeant vers « secours V1 » " +
-            "(constat n°9, audit C1-T3) — un échec de chargement de rendu.js resterait silencieux."
+            "formulaire/index.html : le message statique #attente-moteur ne dirige plus vers « secours V1 » " +
+            "ET l'adresse index-v1.html (constat n°9, audit C1-T3 ; faible, audit C1-T3b) — un échec de " +
+            "chargement de rendu.js, ou un favori disparu, resterait sans porte de sortie."
         );
     }
-    // Constat n°10 (audit C1-T3) : pas d'onclick= en ligne sur cette page
-    // provisoire (incompatible avec la CSP à venir, C6-T1) — le bouton
+    // Constat n°10 (audit C1-T3) : pas d'onclick= en ligne sur la coquille
+    // de production (incompatible avec la CSP à venir, C6-T1) — le bouton
     // d'export y est câblé par demarrerApplication() (script.js), pas par
     // un attribut HTML.
-    if (/id="btn-export"[^>]*onclick=/i.test(htmlIndexMoteur)) {
-        throw new Error("formulaire/index-moteur.html : onclick= en ligne sur #btn-export (constat n°10, audit C1-T3).");
+    if (/id="btn-export"[^>]*onclick=/i.test(htmlCoquille)) {
+        throw new Error("formulaire/index.html : onclick= en ligne sur #btn-export (constat n°10, audit C1-T3).");
     }
 
     const conteneurMoteur = contexteMoteur.document.createElement("div");
     conteneurMoteur.setAttribute("id", "form-bilan");
-    analyserHtml(contexteMoteur.document, headerIndexMoteur).forEach(function (n) {
+    analyserHtml(contexteMoteur.document, headerCoquille).forEach(function (n) {
         conteneurMoteur.appendChild(n);
     });
     const mainMoteur = contexteMoteur.document.createElement("main");

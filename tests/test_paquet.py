@@ -1,14 +1,12 @@
 """Test du script de fabrication du paquet (outils/faire-paquet.sh).
 
-Constat n°7 de l'audit C1-T3 : la page provisoire du moteur de rendu
-(`formulaire/index-moteur.html`, étapes 1 à 8 du contrat seulement) n'est
-vérifiée que par comparaison automatisée du DOM
-(`tests/test_comparaison_dom.js`), jamais à l'écran — et l'audit y a
-démontré une vraie divergence de marge avant correction (constat n°1).
-Servie au cabinet derrière la même authentification que la V1, elle
-écrirait le même brouillon et déposerait dans le même dossier qu'un bilan
-V1, sans que sa fidélité visuelle n'ait jamais été établie. Ce test vérifie
-qu'elle ne part jamais dans l'archive livrée au cabinet.
+Depuis la bascule (C1-T3b), `formulaire/index.html` — le formulaire de
+production — EST le moteur : une coquille qui rend son corps au chargement
+depuis `formulaire/schema.json` par `formulaire/moteur/rendu.js`. Ce test
+vérifie donc l'inverse de ce qu'il vérifiait avant la bascule : que le
+moteur et le schéma partent bel et bien dans l'archive livrée au cabinet
+(un paquet qui en manquerait livrerait un formulaire VIDE), et que
+`formulaire/index-v1.html` — la fiche de secours gelée — y est aussi.
 
 Exécuté sur une copie du dépôt dans un dossier temporaire : le script
 travaille à la racine du projet et laisserait un `.zip` dans l'arbre réel
@@ -71,17 +69,21 @@ class FabricationDuPaquet(unittest.TestCase):
         self.assertEqual(self.resultat.returncode, 0, self.resultat.stderr)
         self.assertEqual(len(self.zips), 1, self.resultat.stdout)
 
-    def test_moteur_exclu_du_paquet(self):
+    def test_moteur_present_dans_le_paquet(self):
         noms = self._noms_dans_le_paquet()
-        exclus = [
-            n for n in noms
-            if n.endswith("index-moteur.html") or "/moteur/" in n or n.endswith("schema.json")
-        ]
-        self.assertEqual(exclus, [], "le paquet contient le moteur de rendu C1-T3 : " + ", ".join(exclus))
+        self.assertTrue(
+            any(n.endswith("formulaire/moteur/rendu.js") for n in noms),
+            "le moteur de rendu manque dans le paquet : " + ", ".join(noms),
+        )
+        self.assertTrue(
+            any(n.endswith("formulaire/schema.json") for n in noms),
+            "le schéma du formulaire manque dans le paquet : " + ", ".join(noms),
+        )
 
     def test_formulaire_de_production_present(self):
         noms = self._noms_dans_le_paquet()
         self.assertTrue(any(n.endswith("formulaire/index.html") for n in noms))
+        self.assertTrue(any(n.endswith("formulaire/index-v1.html") for n in noms))
         self.assertTrue(any(n.endswith("formulaire/script.js") for n in noms))
         self.assertTrue(any(n.endswith("LICENSE") for n in noms))
         self.assertTrue(any(n.endswith("TIERS.md") for n in noms))

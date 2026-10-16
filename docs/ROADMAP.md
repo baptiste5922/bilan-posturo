@@ -314,6 +314,24 @@ l'en-tête ; le moteur de rendu, identique chez tous les clients, produit le DOM
 
 ### C1-T3b — Basculer le formulaire de production sur le moteur
 
+> **État : bascule faite dans le dépôt le 15-16 octobre 2026. NON LIVRÉE.**
+> `formulaire/index.html` est une coquille de 118 lignes que le moteur remplit ;
+> la V1 est conservée octet pour octet dans `formulaire/index-v1.html`, servie,
+> qui est le repli de niveau 1 et le témoin des clés de brouillon dans les
+> tests. Le paquet livré au cabinet contient désormais le moteur et le schéma —
+> l'ancienne exclusion aurait livré un formulaire vide.
+> Audit **CONFORME SOUS RÉSERVE** (0 critique, 0 élevée, 0 moyenne, 2 faibles)
+> après correction de huit constats, dont un **élevé** : le message de repli se
+> retirait sur la foi du rendu et non du démarrage, si bien qu'un `script.js`
+> tronqué produisait un formulaire d'apparence normale qui n'écrivait aucun
+> brouillon — une heure de saisie perdue sans un mot. Revue **À LIVRER**.
+> **Trois critères sur douze restent à prononcer, et ils n'appartiennent qu'à
+> Baptiste** : le jeu de référence visuelle (critère 1), l'essai réel du favori
+> de secours sur la tablette (critère 2), la superposition des PDF (critère 11).
+> **Rien ne doit partir au cabinet avant.**
+> Contrat : `docs/contrats/C1-T3b.md` ; audit : `docs/audits/C1-T3b.md` ;
+> revue : `docs/revues/C1-T3b.md`.
+
 > **Ouverte le 15 octobre 2026.** C'est l'étape 9 du contrat de C1-T3,
 > détachée parce que son préalable — le jeu de référence visuelle de la V1 —
 > n'a pas pu être produit le jour même. **C'est le point de non-retour du
@@ -339,6 +357,13 @@ l'en-tête ; le moteur de rendu, identique chez tous les clients, produit le DOM
   document, puisqu'ils précèdent tous `#form-bilan`. Une `cle` de schéma valant
   `btn-export` rendrait un jour le bouton d'export inerte. À inscrire comme
   contrainte, ou à ajouter à `IDS_RESERVES_COQUILLE`.
+- **Reste du réaudit, faible et volontairement non traité ici** : le rappel de
+  CI sur `docs/references-visuelles/` repose sur `git ls-files`, donc il ne
+  parle qu'**après** le commit, alors que le risque du §4 du LISEZMOI — une
+  capture d'écran montrant plus que le formulaire — est irréversible. C'est une
+  fuite signalée, pas une fuite empêchée. Une vraie barrière suppose de décider
+  si ces images entrent dans le dépôt ou restent hors suivi : à trancher en
+  C1-T4, quand les fichiers existeront.
 - **Risque :** une consultation cassée le lendemain matin. Le retour arrière de
   niveau 1 — un favori, aucune ligne de commande — est la seule parade qui
   compte, et il se vérifie avant la bascule, pas après.
