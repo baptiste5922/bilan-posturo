@@ -91,12 +91,19 @@ fermés, clés reprises à l'identique des `id` du formulaire, version du format
 en première clé. C1-T3, C1-T4, C7-T2 et C9-T1 s'y règlent sans rouvrir le
 débat.
 
-**Le moteur existe, mais n'est pas branché.** `formulaire/index.html` est
-toujours le formulaire V1 écrit à la main, intact : c'est lui qui sert les
-consultations. Le moteur ne se visite que par `formulaire/index-moteur.html`,
-page provisoire exclue du paquet livré au cabinet. La bascule est **C1-T3b**, et
-elle attend le jeu de référence visuelle de la V1 — quatre fichiers à produire
-au navigateur, impossibles à obtenir après la bascule.
+**Le moteur est branché dans le dépôt, pas encore au cabinet.**
+`formulaire/index.html` est désormais une coquille de 118 lignes que le moteur
+remplit depuis `formulaire/schema.json` (C1-T3b). La V1 est conservée octet pour
+octet dans `formulaire/index-v1.html`, servie : c'est le **retour arrière de
+niveau 1**, le favori « Formulaire — secours V1 » sur la tablette, et le témoin
+qui garde les clés de brouillon dans les tests.
+
+**Rien ne doit partir au cabinet avant deux vérifications humaines** que seul
+Baptiste peut faire, et qu'aucun agent ne remplacera : ouvrir le favori de
+secours, saisir, générer un PDF et constater qu'il arrive sur le PC ; puis
+superposer un PDF du moteur à un PDF de la V1. La seconde exige le jeu de
+référence visuelle (`docs/references-visuelles/LISEZMOI.md`, quatre fichiers),
+toujours à produire.
 
 **Tests :** 103 au total, tous verts au 15 octobre 2026, en intégration continue
 sur Linux, Windows et macOS : 73 Python, 7 Node (file), 8 (palette),

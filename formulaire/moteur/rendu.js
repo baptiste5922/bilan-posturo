@@ -128,26 +128,52 @@ const ATTRIBUTS_CHAMP_CONNUS = new Set([
 ]);
 
 /**
- * Constat n°4 de l'audit C1-T3 : les id émis par la coquille (le conteneur
- * lui-même, et le bloc d'en-tête hors schéma — titre, champ de date, logo,
- * identité du cabinet — `formulaire/index-moteur.html`) ne sont déclarés
- * nulle part dans le schéma. Les vérifications d'unicité des règles 4 et 8
- * ne comparent qu'entre clés DU schéma ; un schéma qui revendiquerait l'une
- * de ces clés produirait un second élément de même `id`, et `cleChamp()`
+ * Constat n°4 de l'audit C1-T3, étendu par C1-T3b : les 21 `id` que la
+ * coquille de production (`formulaire/index.html`) émet — son conteneur
+ * `#form-bilan`, son bloc d'en-tête hors schéma (titre, champ de date, logo,
+ * identité du cabinet), son message statique `#attente-moteur`, et toute sa
+ * barre d'outils (boutons d'export/nouveau/dossier, réglages du stylet,
+ * barres de brouillon et d'attente, zone de messages) — ne doivent jamais
+ * être déclarés dans le schéma. Les vérifications d'unicité des règles 4 et
+ * 8 ne comparent qu'entre clés DU schéma ; un schéma qui revendiquerait l'un
+ * de ces `id` produirait un second élément de même `id`, et `cleChamp()`
  * (`script.js:869-873`) rendrait la même clé de brouillon aux deux — une
  * valeur écraserait l'autre en silence.
  *
+ * Avant C1-T3b, seuls les cinq `id` DANS `#form-bilan` (le conteneur et son
+ * en-tête) figuraient ici ; les seize autres étaient supposés protégés par
+ * le seul ordre du document (la barre d'outils vit AVANT `#form-bilan`,
+ * invariant du contrat) — un argument qui ne vaut de toute façon que pour
+ * quinze d'entre eux : le seizième, `attente-moteur`, vit lui-même DANS
+ * `#form-bilan > main` (contrat C1-T3b, section 3), là où l'invariant
+ * d'ordre ne porte que sur ce qui précède `#form-bilan`. L'argument était de
+ * toute façon un argument de hasard : l'ordre protège `getElementById()`
+ * mais pas `label for=`, qui pointerait sur le mauvais contrôle, et un futur
+ * déplacement de la barre d'outils rendrait le bouton d'export inerte sans
+ * qu'aucune règle ne s'en plaigne. Les 21 `id` sont donc tous réservés ici,
+ * et `tests/test_coquille.py` vérifie mécaniquement que cette liste reste
+ * l'exacte image de ceux que la coquille émet réellement — ni plus, ni
+ * moins — plutôt que de rester une liste qui pourrait un jour mentir.
+ *
  * Les SEPT clés gelées de `docs/schema-formulaire.md` n'y figurent PAS, à
- * l'exception de `form-bilan` : les six autres (`patient_infos`,
+ * l'exception de `form-bilan` et `logo` : les cinq autres (`patient_infos`,
  * `patient_info_title`, `section_squelettes`,
  * `section_enregistrement_plateforme`, `image_empreintes`) sont au
  * contraire des clés que le SCHÉMA doit légitimement émettre — c'est tout
  * l'objet de D2, et `formulaire/schema.json` les porte déjà. Les interdire
  * ici casserait la production actuelle sans rien protéger de plus : un
  * conflit sur l'une d'elles serait interne au schéma, déjà couvert par les
- * règles 4 et 8.
+ * règles 4 et 8. Vérifié à la rédaction du contrat C1-T3b : aucune des 82
+ * clés du schéma de production ne collisionne avec aucun des 21 `id`
+ * ci-dessous.
  */
-const IDS_RESERVES_COQUILLE = new Set(["form-bilan", "date-bilan", "maintitle", "logo", "infos_podo"]);
+const IDS_RESERVES_COQUILLE = new Set([
+    "form-bilan", "date-bilan", "maintitle", "logo", "infos_podo", "attente-moteur",
+    "btn-export", "btn-nouveau", "btn-dossier",
+    "barre-brouillon", "texte-brouillon", "btn-restaurer", "btn-abandonner",
+    "barre-attente", "texte-attente", "btn-reessayer",
+    "zone-messages", "outils-globaux", "couleur-libre", "epaisseur-trait", "apercu-trait"
+]);
 
 /* ========================= Validation (section 7) ========================= */
 
@@ -507,7 +533,7 @@ const CLASSES_DISPOSITION = {
  * remonter comme une exception non interceptée.
  *
  * `conteneur` est l'élément qui doit recevoir directement les blocs — en
- * production, le `<main>` de la coquille (`formulaire/index-moteur.html`),
+ * production, le `<main>` de la coquille (`formulaire/index.html`),
  * **pas** `#form-bilan` lui-même : en V1, les 28 blocs du corps vivent DANS
  * `<main>` (`main { padding: 10px }`, `style.css:23`), pas après lui
  * (constat n°1, audit C1-T3). C'est l'appelant qui résout `<main>` dans
@@ -864,6 +890,17 @@ function creerTable(document, bloc) {
 }
 
 /* ===================== Point d'entrée dans le navigateur ===================== */
+
+/**
+ * Le texte du dernier filet, partagé entre `afficherErreurMoteur()` et son
+ * repli indépendant de `formulaire/script.js` : une seule chaîne à tenir à
+ * jour, jamais deux qui pourraient diverger.
+ */
+const MESSAGE_REPLI =
+    "Le formulaire n'a pas pu être chargé. Utilisez le favori "
+  + "« Formulaire — secours V1 » (adresse : index-v1.html) "
+  + "pour continuer la consultation.";
+
 /**
  * Récupère `schema.json`, valide, rend dans `<main>` — jamais directement
  * dans `#form-bilan` (constat n°1, audit C1-T3 : en V1 les 28 blocs vivent
@@ -872,6 +909,18 @@ function creerTable(document, bloc) {
  * ce fichier) : c'est le point de couture du contrat — sans cet appel,
  * `zonesDessin` resterait vide et plus aucun dessin ni brouillon restauré ne
  * fonctionnerait (`script.js:619-626`).
+ *
+ * Constat élevé (audit C1-T3b) : la coquille charge DEUX scripts, chacun
+ * retéléchargé à chaque ouverture (`Cache-Control: no-store`,
+ * `serveur.py:400`). Si `formulaire/script.js` manque ou arrive tronqué
+ * alors que `rendu.js` et `schema.json` arrivent intacts, `rendre()`
+ * réussit mais `demarrerApplication` n'existe pas : retirer
+ * `#attente-moteur` dans ce cas donnerait un formulaire d'apparence
+ * normale où rien n'écrit de brouillon, où le stylet ne marque pas et où
+ * `#btn-export` n'est câblé par personne — silencieusement. Le message de
+ * repli ne doit donc disparaître QUE si `demarrerApplication` a réellement
+ * pu être appelée ; dans le cas contraire, c'est un chemin d'échec comme un
+ * autre, et il doit en avoir l'air.
  */
 function demarrerMoteur() {
     const formulaire = document.getElementById("form-bilan");
@@ -903,14 +952,20 @@ function demarrerMoteur() {
                 afficherErreurMoteur();
                 return;
             }
-            // Le rendu a réussi : le message d'attente statique de la
-            // coquille (formulaire/index-moteur.html, #attente-moteur) n'a
-            // plus lieu d'être.
+            if (typeof demarrerApplication !== "function") {
+                // formulaire/script.js n'a pas chargé (ou a chargé
+                // tronqué) : NE PAS retirer #attente-moteur, sans quoi le
+                // formulaire semblerait fonctionnel sans l'être (constat
+                // élevé, audit C1-T3b). C'est un échec comme un autre.
+                afficherErreurMoteur();
+                return;
+            }
+            // Le rendu a réussi ET l'application a réellement démarré : le
+            // message d'attente statique de la coquille (formulaire/index.html,
+            // #attente-moteur) n'a plus lieu d'être.
             const attente = document.getElementById("attente-moteur");
             if (attente && typeof attente.remove === "function") attente.remove();
-            if (typeof demarrerApplication === "function") {
-                demarrerApplication();
-            }
+            demarrerApplication();
         })
         .catch(function (erreur) {
             console.error("Chargement du formulaire impossible :", erreur);
@@ -922,19 +977,42 @@ function demarrerMoteur() {
  * Message persistant, qui dirige vers la fiche de secours (contrat,
  * section 11). Appelée depuis tous les chemins d'échec de
  * `demarrerMoteur()`, y compris quand `#form-bilan`/`<main>` sont
- * introuvables (constat n°9, audit C1-T3) : le silence n'est jamais une
- * réponse acceptable. S'ajoute, sans s'y substituer, au message statique
- * déjà présent dans `formulaire/index-moteur.html` (`#attente-moteur`) :
- * CE message-là ne dépend d'aucun fichier JavaScript pour exister — il
- * reste visible même si `formulaire/moteur/rendu.js` lui-même ne s'est
- * jamais chargé, ce qu'aucune fonction de ce fichier ne pourrait jamais
- * afficher à sa place.
+ * introuvables (constat n°9, audit C1-T3), ou quand `demarrerApplication`
+ * n'existe pas (constat élevé, audit C1-T3b) : le silence n'est jamais une
+ * réponse acceptable.
+ *
+ * Deux chemins, l'un n'excluant pas l'autre :
+ *  1. `annoncer()` (définie par `formulaire/script.js`), quand ce fichier a
+ *     chargé — un bandeau en plus du message statique.
+ *  2. Un repli qui ne dépend d'AUCUN fichier JavaScript autre que
+ *     celui-ci : `#attente-moteur` existe déjà dans le HTML statique de la
+ *     coquille sans aucun script, et ce chemin se contente d'y écrire le
+ *     même texte et de le rendre visible — précisément le cas où
+ *     `formulaire/script.js` est le fichier manquant, donc où `annoncer()`
+ *     elle-même est indisponible.
  */
 function afficherErreurMoteur() {
     if (typeof annoncer === "function") {
-        annoncer("Le formulaire n'a pas pu être chargé. Utilisez le favori "
-               + "« Formulaire — secours V1 » pour continuer la consultation.",
-                 "erreur", true);
+        annoncer(MESSAGE_REPLI, "erreur", true);
+    }
+    const attente = document.getElementById("attente-moteur");
+    if (attente) {
+        if (typeof attente.textContent !== "undefined") attente.textContent = MESSAGE_REPLI;
+        attente.hidden = false;
+    }
+    // Troisième canal, et le seul qui vive HORS de #form-bilan : #zone-messages
+    // (formulaire/index.html:67). Les deux canaux précédents tombent ensemble
+    // quand `script.js` manque ET que #form-bilan ou <main> est introuvable,
+    // puisque #attente-moteur habite précisément le nœud surveillé — chemin
+    // n°9 du réaudit C1-T3b. Un filet ne doit pas dépendre de ce qu'il
+    // surveille. On n'écrit ici que faute d'`annoncer` : quand il existe, il a
+    // déjà posé le message dans cette même zone, et le réécrire le dupliquerait.
+    if (typeof annoncer !== "function") {
+        const zone = document.getElementById("zone-messages");
+        if (zone) {
+            if (typeof zone.textContent !== "undefined") zone.textContent = MESSAGE_REPLI;
+            zone.hidden = false;
+        }
     }
 }
 

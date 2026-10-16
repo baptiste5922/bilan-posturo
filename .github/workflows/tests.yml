@@ -53,6 +53,9 @@ jobs:
       - name: Run rendering engine comparison tests
         run: node tests/test_comparaison_dom.js
 
+      - name: Run engine start-up safety-net tests
+        run: node tests/test_demarrage_moteur.js
+
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -77,6 +80,21 @@ jobs:
           fi
           echo "Aucun secret versionné."
 
+      - name: Remind about the visual reference set's confidentiality
+        run: |
+          # Faible (audit C1-T3b) : docs/references-visuelles/ n'attend
+          # encore que son LISEZMOI, mais les quatre fichiers à venir
+          # (critère 1 du contrat C1-T3b) comprennent deux captures PNG
+          # pleine page — onglets, barre de favoris, notifications. Un
+          # refus pur et simple de tout fichier image serait prématuré
+          # (ces fichiers DOIVENT un jour être versionnés) ; ce pas ne
+          # bloque donc rien, il rappelle fort, dans un journal que
+          # quiconque relit avant de fusionner.
+          nouveaux=$(git ls-files docs/references-visuelles | grep -v '/LISEZMOI\.md$' || true)
+          if [ -n "$nouveaux" ]; then
+            echo "::warning::docs/references-visuelles/ contient des fichiers au-delà de LISEZMOI.md : relire le §4 de LISEZMOI.md (confidentialité des captures) avant toute fusion."
+          fi
+
       - name: Check that the palette is not duplicated
         run: |
           set -e
@@ -85,12 +103,19 @@ jobs:
           # `|| true` placé en bout de pipe l'aurait avalé et laissé passer le
           # pas sans avoir rien vérifié. On vérifie donc l'existence d'abord,
           # fort et explicite, avant toute lecture.
-          # formulaire/moteur/rendu.js et formulaire/index-moteur.html entrent
-          # ici avec C1-T3 : un nouveau fichier JS ou HTML dans formulaire/
-          # qui écrirait une couleur de palette en dur ne serait sinon couvert
-          # par aucune garde (constat de l'audit C1-T1).
-          for fichier in formulaire/style.css formulaire/script.js formulaire/index.html \
-                          formulaire/moteur/rendu.js formulaire/index-moteur.html; do
+          #
+          # Faible (audit C1-T3b) : cette liste d'existence citait aussi
+          # formulaire/index.html et formulaire/index-v1.html, alors que les
+          # `grep` plus bas ne lisent jamais de fichier HTML — seulement
+          # style.css, script.js et moteur/rendu.js. Un commentaire qui
+          # affirme une couverture que la garde n'a pas est pire qu'un
+          # commentaire absent : les deux fichiers HTML sont retirés d'ici,
+          # et leur couverture (par exemple la pastille « Vert » du stylet,
+          # formulaire/index.html, qui recopie en dur la couleur du token
+          # `--titre`) reste un point non couvert, à reprendre dans une tâche
+          # dédiée plutôt que de se prétendre réglée par une boucle qui ne
+          # lit que des noms de fichiers.
+          for fichier in formulaire/style.css formulaire/script.js formulaire/moteur/rendu.js; do
             if [ ! -f "$fichier" ]; then
               echo "::error::Fichier introuvable pour le contrôle de palette : $fichier"
               exit 1
@@ -144,7 +169,7 @@ jobs:
 
           # Apostrophes ou guillemets : les deux formes de style= en ligne
           # sont incompatibles avec la CSP à venir (C6-T1).
-          for fichier_html in formulaire/index.html formulaire/index-moteur.html; do
+          for fichier_html in formulaire/index.html formulaire/index-v1.html; do
             if grep -nE "style=['\"]" "$fichier_html"; then
               echo "::error::Style en ligne dans $fichier_html : incompatible avec la CSP (C6-T1)."
               exit 1
@@ -202,47 +227,48 @@ jobs:
       - name: Check that cabinet identity is not copied into the schema documents
         run: |
           set -e
-          # Chemins fixes et ASCII, à la façon du contrôle de palette plus haut :
-          # pas de git ls-files (échapperait les chemins accentués), pas de
-          # xargs -0 (rendrait 123 pour « rien trouvé » comme pour une erreur
-          # réelle). Les motifs sont dérivés de formulaire/index.html à
-          # l'exécution, jamais écrits en dur : en cas d'échec, seul un nom de
-          # fichier et un numéro de ligne *source* sont nommés, jamais le
-          # contenu, sans quoi ce journal deviendrait lui-même le canal de
-          # fuite qu'il doit empêcher.
+          # Les motifs sont dérivés de formulaire/index.html à l'exécution,
+          # jamais écrits en dur : en cas d'échec, seul un nom de fichier et
+          # un numéro de ligne *source* sont nommés, jamais le contenu, sans
+          # quoi ce journal deviendrait lui-même le canal de fuite qu'il
+          # doit empêcher.
           #
           # R3 (audit C1-T1, réaudit C1-T3) : la version précédente ancrait le
           # bloc d'identité sur des numéros de ligne figés (72-75) et ignorait
           # une ligne au texte vide par un simple `continue`, sans jamais
           # vérifier qu'il restait quelque chose à contrôler — une insertion de
-          # lignes au-dessus du bloc (ce que C1-T3 fait en ajoutant
-          # formulaire/index-moteur.html à côté) rendait la garde muette, verte
-          # à vide, plutôt qu'absente. Elle localise désormais le bloc par son
-          # ancre `<section id="infos_podo">` … `</section>`, et échoue si
-          # cette ancre est introuvable ou si aucune ligne de texte non vide
-          # n'en est extraite.
+          # lignes au-dessus du bloc rendait la garde muette, verte à vide,
+          # plutôt qu'absente. Elle localise désormais le bloc par son ancre
+          # `<section id="infos_podo">` … `</section>`, et échoue si cette
+          # ancre est introuvable ou si aucune ligne de texte non vide n'en
+          # est extraite.
           #
-          # Constat n°10 (audit C1-T3) : formulaire/index-moteur.html n'est
-          # DÉLIBÉRÉMENT PAS une cible ci-dessous, et c'est écrit ici plutôt
-          # que laissé implicite. Ce fichier recopie l'en-tête de
-          # formulaire/index.html à l'identique (octet pour octet, espaces
-          # mis à part) : il N'EST PAS un endroit où l'identité du cabinet
-          # pourrait fuiter sans bruit, c'est la source elle-même, répétée
-          # une seconde fois par nécessité (page provisoire du moteur de
-          # rendu, étapes 1 à 8). Cette répétition précise est sous
-          # surveillance séparée et continue, par un mécanisme plus strict
-          # qu'une recherche de sous-chaîne : tests/test_comparaison_dom.js
-          # échoue si les deux en-têtes dérivent l'un de l'autre. L'ajouter
-          # ici le ferait échouer par construction, sur un fichier qui fait
-          # exactement ce qu'on lui demande.
+          # Constat moyen n°2 (audit C1-T3b) : la garde portait sur une liste
+          # FERMÉE de cinq cibles, qui autorisait implicitement tout fichier
+          # absent de la liste à recopier une coordonnée sans que rien ne s'en
+          # aperçoive — c'est exactement ce qui est arrivé avec
+          # tests/test_coquille.py (jamais ajouté à la liste) et, une fois,
+          # avec un document de mises en échec (même défaut). Elle scanne
+          # désormais TOUS les fichiers suivis par git, à l'exception de la
+          # source elle-même et de sa copie gelée explicitement justifiée :
+          # formulaire/index-v1.html, la fiche de secours, dont l'identité
+          # recopiée est nécessaire (même en-tête que la production) et sous
+          # garde d'empreinte SHA-256 séparée (tests/test_coquille.py) — ce
+          # n'est pas un endroit où l'identité pourrait fuiter sans bruit,
+          # c'est la source elle-même, répétée par nécessité.
+          #
+          # `git ls-files -z` et non `git ls-files | tr` : sans `-z`, git
+          # échappe les chemins non ASCII à la façon du C et les entoure de
+          # guillemets, et un document accentué — ils le sont tous ici —
+          # porteur d'une mention contradictoire passerait sans bruit. La
+          # boucle remplace un `xargs -0 grep`, qui rendrait 123 aussi bien
+          # pour « aucune correspondance » que pour une erreur réelle.
           source="formulaire/index.html"
-          cibles="docs/schema-formulaire.md tests/test_inventaire_formulaire.js formulaire/schema.json formulaire/moteur/rendu.js tests/test_comparaison_dom.js"
-          for fichier in "$source" $cibles; do
-            if [ ! -f "$fichier" ]; then
-              echo "::error::Fichier introuvable pour le contrôle d'identité du cabinet : $fichier"
-              exit 1
-            fi
-          done
+          exclus='^formulaire/index(-v1)?\.html$'
+          if [ ! -f "$source" ]; then
+            echo "::error::Fichier introuvable pour le contrôle d'identité du cabinet : $source"
+            exit 1
+          fi
 
           ancre_debut=$(grep -n '<section id="infos_podo">' "$source" | head -1 | cut -d: -f1)
           if [ -z "$ancre_debut" ]; then
@@ -267,18 +293,26 @@ jobs:
           fi
 
           fichier_lignes=$(mktemp)
-          trap 'rm -f "$fichier_lignes"' EXIT
+          suivis=$(mktemp)
+          trap 'rm -f "$fichier_lignes" "$suivis"' EXIT
           printf '%s\n' "$lignes_extraites" > "$fichier_lignes"
+          git ls-files -z > "$suivis"
 
           fautifs=""
-          while IFS= read -r texte; do
-            [ -z "$texte" ] && continue
-            for fichier in $cibles; do
-              if grep -qF -- "$texte" "$fichier"; then
+          while IFS= read -r -d '' fichier; do
+            printf '%s\n' "$fichier" | grep -qE "$exclus" && continue
+            if [ ! -f "$fichier" ]; then
+              echo "::error::Chemin listé par git mais introuvable : $fichier"
+              exit 1
+            fi
+            while IFS= read -r texte; do
+              [ -z "$texte" ] && continue
+              if grep -IqF -- "$texte" "$fichier"; then
                 fautifs="$fautifs $fichier"
+                break
               fi
-            done
-          done < "$fichier_lignes"
+            done < "$fichier_lignes"
+          done < "$suivis"
 
           if [ -n "$fautifs" ]; then
             echo "::error::Coordonnée du cabinet recopiée, voir $source ligne(s) $ancre_debut-$ancre_fin, dans :$fautifs"

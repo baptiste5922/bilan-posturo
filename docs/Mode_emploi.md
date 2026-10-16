@@ -55,6 +55,12 @@ et les empreintes sont enregistrées dans le PDF final.
 > que Chrome se ferme, la saisie est proposée à la reprise au lancement
 > suivant.
 
+> **Si le formulaire ne s'affiche pas, ou qu'un message rouge le dit,**
+> toucher le favori **« Formulaire — secours V1 »** — ou, s'il a disparu,
+> ajouter `index-v1.html` à la fin de l'adresse habituelle. C'est le même
+> formulaire, le même brouillon, le même dépôt ; la saisie en cours est
+> reprise.
+
 ---
 
 ## 3. En fin de consultation — générer le bilan
@@ -221,3 +227,4 @@ arrivent en continu depuis chaque tablette allumée, n'y figurent pas.
 | Dossier du projet | `C:\BilanPosturo` |
 | Démarrer | `demarrer-serveur.bat` |
 | Arrêter | Fermer la fenêtre noire, ou `Ctrl+C` |
+| Secours | favori *Formulaire — secours V1*, ou `index-v1.html` |

@@ -58,7 +58,8 @@ class ServeurEnMarche(unittest.TestCase):
         os.mkdir(os.path.join(cls.dossier, "serveur"))
         os.mkdir(os.path.join(cls.dossier, "formulaire"))
         for nom in ("serveur/serveur.py", "serveur/generer_autorite.py",
-                    "formulaire/index.html", "formulaire/style.css",
+                    "formulaire/index.html", "formulaire/index-v1.html",
+                    "formulaire/style.css",
                     "formulaire/script.js", "formulaire/schema.json"):
             shutil.copy(os.path.join(PROJET, nom),
                         os.path.join(cls.dossier, nom))
@@ -227,6 +228,17 @@ class ServeurEnMarche(unittest.TestCase):
             with self.subTest(chemin=chemin):
                 statut, _, _ = self.requete("GET", chemin)
                 self.assertEqual(statut, 200)
+
+    def test_fiche_de_secours_servie_authentifiee(self):
+        # formulaire/index-v1.html (C1-T3b) est le repli de consultation,
+        # niveau 1 du retour arrière : derrière la même authentification que
+        # le reste, ni plus accessible ni moins.
+        statut, _, _ = self.requete("GET", "/index-v1.html")
+        self.assertEqual(statut, 200)
+
+    def test_fiche_de_secours_jamais_sans_authentification(self):
+        statut, _, _ = self.requete("GET", "/index-v1.html", utilisateur=None)
+        self.assertEqual(statut, 401)
 
     def test_json_du_formulaire_servi(self):
         # schema.json (C1-T3) doit être lisible, authentifié, avec le bon

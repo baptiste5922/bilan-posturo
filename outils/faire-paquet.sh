@@ -26,19 +26,14 @@ cp demarrer-serveur.bat "$PAQUET/"
 cp installer-demarrage.ps1 desinstaller-demarrage.ps1 "$PAQUET/"
 cp -R formulaire serveur "$PAQUET/"
 
-# Constat n°7 de l'audit C1-T3 : la page provisoire du moteur de rendu
-# (étapes 1 à 8 seulement du contrat) n'est vérifiée que par comparaison
-# automatisée du DOM (tests/test_comparaison_dom.js) — jamais à l'écran, et
-# le constat n°1 du même audit y a démontré une vraie divergence de marge
-# avant correction. Servie au cabinet derrière la même authentification,
-# elle écrirait le même brouillon et déposerait dans le même dossier qu'un
-# bilan V1, sans que sa fidélité visuelle n'ait jamais été établie
-# (critère 3 du contrat, hors de cette passe). Exclusion EXPLICITE, pas
-# implicite : la vérification plus bas échoue si l'un de ces trois chemins
-# réapparaît dans l'archive.
-rm -f "$PAQUET/formulaire/index-moteur.html"
-rm -rf "$PAQUET/formulaire/moteur"
-rm -f "$PAQUET/formulaire/schema.json"
+# Depuis C1-T3b, le formulaire de production EST le moteur : index.html est
+# une coquille qui rend son corps au chargement depuis schema.json. Un
+# paquet qui livrerait la coquille sans moteur ni schéma livrerait un
+# formulaire VIDE au cabinet, le lendemain de l'installation — c'est pourquoi
+# formulaire/moteur/rendu.js et formulaire/schema.json rejoignent la boucle
+# `obligatoire` plus bas, aux côtés de formulaire/index-v1.html (la fiche de
+# secours gelée) : leur présence est vérifiée dans l'archive elle-même, pas
+# seulement supposée parce que `cp -R formulaire` les a copiés.
 
 # Le code passe en Business Source License 1.1 : chaque copie doit porter le
 # Notice de la licence (exigence propre à BUSL), et TIERS.md l'accompagne
@@ -62,26 +57,17 @@ rm -rf "$PAQUET"
 # Le contrôle porte sur la présence effective des pièces obligatoires, et non
 # sur les dernières lignes du listing : LICENSE et TIERS.md sont triés en tête
 # et n'y figuraient jamais, si bien que leur absence passait inaperçue.
-for obligatoire in "$PAQUET/LICENSE" "$PAQUET/TIERS.md"; do
+# Depuis C1-T3b, formulaire/index.html (la coquille), formulaire/index-v1.html
+# (la fiche de secours), formulaire/moteur/rendu.js et formulaire/schema.json
+# rejoignent la liste : un paquet qui en manquerait livrerait un formulaire
+# vide au cabinet, exactement comme un paquet sans LICENSE le livrerait hors
+# de ses conditions d'usage.
+for obligatoire in "$PAQUET/LICENSE" "$PAQUET/TIERS.md" \
+                   "$PAQUET/formulaire/index.html" "$PAQUET/formulaire/index-v1.html" \
+                   "$PAQUET/formulaire/moteur/rendu.js" "$PAQUET/formulaire/schema.json"; do
     if ! unzip -l "$PAQUET.zip" "$obligatoire" > /dev/null 2>&1; then
         echo "ERREUR : $obligatoire manque dans l'archive." >&2
-        echo "Le paquet ne doit pas être livré sans son texte de licence." >&2
-        exit 1
-    fi
-done
-
-# Constat n°7 (audit C1-T3) : une exclusion qui ne serait vérifiée que par
-# les trois `rm` plus haut redeviendrait silencieuse au premier script
-# réécrit sans eux. Le contrôle porte sur l'archive elle-même, pas sur la
-# présence des lignes qui l'excluent.
-# Le motif porte un `*` final pour les dossiers : `unzip -l` liste l'entrée
-# `moteur/` et ses fichiers `moteur/rendu.js`, jamais `moteur` tout court, si
-# bien qu'un motif sans joker ne correspondait à rien et passait au vert sur un
-# dossier présent — relevé par le réaudit de C1-T3.
-for interdit in "$PAQUET/formulaire/index-moteur.html" "$PAQUET/formulaire/moteur/*" "$PAQUET/formulaire/schema.json"; do
-    if unzip -l "$PAQUET.zip" "$interdit" 2>/dev/null | grep -q "formulaire/"; then
-        echo "ERREUR : $interdit est présent dans l'archive." >&2
-        echo "La page provisoire du moteur de rendu (C1-T3) ne doit jamais partir au cabinet." >&2
+        echo "Le paquet ne doit pas partir incomplet : ni sans licence, ni sans moteur de rendu ni schéma." >&2
         exit 1
     fi
 done
