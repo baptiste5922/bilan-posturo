@@ -107,6 +107,12 @@ const TYPES_RETENUS = ["texte", "zone-texte", "date", "case", "radio", "tableau"
 const DISPOSITIONS_FERMEES = ["empilee", "en-ligne", "en-ligne-bas", "atcd", "chaussures"];
 const TITRE_APPARENCES_FERMEES = ["h3", "label", "label_bloc"];
 const APPARENCES_IMAGE_FERMEES = ["squelette", "encadree"];
+// Apparences d'une case à cocher. Par défaut la puce précède le libellé ;
+// `titre_avant` place au contraire le libellé devant la case, dans son propre
+// label de classe « titre_section », comme le fait la V1 pour « Empreinte
+// encre » (`index-v1.html:306-311`). Sans elle, le moteur inversait l'ordre
+// des deux — défaut visible au PDF, constat du 19 octobre 2026.
+const APPARENCES_CASE_FERMEES = ["titre_avant"];
 const TYPES_AVEC_CLE_OBLIGATOIRE = ["texte", "zone-texte", "date", "case", "image-annotable"];
 const TYPES_AVEC_LIBELLE_OBLIGATOIRE = ["texte", "zone-texte", "date", "case", "tableau", "image-annotable"];
 const TYPES_AVEC_DEFAUT_AUTORISE = ["texte", "zone-texte", "date", "case"];
@@ -120,8 +126,16 @@ const TYPES_AVEC_INDICATION_AUTORISEE = ["texte", "zone-texte"];
 // position — la règle 14 les refuse nommément, un cran avant
 // l'avertissement générique ci-dessous.
 const ATTRIBUTS_BLOC_CONNUS = new Set(
-    ["cle", "en_tete", "disposition", "titre", "titre_apparence", "titre_cle", "champs"]
+    ["cle", "en_tete", "disposition", "titre", "titre_apparence", "titre_cle",
+     "balise", "champs"]
 );
+
+// La balise du conteneur de bloc. `div` par défaut ; `section` existe parce
+// que la V1 l'emploie pour `patient_infos`, et parce qu'un `h3` n'a pas la
+// même taille par défaut selon qu'il est ou non dans une section. C'est une
+// donnée du schéma, pas une table de correspondance par clé à l'intérieur du
+// moteur — ce que D9 interdit (constat du 19 octobre 2026).
+const BALISES_BLOC_FERMEES = ["div", "section"];
 const ATTRIBUTS_CHAMP_CONNUS = new Set([
     "type", "cle", "libelle", "defaut", "indication",
     "valeurs", "entetes", "lignes", "fichier", "texte_alternatif", "apparence"
@@ -259,6 +273,10 @@ function validerSchema(schema) {
             blocEnTeteVu = true;
         }
 
+        if ("balise" in bloc && BALISES_BLOC_FERMEES.indexOf(bloc.balise) === -1) {
+            erreurs.push("règle 15 : « balise » inconnue au bloc d'index " + indexBloc
+                + " : " + bloc.balise + " (attendu : " + BALISES_BLOC_FERMEES.join(", ") + ")");
+        }
         if ("titre_apparence" in bloc && TITRE_APPARENCES_FERMEES.indexOf(bloc.titre_apparence) === -1) {
             erreurs.push("règle 14 : « titre_apparence » inconnue au bloc d'index " + indexBloc + " : " + bloc.titre_apparence);
         }
@@ -370,10 +388,19 @@ function validerChamp(champ, indexBloc, indexChamp, clesChampVues, erreurs) {
     }
 
     if ("apparence" in champ) {
-        if (champ.type !== "image-annotable") {
+        // Deux types seulement portent une apparence, chacun avec son jeu fermé.
+        if (champ.type === "image-annotable") {
+            if (APPARENCES_IMAGE_FERMEES.indexOf(champ.apparence) === -1) {
+                erreurs.push("règle 13 : « apparence » inconnue au " + position + " : " + champ.apparence);
+            }
+        } else if (champ.type === "case") {
+            if (APPARENCES_CASE_FERMEES.indexOf(champ.apparence) === -1) {
+                erreurs.push("règle 13 : « apparence » inconnue au " + position
+                    + " : " + champ.apparence + " (attendu : "
+                    + APPARENCES_CASE_FERMEES.join(", ") + ")");
+            }
+        } else {
             erreurs.push("règle 13 : « apparence » n'est pas autorisé sur le type « " + champ.type + " » au " + position + ".");
-        } else if (APPARENCES_IMAGE_FERMEES.indexOf(champ.apparence) === -1) {
-            erreurs.push("règle 13 : « apparence » inconnue au " + position + " : " + champ.apparence);
         }
     }
 
@@ -620,17 +647,7 @@ function rendreBloc(document, fragment, bloc) {
         return c.type === "image-annotable" && c.apparence === "encadree";
     });
 
-    // Exception non reproduite, documentée au compte rendu de la tâche : en
-    // V1, `patient_infos` (bloc 2) est un `<section>`, le seul de tous les
-    // blocs ordinaires (les 26 autres, hors en-tête et tableaux, sont des
-    // `<div>`). Aucun sélecteur de `style.css` ni de `script.js` ne dépend
-    // de cette balise (seul l'`id` est ciblé) : lui donner un traitement
-    // spécial par `cle` à l'intérieur du moteur reproduirait exactement le
-    // verrou que D9 interdit (« une table de correspondance par clé de bloc
-    // à l'intérieur du moteur est formellement refusée »). Le moteur émet
-    // donc uniformément `<div>`, et `tests/test_comparaison_dom.js` déclare
-    // cette seule divergence comme tolérance (f), avec cette même raison.
-    const conteneur = document.createElement("div");
+    const conteneur = document.createElement(bloc.balise || "div");
     conteneur.setAttribute("id", bloc.cle);
     const classeDisposition = CLASSES_DISPOSITION[bloc.disposition];
     if (classeDisposition) conteneur.classList.add(classeDisposition);
@@ -665,11 +682,11 @@ function creerTitreBloc(document, bloc) {
     } else if (apparence === "label_bloc") {
         el = document.createElement("label");
         el.classList.add("titre_section_bloc");
-        el.textContent = bloc.titre + ":";
+        el.textContent = bloc.titre;
     } else {
         el = document.createElement("label");
         el.classList.add("titre_section");
-        el.textContent = bloc.titre + ":";
+        el.textContent = bloc.titre;
     }
     if (bloc.titre_cle) el.setAttribute("id", bloc.titre_cle);
     return el;
@@ -696,8 +713,13 @@ function rendreChampEmpile(document, parent, champ) {
     const label = document.createElement("label");
     label.classList.add("titre_section");
     label.setAttribute("for", champ.cle);
-    label.textContent = (champ.libelle || "") + ":";
+    label.textContent = (champ.libelle || "");
     parent.appendChild(label);
+    // Le HTML de la V1 sépare le label de son contrôle par un retour à la
+    // ligne, qui se rend comme une espace : sans elle, le champ remonte de
+    // quelques pixels vers la gauche. L'écart est petit mais réel, et il se
+    // répète sur chaque champ de chaque page.
+    separer(document, parent);
     parent.appendChild(creerControleSaisie(document, champ));
     parent.appendChild(document.createElement("br"));
 }
@@ -706,14 +728,30 @@ function rendreChampEnLigneBas(document, parent, champ) {
     const label = document.createElement("label");
     label.classList.add("titre_section");
     label.setAttribute("for", champ.cle);
-    label.textContent = (champ.libelle || "") + ":";
+    label.textContent = (champ.libelle || "");
     parent.appendChild(label);
+    separer(document, parent);
     parent.appendChild(creerControleSaisie(document, champ));
 }
 
-/** Disposition "chaussures" : labels sans classe, aucun <br>. */
+/** Disposition "chaussures" : labels sans classe, aucun <br>.
+ *
+ * Les éléments sont séparés par une espace, comme ils le sont dans le HTML
+ * écrit à la main. Ce n'est pas cosmétique : entre éléments en ligne, l'espace
+ * du source est signifiante — c'est elle qui offre au navigateur ses points de
+ * coupure. Sans elle, le moteur laissait « Type : » orphelin en fin de première
+ * ligne et renvoyait son champ seul à la ligne suivante, là où la V1 garde le
+ * libellé et son champ ensemble (constat du 19 octobre 2026,
+ * `docs/references-visuelles/CONSTAT-2026-10-19.md`).
+ */
 function rendreChampChaussure(document, parent, champ) {
+    separer(document, parent);
     if (champ.type === "case") {
+        // La V1 ouvre la case par un <label> vide (`index-v1.html:317`) : vide
+        // ou non, il occupe le flux en ligne et participe à la coupure.
+        const enveloppe = document.createElement("label");
+        enveloppe.classList.add("checkbox-label-simple");
+        parent.appendChild(enveloppe);
         const entree = document.createElement("input");
         entree.setAttribute("type", "checkbox");
         entree.setAttribute("id", champ.cle);
@@ -723,9 +761,17 @@ function rendreChampChaussure(document, parent, champ) {
     }
     const label = document.createElement("label");
     label.setAttribute("for", champ.cle);
-    label.textContent = (champ.libelle || "") + ":";
+    label.textContent = (champ.libelle || "");
     parent.appendChild(label);
+    separer(document, parent);
     parent.appendChild(creerControleSaisie(document, champ));
+}
+
+/** Insère une espace entre deux éléments en ligne, s'il y a déjà quelque chose. */
+function separer(document, parent) {
+    if (parent.childNodes && parent.childNodes.length > 0) {
+        parent.appendChild(document.createTextNode(" "));
+    }
 }
 
 /** Contrôle de saisie seul (texte, date ou zone-texte), sans label ni <br>. */
@@ -746,6 +792,23 @@ function creerControleSaisie(document, champ) {
 
 /** Case à cocher enveloppée dans son label, forme des blocs "en-ligne"/"empilee". */
 function creerCaseEnveloppee(document, champ) {
+    if (champ.apparence === "titre_avant") {
+        // Forme de la V1 : un label enveloppe, le titre, puis la case.
+        const enveloppe = document.createElement("label");
+        enveloppe.classList.add("checkbox-group");
+        const titre = document.createElement("label");
+        titre.classList.add("titre_section");
+        titre.setAttribute("for", champ.cle);
+        titre.textContent = (champ.libelle || "");
+        enveloppe.appendChild(titre);
+        const caseACocher = document.createElement("input");
+        caseACocher.setAttribute("type", "checkbox");
+        caseACocher.classList.add("custom-checkbox");
+        caseACocher.setAttribute("id", champ.cle);
+        enveloppe.appendChild(caseACocher);
+        enveloppe.appendChild(document.createElement("br"));
+        return enveloppe;
+    }
     const label = document.createElement("label");
     label.classList.add("checkbox-label");
     const entree = document.createElement("input");
@@ -808,7 +871,7 @@ function creerGroupeAtcd(document, champs) {
         const label = document.createElement("label");
         label.classList.add("atcd-sublabel");
         label.setAttribute("for", champ.cle);
-        label.textContent = (champ.libelle || "") + ":";
+        label.textContent = (champ.libelle || "");
         ligne.appendChild(label);
         ligne.appendChild(creerControleSaisie(document, champ));
         conteneur.appendChild(ligne);
@@ -857,7 +920,7 @@ function creerTable(document, bloc) {
     const trEntete = document.createElement("tr");
     const thTitre = document.createElement("th");
     thTitre.classList.add("titre_section");
-    thTitre.textContent = (champ.libelle || "") + ":";
+    thTitre.textContent = (champ.libelle || "");
     trEntete.appendChild(thTitre);
     champ.entetes.forEach(function (texte) {
         const th = document.createElement("th");

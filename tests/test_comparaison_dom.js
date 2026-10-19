@@ -247,11 +247,29 @@ function extraireTitreBloc(bloc) {
     const candidat = bloc.enfants.find(function (n) {
         if (n.genre !== "element") return false;
         if (n.balise !== "h3" && n.balise !== "label") return false;
-        if (n.getAttribute("for")) return false;
         if (contientEntreeSaisie(n)) return false;
+        // Un `for` qui vise un bouton radio désigne le titre du bloc, pas le
+        // libellé d'un champ : en V1, « Déjà SO: » est un label porteur de
+        // `for="SO_oui"` posé devant le groupe de boutons. L'écarter ici
+        // revenait à ne pas voir que le moteur omettait ce titre — défaut
+        // visible au PDF, trouvé le 19 octobre 2026 et corrigé depuis.
+        const pour = n.getAttribute("for");
+        if (pour && !estRadioDuBloc(bloc, pour)) return false;
         return normaliserTexte(texteDe(n)) !== "";
     });
     return candidat ? normaliserTexte(texteDe(candidat)) : null;
+}
+
+/** Vrai si `id` désigne un bouton radio contenu dans ce bloc. */
+function estRadioDuBloc(bloc, id) {
+    let trouve = false;
+    (function marcher(n) {
+        if (trouve || n.genre !== "element") return;
+        if (n.balise === "input" && n.getAttribute("type") === "radio"
+            && n.getAttribute("id") === id) { trouve = true; return; }
+        (n.enfants || []).forEach(marcher);
+    })(bloc);
+    return trouve;
 }
 
 function indexerLabelsPourAttribut(racine) {
@@ -372,7 +390,6 @@ function collecterImagesDessinables(racine) {
  */
 const INDICES_SANS_ID = new Set([0, 2, 3, 4, 5, 6, 23, 24, 25]); // (a), 0-based
 const INDEX_PATIENT_INFOS = 1; // (f)
-const ID_CHAMP_TOLERE_CLASSES = "empreinte_encre"; // (g)
 const ID_CHAMP_TOLERE_TYPE = "orientation"; // (h)
 
 function comparerChamps(champsV1, champsMoteur, indexBloc, ecarts) {
@@ -399,9 +416,10 @@ function comparerChamps(champsV1, champsMoteur, indexBloc, ecarts) {
             ecarts.push(position + " : id « " + cV1.id + " » (V1) vs « " + cM.id + " » (moteur)");
         }
 
-        let classesV1 = cV1.classes;
-        if (cV1.id === ID_CHAMP_TOLERE_CLASSES) classesV1 = classesV1.filter((c) => c !== "custom-checkbox"); // (g)
-        if (!memesEnsembles(classesV1, cM.classes)) {
+        // La tolérance (g) a disparu avec le défaut qu'elle masquait : le
+        // moteur reproduit désormais la classe « custom-checkbox » portée par
+        // l'input d'« empreinte encre » (constat du 19 octobre 2026).
+        if (!memesEnsembles(cV1.classes, cM.classes)) {
             ecarts.push(position + " : classes différentes — V1=[" + cV1.classes + "] moteur=[" + cM.classes + "]");
         }
 

@@ -3,16 +3,41 @@
   "blocs": [
     {
       "cle": "patient_infos",
+      "balise": "section",
       "titre": "Informations Patient",
       "titre_apparence": "h3",
       "titre_cle": "patient_info_title",
       "champs": [
-        { "cle": "nom", "type": "texte", "libelle": "Nom" },
-        { "cle": "prenom", "type": "texte", "libelle": "Prénom" },
-        { "cle": "date_naissance", "type": "texte", "libelle": "Date de naissance" },
-        { "cle": "sport", "type": "texte", "libelle": "Sport" },
-        { "cle": "metier", "type": "texte", "libelle": "Métier" },
-        { "cle": "niveau_scolaire", "type": "texte", "libelle": "Niveau Scolaire" }
+        {
+          "cle": "nom",
+          "type": "texte",
+          "libelle": "Nom:"
+        },
+        {
+          "cle": "prenom",
+          "type": "texte",
+          "libelle": "Prénom:"
+        },
+        {
+          "cle": "date_naissance",
+          "type": "texte",
+          "libelle": "Date de naissance:"
+        },
+        {
+          "cle": "sport",
+          "type": "texte",
+          "libelle": "Sport:"
+        },
+        {
+          "cle": "metier",
+          "type": "texte",
+          "libelle": "Métier:"
+        },
+        {
+          "cle": "niveau_scolaire",
+          "type": "texte",
+          "libelle": "Niveau Scolaire:"
+        }
       ]
     },
     {
@@ -21,25 +46,43 @@
       "titre_apparence": "h3",
       "titre_cle": "consultation_title",
       "champs": [
-        { "cle": "MDC", "type": "zone-texte", "libelle": "MDC" }
+        {
+          "cle": "MDC",
+          "type": "zone-texte",
+          "libelle": "MDC:"
+        }
       ]
     },
     {
       "cle": "oriente_par_bloc",
       "champs": [
-        { "cle": "oriente_par", "type": "zone-texte", "libelle": "Orienté par" }
+        {
+          "cle": "oriente_par",
+          "type": "zone-texte",
+          "libelle": "Orienté par:"
+        }
       ]
     },
     {
       "cle": "semelle_orthopedique_bloc",
       "disposition": "en-ligne",
+      "titre": "Déjà SO:",
+      "titre_apparence": "label",
       "champs": [
         {
           "type": "radio",
           "libelle": "Déjà SO",
           "valeurs": [
-            { "cle": "SO_oui", "valeur": "oui", "libelle": "Oui" },
-            { "cle": "SO_non", "valeur": "non", "libelle": "Non" }
+            {
+              "cle": "SO_oui",
+              "valeur": "oui",
+              "libelle": "Oui"
+            },
+            {
+              "cle": "SO_non",
+              "valeur": "non",
+              "libelle": "Non"
+            }
           ]
         }
       ]
@@ -47,65 +90,107 @@
     {
       "cle": "specialistes_bloc",
       "champs": [
-        { "cle": "spécialistes", "type": "zone-texte", "libelle": "Spécialistes" }
+        {
+          "cle": "spécialistes",
+          "type": "zone-texte",
+          "libelle": "Spécialistes:"
+        }
       ]
     },
     {
       "cle": "atcd_bloc",
-      "titre": "ATCD",
+      "titre": "ATCD:",
       "disposition": "atcd",
       "champs": [
-        { "cle": "perso", "type": "zone-texte", "libelle": "Perso" },
-        { "cle": "familliaux", "type": "zone-texte", "libelle": "Familiaux" }
+        {
+          "cle": "perso",
+          "type": "zone-texte",
+          "libelle": "Perso:"
+        },
+        {
+          "cle": "familliaux",
+          "type": "zone-texte",
+          "libelle": "Familiaux:"
+        }
       ]
     },
     {
       "cle": "section_squelettes",
-      "titre": "Statique",
+      "titre": "Statique:",
       "champs": [
         {
-          "cle": "squelette_gauche", "type": "image-annotable",
-          "libelle": "Squelette gauche", "fichier": "images/squelette_gauche.png",
+          "cle": "squelette_gauche",
+          "type": "image-annotable",
+          "libelle": "Squelette gauche",
+          "fichier": "images/squelette_gauche.png",
           "texte_alternatif": "squelette gauche"
         },
         {
-          "cle": "squelette_droite", "type": "image-annotable",
-          "libelle": "Squelette droite", "fichier": "images/squelette_droite.png",
+          "cle": "squelette_droite",
+          "type": "image-annotable",
+          "libelle": "Squelette droite",
+          "fichier": "images/squelette_droite.png",
           "texte_alternatif": "squelette droite"
         },
         {
-          "cle": "squelette_dos", "type": "image-annotable",
-          "libelle": "Squelette dos", "fichier": "images/squelette_dos.png",
+          "cle": "squelette_dos",
+          "type": "image-annotable",
+          "libelle": "Squelette dos",
+          "fichier": "images/squelette_dos.png",
           "texte_alternatif": "squelette dos"
         }
       ]
     },
     {
       "cle": "appui",
-      "titre": "Appui",
+      "titre": "Appui:",
       "disposition": "en-ligne",
       "champs": [
         {
           "type": "radio",
           "valeurs": [
-            { "cle": "anterieur", "valeur": "anterieur", "libelle": "Antérieur" },
-            { "cle": "posterieur", "valeur": "posterieur", "libelle": "Postérieur" }
+            {
+              "cle": "anterieur",
+              "valeur": "anterieur",
+              "libelle": "Antérieur"
+            },
+            {
+              "cle": "posterieur",
+              "valeur": "posterieur",
+              "libelle": "Postérieur"
+            }
           ]
         }
       ]
     },
     {
       "cle": "Podo",
-      "titre": "Podo",
+      "titre": "Podo:",
       "disposition": "en-ligne",
       "champs": [
-        { "cle": "symétrique", "type": "case", "libelle": "Symétrique" },
-        { "cle": "Isthme", "type": "case", "libelle": "Isthme" },
+        {
+          "cle": "symétrique",
+          "type": "case",
+          "libelle": "Symétrique"
+        },
+        {
+          "cle": "Isthme",
+          "type": "case",
+          "libelle": "Isthme"
+        },
         {
           "type": "radio",
           "valeurs": [
-            { "cle": "isthme_g", "valeur": "isthme_g", "libelle": "Gauche" },
-            { "cle": "isthme_d", "valeur": "isthme_d", "libelle": "Droit" }
+            {
+              "cle": "isthme_g",
+              "valeur": "isthme_g",
+              "libelle": "Gauche"
+            },
+            {
+              "cle": "isthme_d",
+              "valeur": "isthme_d",
+              "libelle": "Droit"
+            }
           ]
         }
       ]
@@ -115,21 +200,38 @@
       "champs": [
         {
           "type": "tableau",
-          "libelle": "Rotation tête",
-          "entetes": ["Gauche(G)", "Droite (D)"],
+          "libelle": "Rotation tête:",
+          "entetes": [
+            "Gauche(G)",
+            "Droite (D)"
+          ],
           "lignes": [
             {
-              "nom": "Positif", "cle": "test_positif",
+              "nom": "Positif",
+              "cle": "test_positif",
               "colonnes": [
-                { "valeur": "G", "libelle": "Gauche(G)" },
-                { "valeur": "D", "libelle": "Droite (D)" }
+                {
+                  "valeur": "G",
+                  "libelle": "Gauche(G)"
+                },
+                {
+                  "valeur": "D",
+                  "libelle": "Droite (D)"
+                }
               ]
             },
             {
-              "nom": "Plus court", "cle": "membre_court",
+              "nom": "Plus court",
+              "cle": "membre_court",
               "colonnes": [
-                { "valeur": "G", "libelle": "Gauche(G)" },
-                { "valeur": "D", "libelle": "Droite (D)" }
+                {
+                  "valeur": "G",
+                  "libelle": "Gauche(G)"
+                },
+                {
+                  "valeur": "D",
+                  "libelle": "Droite (D)"
+                }
               ]
             }
           ]
@@ -141,21 +243,38 @@
       "champs": [
         {
           "type": "tableau",
-          "libelle": "Posturo dynamique",
-          "entetes": ["Gauche(G)", "Droite (D)"],
+          "libelle": "Posturo dynamique:",
+          "entetes": [
+            "Gauche(G)",
+            "Droite (D)"
+          ],
           "lignes": [
             {
-              "nom": "Dorsal", "cle": "dorsal",
+              "nom": "Dorsal",
+              "cle": "dorsal",
               "colonnes": [
-                { "valeur": "G", "libelle": "Gauche(G)" },
-                { "valeur": "D", "libelle": "Droite (D)" }
+                {
+                  "valeur": "G",
+                  "libelle": "Gauche(G)"
+                },
+                {
+                  "valeur": "D",
+                  "libelle": "Droite (D)"
+                }
               ]
             },
             {
-              "nom": "Lombaire", "cle": "lombaire",
+              "nom": "Lombaire",
+              "cle": "lombaire",
               "colonnes": [
-                { "valeur": "G", "libelle": "Gauche(G)" },
-                { "valeur": "D", "libelle": "Droite (D)" }
+                {
+                  "valeur": "G",
+                  "libelle": "Gauche(G)"
+                },
+                {
+                  "valeur": "D",
+                  "libelle": "Droite (D)"
+                }
               ]
             }
           ]
@@ -164,14 +283,22 @@
     },
     {
       "cle": "spin",
-      "titre": "Spin test",
+      "titre": "Spin test:",
       "disposition": "en-ligne",
       "champs": [
         {
           "type": "radio",
           "valeurs": [
-            { "cle": "gauche", "valeur": "gauche", "libelle": "Gauche" },
-            { "cle": "droit", "valeur": "droit", "libelle": "Droit" }
+            {
+              "cle": "gauche",
+              "valeur": "gauche",
+              "libelle": "Gauche"
+            },
+            {
+              "cle": "droit",
+              "valeur": "droit",
+              "libelle": "Droit"
+            }
           ]
         }
       ]
@@ -179,81 +306,150 @@
     {
       "cle": "section_elements_testes",
       "champs": [
-        { "cle": "elements_testes", "type": "zone-texte", "libelle": "Elements testés" }
+        {
+          "cle": "elements_testes",
+          "type": "zone-texte",
+          "libelle": "Elements testés:"
+        }
       ]
     },
     {
       "cle": "section_bilan_algique",
       "champs": [
-        { "cle": "bilan_algique", "type": "zone-texte", "libelle": "Bilan algique" }
+        {
+          "cle": "bilan_algique",
+          "type": "zone-texte",
+          "libelle": "Bilan algique:"
+        }
       ]
     },
     {
       "cle": "section_bilan_morpho",
       "champs": [
-        { "cle": "bilan_morpho", "type": "zone-texte", "libelle": "Bilan morpho" }
+        {
+          "cle": "bilan_morpho",
+          "type": "zone-texte",
+          "libelle": "Bilan morpho:"
+        }
       ]
     },
     {
       "cle": "section_bilan_def",
       "champs": [
-        { "cle": "bilan_def", "type": "zone-texte", "libelle": "Bilan def" }
+        {
+          "cle": "bilan_def",
+          "type": "zone-texte",
+          "libelle": "Bilan def:"
+        }
       ]
     },
     {
       "cle": "Pouls",
-      "titre": "Pouls",
+      "titre": "Pouls:",
       "disposition": "en-ligne",
       "champs": [
-        { "cle": "pédieux", "type": "case", "libelle": "Pédieux" },
-        { "cle": "tibial", "type": "case", "libelle": "Tibial" }
+        {
+          "cle": "pédieux",
+          "type": "case",
+          "libelle": "Pédieux"
+        },
+        {
+          "cle": "tibial",
+          "type": "case",
+          "libelle": "Tibial"
+        }
       ]
     },
     {
       "cle": "section_enregistrement_plateforme",
       "champs": [
-        { "cle": "enregistrement_plateforme", "type": "zone-texte", "libelle": "Enregistrement Plateforme" }
+        {
+          "cle": "enregistrement_plateforme",
+          "type": "zone-texte",
+          "libelle": "Enregistrement Plateforme:"
+        }
       ]
     },
     {
       "cle": "section_empreinte_encre",
       "disposition": "en-ligne",
       "champs": [
-        { "cle": "empreinte_encre", "type": "case", "libelle": "Empreinte encre" }
+        {
+          "cle": "empreinte_encre",
+          "type": "case",
+          "libelle": "Empreinte encre:",
+          "apparence": "titre_avant"
+        }
       ]
     },
     {
       "cle": "section_chaussures_ville",
       "disposition": "chaussures",
       "champs": [
-        { "cle": "chaussures_ville", "type": "texte", "libelle": "Chaussures ville" },
-        { "cle": "usee_ville", "type": "case", "libelle": "Usées" },
-        { "cle": "marque_ville", "type": "texte", "libelle": "Marque" },
-        { "cle": "type_ville", "type": "texte", "libelle": "Type" }
+        {
+          "cle": "chaussures_ville",
+          "type": "texte",
+          "libelle": "Chaussures ville:"
+        },
+        {
+          "cle": "usee_ville",
+          "type": "case",
+          "libelle": "Usées"
+        },
+        {
+          "cle": "marque_ville",
+          "type": "texte",
+          "libelle": "Marque :"
+        },
+        {
+          "cle": "type_ville",
+          "type": "texte",
+          "libelle": "Type :"
+        }
       ]
     },
     {
       "cle": "section_chaussures_sport",
       "disposition": "chaussures",
       "champs": [
-        { "cle": "chaussures_sport", "type": "texte", "libelle": "Chaussures sport" },
-        { "cle": "usee_sport", "type": "case", "libelle": "Usées" },
-        { "cle": "marque_sport", "type": "texte", "libelle": "Marque" },
-        { "cle": "type_sport", "type": "texte", "libelle": "Type" }
+        {
+          "cle": "chaussures_sport",
+          "type": "texte",
+          "libelle": "Chaussures sport :"
+        },
+        {
+          "cle": "usee_sport",
+          "type": "case",
+          "libelle": "Usées"
+        },
+        {
+          "cle": "marque_sport",
+          "type": "texte",
+          "libelle": "Marque :"
+        },
+        {
+          "cle": "type_sport",
+          "type": "texte",
+          "libelle": "Type :"
+        }
       ]
     },
     {
       "cle": "section_plan_appareillage",
-      "titre": "Plan appareillage proposé",
+      "titre": "Plan appareillage proposé :",
       "titre_apparence": "label_bloc",
       "champs": [
         {
-          "cle": "image_empreintes", "type": "image-annotable", "apparence": "encadree",
-          "libelle": "Empreintes plantaires", "fichier": "images/empreintes_pieds.png",
+          "cle": "image_empreintes",
+          "type": "image-annotable",
+          "apparence": "encadree",
+          "libelle": "Empreintes plantaires",
+          "fichier": "images/empreintes_pieds.png",
           "texte_alternatif": "Empreintes plantaires"
         },
         {
-          "cle": "plan_texte", "type": "zone-texte",
+          "cle": "plan_texte",
+          "type": "zone-texte",
           "libelle": "Plan appareillage proposé",
           "indication": "Saisissez les éléments du plan d'appareillage..."
         }
@@ -263,39 +459,63 @@
       "cle": "pointure_ville_bloc",
       "disposition": "en-ligne-bas",
       "champs": [
-        { "cle": "pointure_ville", "type": "texte", "libelle": "Pointure ville" }
+        {
+          "cle": "pointure_ville",
+          "type": "texte",
+          "libelle": "Pointure ville:"
+        }
       ]
     },
     {
       "cle": "pointure_sport_bloc",
       "disposition": "en-ligne-bas",
       "champs": [
-        { "cle": "pointure_sport", "type": "texte", "libelle": "Pointure sport" }
+        {
+          "cle": "pointure_sport",
+          "type": "texte",
+          "libelle": "Pointure sport:"
+        }
       ]
     },
     {
       "cle": "base_bloc",
       "disposition": "en-ligne-bas",
       "champs": [
-        { "cle": "base", "type": "texte", "libelle": "Base" }
+        {
+          "cle": "base",
+          "type": "texte",
+          "libelle": "Base :"
+        }
       ]
     },
     {
       "cle": "section_recouvrement",
       "champs": [
-        { "cle": "recouvrement", "type": "zone-texte", "libelle": "Recouvrement" }
+        {
+          "cle": "recouvrement",
+          "type": "zone-texte",
+          "libelle": "Recouvrement :"
+        }
       ]
     },
     {
       "cle": "section_conseils",
       "champs": [
-        { "cle": "conseils", "type": "zone-texte", "libelle": "Conseils" }
+        {
+          "cle": "conseils",
+          "type": "zone-texte",
+          "libelle": "Conseils:"
+        }
       ]
     },
     {
       "cle": "section_orientation",
       "champs": [
-        { "cle": "orientation", "type": "zone-texte", "libelle": "Orientation" }
+        {
+          "cle": "orientation",
+          "type": "zone-texte",
+          "libelle": "Orientation:"
+        }
       ]
     }
   ]
