@@ -643,6 +643,18 @@ d'une installation à distance. L'éditeur est à Lille, le cabinet en Bretagne.
 
 ### C4-T3 — Page de diagnostic authentifiée `GET /etat`
 
+> **Contradiction à trancher dans son contrat, relevée le 19 octobre 2026 par
+> le cadrage de C4-T1.** Le point 3 du travail ci-dessous interdit à `/etat`
+> toute adresse IP, tandis que `docs/adressage.md:263-264` attend qu'il
+> « affiche l'adresse courante » — c'est ce qui rend un changement d'adresse
+> diagnosticable à distance, et donc traitable sans déplacement. Les deux ne
+> peuvent pas tenir ensemble. La distinction qui résout probablement le conflit
+> est celle retenue par C4-T1 : l'adresse d'un **client** est identifiante,
+> l'adresse d'écoute du **serveur** ne l'est pas. Mais `/etat` est une route,
+> pas un fichier : elle est authentifiée et ne circule pas, contrairement à
+> `technique.log`, qui lui n'en porte aucune (décision D1 de
+> `docs/contrats/C4-T1.md`). À arbitrer explicitement, pas par omission.
+
 - **Effort :** M
 - **Process :** Complet — nouvelle route authentifiée qui expose l'état du serveur.
 - **Dépendances :** C4-T1
