@@ -5,10 +5,10 @@ formulaire et annote les schémas au stylet, le PDF est fabriqué dans le
 navigateur et déposé sur le PC du cabinet. Utilisée quotidiennement depuis
 août 2026 par une pédicure-podologue à Morlaix, pour la totalité de ses bilans.
 
-**Dernière mise à jour :** 15 octobre 2026 (seconde session), par `/cloture-projet`
+**Dernière mise à jour :** 19 octobre 2026, par `/cloture-projet`
 **Version :** V1 en production, sous **BUSL 1.1** depuis le 14 octobre 2026
-**Jalon en cours :** V2 — 3 tâches livrées, C1-T3 aux trois quarts
-(voir `docs/ROADMAP.md`)
+**Jalon en cours :** V2 — 4 tâches livrées ; le formulaire tourne sur le moteur
+à schéma dans le dépôt, pas encore au cabinet (voir `docs/ROADMAP.md`)
 
 ## Architecture en bref
 
@@ -64,7 +64,7 @@ une image et non une donnée.
 | Chantier | Intitulé | État |
 |---|---|---|
 | C0 | Cadre juridique et licence | C0-T1 **livré** (BUSL 1.1) ; C0-T2 à faire |
-| C1 | Moteur de formulaire à schéma | C1-T2 et C1-T1 **livrés** ; C1-T3 livré **sauf la bascule**, devenue C1-T3b — le point de non-retour |
+| C1 | Moteur de formulaire à schéma | C1-T2, C1-T1, C1-T3 et C1-T3b **livrés** ; reste C1-T4 (schéma client) et C1-T5 (bibliothèque de blocs) |
 | C2 | Identité du cabinet en configuration | à faire |
 | C3 | Adressage, certificat et installateur | à faire — verrou n°1, bloquant |
 | C4 | Observabilité et support à distance | à faire |
@@ -92,25 +92,33 @@ en première clé. C1-T3, C1-T4, C7-T2 et C9-T1 s'y règlent sans rouvrir le
 débat.
 
 **Le moteur est branché dans le dépôt, pas encore au cabinet.**
-`formulaire/index.html` est désormais une coquille de 118 lignes que le moteur
-remplit depuis `formulaire/schema.json` (C1-T3b). La V1 est conservée octet pour
-octet dans `formulaire/index-v1.html`, servie : c'est le **retour arrière de
-niveau 1**, le favori « Formulaire — secours V1 » sur la tablette, et le témoin
-qui garde les clés de brouillon dans les tests.
+`formulaire/index.html` est une coquille de 118 lignes que le moteur remplit
+depuis `formulaire/schema.json`. La V1 est conservée octet pour octet dans
+`formulaire/index-v1.html`, servie : c'est le **retour arrière de niveau 1**, le
+favori « Formulaire — secours V1 », et le témoin qui garde les clés de brouillon
+dans les tests.
 
-**Rien ne doit partir au cabinet avant deux vérifications humaines** que seul
-Baptiste peut faire, et qu'aucun agent ne remplacera : ouvrir le favori de
-secours, saisir, générer un PDF et constater qu'il arrive sur le PC ; puis
-superposer un PDF du moteur à un PDF de la V1. La seconde exige le jeu de
-référence visuelle (`docs/references-visuelles/LISEZMOI.md`, quatre fichiers),
-toujours à produire.
+**Le rendu a été comparé page à page et le repli éprouvé** le 19 octobre, dans
+Chrome piloté et contre un vrai serveur en bac à sable : les six pages sont
+identiques au pixel près, et une saisie commencée sur le moteur se reprend sur
+la fiche de secours, PDF déposé compris. Cinq écarts de rendu avaient été
+trouvés et corrigés à cette occasion — aucun n'était visible des 115 tests.
+Détail : `docs/references-visuelles/CONSTAT-2026-10-19.md` ; outillage
+rejouable : `outils/reference-visuelle/`.
 
-**Tests :** 103 au total, tous verts au 15 octobre 2026, en intégration continue
-sur Linux, Windows et macOS : 73 Python, 7 Node (file), 8 (palette),
-7 (inventaire), 8 (comparaison de DOM).
+**Reste un seul geste avant de livrer au cabinet** : poser le favori de secours
+sur la tablette et l'ouvrir une fois. Il demande l'appareil ; le chemin qu'il
+emprunte est éprouvé.
+
+**Tests :** 115 au total, tous verts au 19 octobre 2026, en intégration continue
+sur Linux, Windows et macOS : 81 Python, 7 Node (file), 8 (palette),
+8 (inventaire), 8 (comparaison de DOM), 4 (démarrage du moteur).
 
 ## Dernières sessions
 
+- [2026-10-19 — La bascule, et ce que le rendu réel a révélé](docs/resumes/2026-10-19-bascule-et-fidelite.md) :
+  C1-T3b livrée. Cinq écarts de rendu trouvés par comparaison dans un vrai
+  navigateur, et corrigés ; repli éprouvé contre un vrai serveur.
 - [2026-10-15 (2) — Le moteur de rendu, sans la bascule](docs/resumes/2026-10-15-moteur-de-rendu.md) :
   C1-T3 étapes 1 à 8. Moteur, schéma, comparateur V1 ↔ moteur. `index.html` intact.
   Non commité, branche `c1-t3-moteur-rendu-schema`.
@@ -187,6 +195,28 @@ Ils ont déjà coûté du temps ; ils le recoûteront.
   Validé sur des fichiers non suivis, il ne voit rien : `git ls-files` ne les
   liste pas. C'est ainsi que six travaux d'intégration continue ont échoué le
   14 octobre.
+- **Le rendu réel voit ce qu'aucun test ne voit.** Le 19 octobre : 115 tests
+  verts, audit CONFORME, revue À LIVRER — et **cinq** écarts de rendu quand
+  même, dont un titre de bloc qui ne s'affichait pas du tout. Trois tenaient à
+  des détails qu'on ne pense pas à tester : une espace entre deux balises, un
+  `<label>` vide, un deux-points collé. **Le moteur n'invente ni ponctuation ni
+  structure** : le schéma porte le texte exact qui s'affiche, et les formes qui
+  ne s'en déduisent pas sont des attributs à valeurs fermées. Toute comparaison
+  de rendu se rejoue avec `outils/reference-visuelle/`.
+- **Se méfier de ses propres tolérances.** Le premier verdict de cette
+  comparaison disait « identiques, le reste est du bruit JPEG ». Mesure faite,
+  le bruit réel est **nul** : deux exports de la même page sont nombre pour
+  nombre identiques. Une tolérance inventée pour expliquer un écart est ce qui
+  fait passer un défaut pour du bruit.
+- **Ne jamais lancer `serveur.py` ni `generer_autorite.py` depuis le dépôt.**
+  Ils calculent leur racine depuis leur propre emplacement et **écraseraient**
+  les fichiers réels du cabinet, qui vivent à la racine. Tout essai se fait sur
+  une copie, dans un bac à sable — c'est ainsi que le repli a été éprouvé.
+- **Piloter Chrome ne demande rien à installer** (Node 24 expose `WebSocket`),
+  mais deux pièges : les coordonnées de `Input.dispatchMouseEvent` sont
+  relatives à la **zone affichée**, donc il faut défiler jusqu'à l'élément ; et
+  sans `Network.setCacheDisabled`, un PDF régénéré après correction ressort
+  identique à l'octet près.
 - **Un garde-fou non mis en échec ne garde rien.** Deux fois le 15 octobre, le
   même défaut : des listes normatives recopiées à la main (C1-T1), puis un
   comparateur qui aplatissait l'arbre et sautait deux blocs sur 29 (C1-T3). Les

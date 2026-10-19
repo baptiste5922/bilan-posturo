@@ -314,7 +314,18 @@ l'en-tête ; le moteur de rendu, identique chez tous les clients, produit le DOM
 
 ### C1-T3b — Basculer le formulaire de production sur le moteur
 
-> **État : bascule faite dans le dépôt le 15-16 octobre 2026. NON LIVRÉE.**
+> **État : livrée le 19 octobre 2026, à un geste près.** Les trois critères
+> humains ont été levés : jeu de référence produit, six pages **identiques au
+> pixel près** après correction de cinq écarts de rendu, et repli éprouvé de
+> bout en bout contre un vrai serveur en bac à sable — une saisie commencée sur
+> le moteur se reprend sur la fiche de secours, PDF déposé compris. Reste à
+> poser le favori « Formulaire — secours V1 » sur la tablette et à l'ouvrir une
+> fois : ce geste demande l'appareil, le chemin qu'il emprunte est éprouvé.
+> Constat : `docs/references-visuelles/CONSTAT-2026-10-19.md` ; outillage
+> rejouable : `outils/reference-visuelle/`.
+>
+> **État antérieur, conservé pour mémoire : bascule faite dans le dépôt les
+> 15-16 octobre 2026.**
 > `formulaire/index.html` est une coquille de 118 lignes que le moteur remplit ;
 > la V1 est conservée octet pour octet dans `formulaire/index-v1.html`, servie,
 > qui est le repli de niveau 1 et le témoin des clés de brouillon dans les
