@@ -9,7 +9,7 @@
 > est la traduction opérationnelle. La projection dit *pourquoi* ; cette feuille
 > de route dit *quoi faire, dans quel ordre, et comment savoir que c'est fini*.
 
-**Dernière mise à jour :** 15 octobre 2026
+**Dernière mise à jour :** 19 octobre 2026
 **État de départ :** V1 en production chez un cabinet depuis deux mois.
 
 ---
@@ -480,6 +480,30 @@ Android abandonne, ou le fait mal et appelle au support chaque semaine. À
 
 ### C3-T1 — Décider la stratégie de nom et de certificat
 
+> **État : livrée le 19 octobre 2026.** Voie retenue : **n°2 — IP privée fixe +
+> autorité locale**, soit l'existant, conservé délibérément. Coût récurrent
+> **0 €/cabinet/an** ; gestes à la charge du praticien **aucun**, en usage comme
+> à l'installation. Décision écrite : `docs/adressage.md`.
+>
+> **Le point « qui peut tout invalider » a tranché, et contre la voie n°1 :** un
+> nom public résolvant vers une adresse privée n'est pas fiable en France — les
+> résolveurs IPv4 de Free le refusent, leurs IPv6 l'acceptent, donc la panne est
+> intermittente. S'y ajoutent deux défauts non prévus : la voie n°1 rendait un
+> usage purement local dépendant d'Internet (box en panne, plus de formulaire à
+> deux mètres du PC), et publiait la liste des cabinets clients dans les journaux
+> de *Certificate Transparency*. Enfin, les certificats publics passent à
+> 100 jours en mars 2027 et **47 jours en mars 2029** (SC-081v3) ; une autorité
+> locale installée à la main en est explicitement exemptée.
+>
+> **Conséquences, détaillées au §5 du document :** C3-T2 change de nature (voir
+> sa note), C3-T3 garde son périmètre avec l'IP fixe et la racine comme vrais
+> livrables, C3-T4 doit vérifier le **bail** DHCP et non l'adresse du jour, et
+> **C4-T3 + C4-T5 deviennent moins optionnelles** — elles sont ce qui rend le
+> seul coût récurrent de la voie n°2 (le remplacement de la box par l'opérateur,
+> ~0,2 incident/cabinet/an) traitable à distance au lieu d'un déplacement.
+> Une réserve documentée (§7) garde la voie n°1 pour un client dont les appareils
+> n'admettent pas l'installation d'une autorité, avec l'essai qui tranche.
+
 - **Effort :** M (étude), décision bloquante
 - **Process :** Direct — étude et décision, aucune ligne de code.
 - **Dépendances :** aucune
@@ -503,6 +527,15 @@ Android abandonne, ou le fait mal et appelle au support chaque semaine. À
 - **Risque :** se tromper ici fait refaire l'installateur entier.
 
 ### C3-T2 — Renouvellement automatique du certificat
+
+> **Reconfigurée par C3-T1 le 19 octobre 2026.** Le travail décrit ci-dessous
+> suppose un client ACME DNS-01 ; la voie n°1 n'ayant pas été retenue, il n'y a
+> **ni challenge, ni compte DNS, ni secret d'API** : le certificat serveur se
+> réémet **hors ligne** depuis l'autorité locale, déjà présente sur le PC avec sa
+> clé. Le point 4 du travail devient sans objet, et l'effort tombe de L à M.
+> **Second déclencheur à ajouter, et c'est le vrai sujet : le changement
+> d'adresse IP du PC**, pas seulement l'approche de l'expiration. Les trois
+> critères d'acceptation restent entiers. À reprendre tel quel dans le contrat.
 
 - **Effort :** L
 - **Process :** Complet — renouvellement de certificat, en plein chemin TLS.
