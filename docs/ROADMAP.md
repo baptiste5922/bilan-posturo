@@ -605,6 +605,39 @@ d'une installation à distance. L'éditeur est à Lille, le cabinet en Bretagne.
 
 ### C4-T1 — Journal technique non identifiant
 
+> **État : livrée le 20 octobre 2026.** `technique.log` à la racine du cabinet,
+> huit événements à vocabulaire fermé, rotation **partagée** avec le journal
+> nominatif (5 Mo × 3), interrupteur `journal_technique` pour le retour arrière
+> de niveau 1. **99 tests Python** (81 avant) **+ 35 Node**, verts en mode normal
+> **et sous `python3 -O`**. Audit **CONFORME** (0 critique, 0 élevée, 0 moyenne)
+> après correction d'une **élevée** ; revue **À LIVRER SOUS RÉSERVE**, les deux
+> réserves traitées. Contrat : `docs/contrats/C4-T1.md` ; audit :
+> `docs/audits/C4-T1.md` (v1 et v2) ; revue : `docs/revues/C4-T1.md`.
+>
+> **La tension avec `docs/adressage.md` est tranchée (décisions D1 et D2) :**
+> aucune adresse dans `technique.log`, pas même celle du serveur — une exception
+> exprimable est une exception contournable, et au cabinet les deux adresses ne
+> diffèrent que du dernier octet. Le changement d'adresse reste reconstituable
+> par l'**empreinte tronquée du certificat** chargé, qui porte l'IP en
+> `subjectAltName`, comparée au démarrage précédent déjà inscrit dans le
+> fichier. L'adresse courante relève exclusivement de C4-T3.
+>
+> **Le motif « garde-fou qui ne garde rien » a été rencontré quatre fois sur
+> cette seule tâche**, et c'est l'enseignement à retenir : le premier test
+> anti-fuite ne mordait pas sur `str(erreur)` (l'échec d'écriture survenait au
+> `mkstemp`, dont le chemin ne porte pas le nom du patient) ; rien n'ancrait
+> l'émission des lignes `REPONSE`, par lesquelles la détection passe ; la garde
+> finale reposait sur des `assert` nus et **s'évaporait sous `python -O`** ; et
+> la liste des noms à vérifier, alimentée à la main, manquait déjà un dépôt
+> présent dans le dépôt. Les quatre sont refermés, le dernier en **dérivant les
+> noms du contenu réel de `bilans/`** au lieu de les énumérer.
+>
+> **Reports, tous faibles et hors périmètre :** le doublement des lignes
+> `REPONSE` (voir C4-T2) ; le test anti-fuite qui ne cherche pas les fragments
+> de trois caractères ; `test_journal_illisible_ne_leve_pas` sans effet si
+> l'utilisateur est privilégié ; la ligne `ARRET` presque jamais écrite au
+> cabinet (voir C4-T3 et C4-T4) ; le flake de `ServeurArret` (voir C7-T5).
+
 - **Effort :** M
 - **Process :** Complet — journal : le risque est d'y laisser passer une donnée de santé.
 - **Dépendances :** aucune
@@ -630,6 +663,14 @@ d'une installation à distance. L'éditeur est à Lille, le cabinet en Bretagne.
   question de l'exemption HDS.
 
 ### C4-T2 — Durée de conservation des journaux
+
+> **À chiffrer avant de dimensionner la purge, relevé par l'audit de C4-T1 le
+> 20 octobre :** chaque réponse d'erreur produit **deux** lignes `REPONSE` dans
+> `technique.log`, dont une à `code=0` issue de `log_error`. Le volume réel n'est
+> donc pas celui qu'on déduirait du nombre de requêtes. Par ailleurs
+> `technique.log` est aujourd'hui borné en **taille** (5 Mo × 3) et **pas en
+> durée** : c'est exactement le trou que cette tâche ferme, et la documentation
+> praticien le dit déjà en ces termes — ne pas la laisser mentir après coup.
 
 - **Effort :** S
 - **Process :** Allégé + audit — la purge supprime des fichiers ; vérifier qu'elle ne sort pas du dossier d'archives.
@@ -840,6 +881,18 @@ gratuits.
 
 ### C6-T4 — Nettoyage du dépôt
 
+> **Divergence latente à refermer, diagnostiquée le 20 octobre pendant C4-T1.**
+> `.gitattributes:23` exige `*.ps1 text eol=crlf`, mais les blobs de
+> `installer-demarrage.ps1` et `desinstaller-demarrage.ps1` ont été commités
+> **en CRLF** avant l'ajout de `.gitattributes` (commit `daf60aa`) : leur blob
+> contient 125 CR. `git diff` compare donc le fichier nettoyé (0 CR) au blob
+> (125 CR) et affiche **310 lignes modifiées** sur deux fichiers que personne
+> n'a touchés — contenu, mode et date intacts. Conséquences : un `git add -A`
+> fait entrer ces lignes fantômes dans un commit sans rapport, et tout diff de
+> revue est pollué. La correction est un `git add --renormalize` isolé, dans son
+> propre commit, **jamais mêlé à une tâche** — et à vérifier contre
+> `tests/test_serveur.PortabiliteWindows`, qui exige CRLF et BOM sur le disque.
+
 - **Effort :** S
 - **Process :** Direct — retrait de fichiers du suivi Git et contrôle d'intégration continue.
 - **Dépendances :** aucune
@@ -937,6 +990,23 @@ devient un appel de support, et un appel de support consomme la marge du mois.
   jour régresse.
 
 ### C7-T5 — Stabiliser `ServeurEnMarche` sous Windows
+
+> **Second flake, de mécanisme différent, mesuré le 20 octobre pendant C4-T1.**
+> `ServeurArret.test_arret_journalise` échoue environ une fois sur vingt à
+> soixante : ce n'est **pas** l'attente TLS de `ServeurEnMarche`, c'est le
+> blocage de `Popen` dont le tube `stdout=PIPE` se remplit — banc dédié :
+> 11 échecs sur 12 sous charge avec tube non vidé, **0 sur 4** avec un fil
+> lecteur. Ce n'est pas `_verrou_journal` : `journaliser()` écrit sur `stderr`
+> **hors** du verrou. `communicate()` a remplacé `wait()`, ce qui réduit
+> nettement la fréquence et transforme l'échec en diagnostic lisible, mais ne
+> l'élimine pas : un échec sur 60 subsiste, et il reviendra dès qu'une version
+> plus bavarde du serveur tournera derrière ce test. **Risque en production
+> nul**, argumenté dans `docs/audits/C4-T1.md` : sous `pythonw` en SYSTEM
+> `sys.stderr` vaut `None` et il n'y a aucun tube, le `.bat` a une console
+> drainante, et le service est tué par `TerminateProcess`, qui n'exécute jamais
+> le `finally`. Critère qui discrimine au prochain échec : `ARRET` absent +
+> processus vivant = tube plein ; `ARRET` absent + sortie immédiate = course du
+> signal arrivant avant le `try`.
 
 - **Effort :** S
 - **Process :** Allégé — harnais de test ; le diagnostic compte plus que le correctif.

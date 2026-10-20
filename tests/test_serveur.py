@@ -5,8 +5,11 @@ Bibliothèque standard uniquement, comme le serveur lui-même.
     python3 -m unittest discover -s tests
 """
 
+import base64
+import email
 import io
 import os
+import re
 import shutil
 import stat
 import sys
@@ -303,3 +306,280 @@ class RotationDuJournal(unittest.TestCase):
             serveur.journaliser("ligne\n")
         with open(self.journal, encoding="utf-8") as f:
             self.assertEqual(f.read(), "ligne\n")
+
+
+# Certificat jetable, pour tester empreinte_certificat() sans dépendre de
+# cryptography côté test : auto-signé, généré une fois par openssl, jamais
+# utilisé pour autre chose qu'un aller-retour PEM -> DER -> SHA-256.
+CERTIFICAT_PEM_TEST = """-----BEGIN CERTIFICATE-----
+MIICmjCCAYICCQDCkfBRhF/sizANBgkqhkiG9w0BAQsFADAPMQ0wCwYDVQQDDAR0
+ZXN0MB4XDTI2MTAxOTExMzAwMFoXDTI2MTAyMDExMzAwMFowDzENMAsGA1UEAwwE
+dGVzdDCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAOsUssXBtF2cU0ND
+LdROgAnCnIAmsvRsWrpkuM5KrIEEVATp9wufrCxrX908fPzVB40CqjdG/HMx2Y7T
+l7jy8xBMAXem4Yx1Vnthywr6JelzWZw1pi5vaf8R9TLt5CWgXOFxFdLVa3ye5caP
+ZxSmsDmY/swBRtRyKcZaEQltQGalvxrg3WXG0E5kgPv6XhbZoPJrV+EVt/arUQrh
+Oaryb7ubEGCE3Ryieax937L/GOpUewa1x1HkawRNYQ366eIzxCwO0MjoRhRyXhYc
+acyG8bovEDWq1v16LKuSJjPTOPzShynzcmJiUrLz1OUOImTAIeAFxCDyIwe0r6yc
+D8xYeOsCAwEAATANBgkqhkiG9w0BAQsFAAOCAQEAUgsboUSYEQgTQU853yjrNFGL
+ygOtik8jAOO0tdTo+VVZ+wpPvb0PSGC4U45m7d83CBGJOuZKON9+xa9TABjhSI43
++C3dN8+YGHO50ldP7aDiXgVjVhja3VYMR4NB6+A3OgVGXReKg8bkjiT/Xxmq0JVf
+SvI7WDGjLls9wf/F4TOUodEAgvxNX9CCPAtJ3qb7ByY2XbVK11fzE0AkQ3MH/yva
+j1vJiEvP9Mx5C02CzrJe2xUIFmwYqEH4s0MOLSa1nq1/pEpniv52zSMqGwho1Bmm
+nsT6lqOHUXYtr3OFWzLNo3JuTpeNzJcabcDsGd0WGQZ1ag0BinrZRKKH8Q9eLw==
+-----END CERTIFICATE-----
+"""
+
+
+class JournalTechnique(unittest.TestCase):
+    """Le second journal (C4-T1) : non identifiant par construction.
+
+    Chaque test qui écrit redirige serveur.TECHNIQUE vers un dossier
+    temporaire plutôt que vers la racine du projet, qui héberge le journal
+    réel d'un cabinet quand ce code tourne hors du dépôt.
+    """
+
+    def setUp(self):
+        self.dossier = tempfile.mkdtemp(prefix="bilan-technique-")
+        self.addCleanup(shutil.rmtree, self.dossier, ignore_errors=True)
+        self.technique = os.path.join(self.dossier, "technique.log")
+
+    def lire(self):
+        with open(self.technique, encoding="utf-8") as f:
+            return f.read()
+
+    def test_fichier_cree_a_la_racine(self):
+        # Emplacement du *vrai* chemin (non substitué) : à la racine du
+        # projet, jamais dans la racine web.
+        self.assertEqual(os.path.dirname(serveur.TECHNIQUE), serveur.RACINE)
+        self.assertNotEqual(os.path.dirname(serveur.TECHNIQUE), serveur.FORMULAIRE)
+        self.assertEqual(os.path.basename(serveur.TECHNIQUE), "technique.log")
+
+        # Et le fichier apparaît bien après une écriture, dans le bac à
+        # sable substitué pour ce test.
+        with unittest.mock.patch.object(serveur, "TECHNIQUE", self.technique):
+            serveur.journaliser_technique("DEMARRAGE", "port=8000")
+        self.assertTrue(os.path.exists(self.technique))
+
+    def test_tous_les_evenements_couverts(self):
+        with unittest.mock.patch.object(serveur, "TECHNIQUE", self.technique):
+            # ROTATION n'est jamais appelée en direct : on la déclenche une
+            # fois, avant tout le reste, pour que la rotation qui archive le
+            # fichier n'emporte avec elle aucun des événements qui suivent.
+            with open(self.technique, "w", encoding="utf-8") as f:
+                f.write("x" * (serveur.JOURNAL_TAILLE_MAX + 1))
+            serveur.journaliser_technique("DEPOT", "ok 1 octets")
+
+            for evenement in serveur.EVENEMENTS_TECHNIQUES - {"ROTATION", "DEPOT"}:
+                serveur.journaliser_technique(evenement, "detail")
+
+            contenu = self.lire()
+
+        evenements_exerces = {
+            ligne.split(" ", 2)[1] for ligne in contenu.splitlines() if ligne}
+        # Égalité, et non inclusion : seuls les événements déclarés doivent
+        # apparaître, et tous doivent apparaître.
+        self.assertEqual(evenements_exerces, serveur.EVENEMENTS_TECHNIQUES)
+
+    def test_detail_hostile_ne_ressort_pas(self):
+        nom_patient = "Bilan_2026-08-22_Dupont-Lea.pdf"
+        adresse = "192.168.1.13"
+
+        for hostile in (nom_patient, adresse):
+            route = serveur.classe_route("/" + hostile)
+            self.assertIn(route, serveur.ROUTES_TECHNIQUES)
+            self.assertNotIn(hostile, route)
+
+        erreur = OSError(13, "Permission denied")
+        erreur.filename = os.path.join("/bilans", nom_patient)
+        detail = serveur.detail_echec_ecriture(erreur)
+        self.assertEqual(detail, "errno=13 Permission denied")
+        self.assertNotIn(nom_patient, detail)
+        self.assertNotIn(adresse, detail)
+
+        for hostile in (nom_patient, adresse):
+            # Vocabulaire fermé : un motif hors de MOTIFS_REFUS_DEPOT ne se
+            # recopie jamais.
+            self.assertNotIn(hostile, serveur.detail_refus_depot(hostile))
+
+    def test_evenement_inconnu_ne_leve_pas(self):
+        with unittest.mock.patch.object(serveur, "TECHNIQUE", self.technique):
+            serveur.journaliser_technique("CECI_N_EXISTE_PAS", "detail")
+        self.assertIn("EVENEMENT_INCONNU", self.lire())
+
+    @unittest.skipIf(os.name == "nt",
+                     "chmod ne restreint l'écriture d'un dossier que sous POSIX")
+    def test_journal_illisible_ne_leve_pas(self):
+        open(self.technique, "w", encoding="utf-8").close()
+        os.chmod(self.technique, 0o400)
+        os.chmod(self.dossier, 0o500)
+        try:
+            with unittest.mock.patch.object(serveur, "TECHNIQUE", self.technique):
+                serveur.journaliser_technique("DEMARRAGE", "port=8000")
+        finally:
+            os.chmod(self.dossier, 0o700)
+            os.chmod(self.technique, 0o600)
+
+    def test_verdict_certificat_non_decodable_ne_leve_pas(self):
+        # Réenregistré en ANSI par un correspondant, ou tronqué en plein
+        # caractère multi-octets par un disque plein : le fichier existe et
+        # se lit en octets, mais pas en UTF-8. UnicodeDecodeError dérive de
+        # ValueError, pas d'OSError : sans ce second type, l'exception
+        # remonte et empêche le serveur de démarrer (constat d'audit).
+        ligne = ("2026-10-19T08:00:00 DEMARRAGE port=8000 certificat=abc "
+                "premier démarrage observé\n")
+        with open(self.technique, "wb") as f:
+            f.write(ligne.encode("cp1252"))
+        with unittest.mock.patch.object(serveur, "TECHNIQUE", self.technique):
+            verdict = serveur.verdict_certificat("abc")
+        self.assertEqual(verdict, "premier démarrage observé")
+
+    def test_rotation_partagee(self):
+        with unittest.mock.patch.object(serveur, "TECHNIQUE", self.technique):
+            with open(self.technique, "w", encoding="utf-8") as f:
+                f.write("x" * (serveur.JOURNAL_TAILLE_MAX + 1))
+            serveur.faire_tourner_journal(serveur.TECHNIQUE)
+        self.assertTrue(os.path.exists(self.technique + ".1"))
+        self.assertFalse(os.path.exists(self.technique + ".4"))
+
+    def test_empreinte_certificat_stable_et_courte(self):
+        chemin = os.path.join(self.dossier, "certificat.pem")
+        with open(chemin, "w", encoding="ascii") as f:
+            f.write(CERTIFICAT_PEM_TEST)
+
+        premiere = serveur.empreinte_certificat(chemin)
+        seconde = serveur.empreinte_certificat(chemin)
+        self.assertEqual(premiere, seconde)
+        self.assertEqual(len(premiere), 16)
+        int(premiere, 16)      # lève ValueError si ce n'est pas de l'hexadécimal
+
+        invalide = os.path.join(self.dossier, "invalide.pem")
+        with open(invalide, "w", encoding="utf-8") as f:
+            f.write("ceci n'est pas un certificat")
+        self.assertEqual(serveur.empreinte_certificat(invalide), "indisponible")
+
+        self.assertEqual(
+            serveur.empreinte_certificat(
+                os.path.join(self.dossier, "absent.pem")),
+            "indisponible")
+
+    def test_vocabulaire_derive_du_source(self):
+        chemin_source = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "serveur", "serveur.py")
+        with open(chemin_source, encoding="utf-8") as f:
+            source = f.read()
+
+        appels = re.findall(r'journaliser_technique\(\s*"([^"]+)"', source)
+        self.assertTrue(appels, "aucun appel à journaliser_technique trouvé")
+        for evenement in appels:
+            with self.subTest(evenement=evenement):
+                self.assertIn(evenement, serveur.EVENEMENTS_TECHNIQUES)
+
+    def test_rotation_derivee_de_la_constante(self):
+        # ROTATION échappe de nécessité à journaliser_technique() (sans quoi
+        # ce serait un interblocage), donc à la garde ci-dessus qui ne relève
+        # que les appels journaliser_technique("…". Ce test-ci couvre ce
+        # deuxième site d'écriture (constat d'audit C4-T1) : le libellé ne
+        # doit être transcrit nulle part ailleurs que dans sa déclaration.
+        self.assertEqual(serveur.EVENEMENT_ROTATION, "ROTATION")
+        self.assertIn(serveur.EVENEMENT_ROTATION, serveur.EVENEMENTS_TECHNIQUES)
+
+        chemin_source = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "serveur", "serveur.py")
+        with open(chemin_source, encoding="utf-8") as f:
+            source = f.read()
+
+        occurrences = re.findall(r'"ROTATION"', source)
+        self.assertEqual(
+            len(occurrences), 2,
+            "« ROTATION » apparaît {} fois entre guillemets dans le source, "
+            "attendu 2 (le vocabulaire fermé, et EVENEMENT_ROTATION) : un "
+            "troisième site l'aurait retranscrit plutôt que dérivé de la "
+            "constante".format(len(occurrences)))
+
+
+class DepotEchecEcritureSansFuite(unittest.TestCase):
+    """Reproduit un échec RÉEL au renommage (os.replace), pas à la création
+    du temporaire (mkstemp) : c'est seulement là que l'OSError porte le nom
+    du patient, et donc le seul cas qui mette la décision D4 à l'épreuve.
+
+    chemin_libre() ne renvoie jamais un chemin déjà existant : on ne peut
+    donc pas provoquer ce cas par une simple collision de fichier sans
+    introduire une condition de course sur le vrai système de fichiers,
+    instable par nature. do_POST() est donc appelé en direct, sur un
+    Gestionnaire construit sans socket (bypass de __init__), avec
+    os.replace() substitué par une OSError portant la destination réelle —
+    exactement ce qu'une vraie panne de renommage produirait.
+    """
+
+    UTILISATEUR = "cabinet"
+    MOT_DE_PASSE = "motdepasse123"
+
+    def setUp(self):
+        self.dossier_bilans = tempfile.mkdtemp(prefix="bilan-depot-")
+        self.addCleanup(shutil.rmtree, self.dossier_bilans, ignore_errors=True)
+        self.dossier_journaux = tempfile.mkdtemp(prefix="bilan-technique-")
+        self.addCleanup(shutil.rmtree, self.dossier_journaux, ignore_errors=True)
+
+        self.technique = os.path.join(self.dossier_journaux, "technique.log")
+        self.journal = os.path.join(self.dossier_journaux, "journal.log")
+        for nom_attribut, valeur in (("TECHNIQUE", self.technique),
+                                     ("JOURNAL", self.journal)):
+            patch = unittest.mock.patch.object(serveur, nom_attribut, valeur)
+            patch.start()
+            self.addCleanup(patch.stop)
+
+    def gestionnaire_sans_socket(self, corps, nom_fichier):
+        """Un Gestionnaire minimal : do_POST() n'a besoin ni de socket ni de
+        serveur réel, seulement des attributs qu'il lit lui-même."""
+        instance = serveur.Gestionnaire.__new__(serveur.Gestionnaire)
+        instance.command = "POST"
+        instance.path = "/depot"
+        instance.requestline = "POST /depot HTTP/1.1"
+        instance.client_address = ("127.0.0.1", 0)
+        instance.request_version = "HTTP/1.1"
+        instance.close_connection = True
+        instance.silencieux = False
+        instance.config = {"utilisateur": self.UTILISATEUR,
+                           "mot_de_passe": serveur.hacher(self.MOT_DE_PASSE)}
+        instance.dossier_pdf = self.dossier_bilans
+
+        jeton = base64.b64encode(
+            "{}:{}".format(self.UTILISATEUR, self.MOT_DE_PASSE)
+            .encode("utf-8")).decode("ascii")
+        entete_nom = base64.b64encode(
+            nom_fichier.encode("utf-8")).decode("ascii")
+        instance.headers = email.message_from_string(
+            "Content-Length: {}\nX-Fichier: {}\nAuthorization: Basic {}\n"
+            .format(len(corps), entete_nom, jeton))
+        instance.rfile = io.BytesIO(corps)
+        instance.wfile = io.BytesIO()
+        return instance
+
+    def test_echec_au_renommage_ne_fuite_pas_le_nom(self):
+        nom = "Bilan_2026-08-22_Dupont-Lea.pdf"
+        instance = self.gestionnaire_sans_socket(b"%PDF-1.4 contenu", nom)
+
+        # Le même chemin que do_POST calculera lui-même (dossier vide : pas
+        # de suffixe de collision) : c'est ce que porterait une vraie
+        # PermissionError au renommage.
+        destination = os.path.join(self.dossier_bilans, nom)
+        echec_reel = PermissionError(13, "Permission denied", destination)
+
+        with unittest.mock.patch.object(serveur.os, "replace",
+                                        side_effect=echec_reel):
+            instance.do_POST()
+
+        with open(self.technique, encoding="utf-8") as f:
+            contenu_technique = f.read()
+
+        self.assertIn("ECHEC_ECRITURE", contenu_technique)
+        # La garde : ni le nom du fichier, ni le dossier qui le contient.
+        self.assertNotIn(nom, contenu_technique)
+        self.assertNotIn(self.dossier_bilans, contenu_technique)
+
+        # Témoin négatif : le journal nominatif, lui, continue de porter le
+        # nom (décision D4 ne s'applique qu'au journal technique).
+        with open(self.journal, encoding="utf-8") as f:
+            self.assertIn(nom, f.read())

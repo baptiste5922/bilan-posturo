@@ -208,6 +208,25 @@ Au-delà de 5 Mo, il est archivé en `journal.log.1` et un nouveau journal
 commence ; trois générations sont conservées. Les appels à `/sante`, qui
 arrivent en continu depuis chaque tablette allumée, n'y figurent pas.
 
+### Le second journal, celui qu'on peut envoyer
+
+Un deuxième fichier, `C:\BilanPosturo\technique.log`, vit à côté du premier.
+Il note les démarrages, les arrêts et les incidents techniques (certificat,
+authentification, dépôts), mais **jamais une adresse, jamais un nom de
+fichier, jamais rien qui tienne de vos patientes et patients**. C'est la
+différence entre les deux : `journal.log` ne doit jamais quitter le cabinet ;
+`technique.log` le peut, par courriel, à l'assistance, pour un diagnostic à
+distance sans qu'aucune donnée de santé ne sorte du PC.
+
+Il grossit et se limite en taille de la même façon que l'autre journal (5 Mo,
+trois générations archivées) — pas en durée : il n'est pas purgé
+automatiquement après un délai, seulement quand il dépasse la taille.
+
+Pour le désactiver (il ne devrait pas y avoir de raison, mais le retour en
+arrière existe) : ouvrir `config.json` à la racine, ajouter ou mettre à
+`false` la ligne `"journal_technique"`, enregistrer, relancer le serveur. Le
+fichier déjà écrit peut rester tel quel ; il n'est simplement plus alimenté.
+
 ### Fichiers à ne jamais diffuser
 
 - `autorite-cle.pem` — permet de fabriquer de faux certificats

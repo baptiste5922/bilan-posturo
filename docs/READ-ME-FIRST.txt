@@ -86,12 +86,14 @@ WHERE THE FILES GO
 
    bilans/        the PDFs received from the tablet (patient data)
    journal.log    timestamp of every access and every delivery
+   technique.log  technical diagnostics, with no patient name
    config.json    username and password digest
    cle.pem        private encryption key
 
-   The last three must NEVER be copied, sent or shared. The
-   bilans/ folder, on the other hand, must be included in the
-   practice backup.
+   journal.log, config.json and cle.pem must NEVER be copied,
+   sent or shared. technique.log, however, may be sent to
+   support: it contains no patient data. The bilans/ folder, on
+   the other hand, must be included in the practice backup.
 
    To send the PDFs somewhere other than bilans/, edit the
    "dossier_pdf" line in config.json.

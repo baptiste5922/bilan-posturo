@@ -13,7 +13,9 @@ import http.client
 import importlib.util
 import json
 import os
+import re
 import shutil
+import signal
 import socket
 import ssl
 import subprocess
@@ -33,6 +35,40 @@ MOT_DE_PASSE = "motdepasse123"
 PDF = b"%PDF-1.4\n1 0 obj\ncontenu\n%%EOF\n"
 
 
+def fragments_nom(nom):
+    """Fragments dérivés du nom lui-même : jamais une liste transcrite.
+
+    Fonction de module (pas une méthode) : tearDownClass (classmethod, sans
+    self) doit pouvoir l'appeler aussi, pour le contrôle final qui porte sur
+    l'intégralité du journal technique une fois tous les tests exécutés.
+    """
+    radical, _ = os.path.splitext(nom)
+    fragments = [nom, radical]
+    for segment in re.split(r"[_-]", radical):
+        if len(segment) > 3:
+            fragments.append(segment)
+    return fragments
+
+
+def chercher_adresse(texte):
+    """Rend un message si une adresse IPv4 ou IPv6 figure dans le texte,
+    sinon None. Le motif IPv6 est laxiste et reconnaît l'horodatage lui-même
+    (":12:03" dans "...T12:58:39...") : il s'applique donc à la ligne privée
+    de son premier mot, l'horodatage, sans espace."""
+    correspondance = re.search(r"\b\d{1,3}(?:\.\d{1,3}){3}\b", texte)
+    if correspondance:
+        return ("une adresse IPv4 figure dans le journal technique : "
+                + correspondance.group(0))
+    for ligne in texte.splitlines():
+        _, _, reste = ligne.partition(" ")
+        correspondance = re.search(
+            r"(?:[0-9a-fA-F]{0,4}:){2,}[0-9a-fA-F]{0,4}", reste)
+        if correspondance:
+            return ("une adresse IPv6 figure dans le journal technique : "
+                    + repr(ligne))
+    return None
+
+
 def port_libre():
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
@@ -43,6 +79,93 @@ def cryptography_absente():
     """cryptography ne sert qu'à fabriquer les certificats, jamais au
     serveur : son absence fait sauter ce test, pas échouer la suite."""
     return importlib.util.find_spec("cryptography") is None
+
+
+def attendre_ligne_technique(dossier, sous_chaine, limite=10):
+    """Attend, de façon bornée et sans tolérance, qu'une ligne contenant
+    sous_chaine apparaisse dans technique.log.
+
+    Ferme une course précise : le port est lié et accepte des connexions TCP
+    dès le constructeur de ServeurBilan (serveur/serveur.py), bien avant
+    serve_forever() — et avant l'écriture de DEMARRAGE, elle-même avant le
+    `try:` qui entoure serve_forever() dans demarrer(). Un signal envoyé
+    avant que ce `try` soit atteint tombe hors de lui : son bloc `finally`,
+    qui écrit ARRET, n'est alors jamais exécuté. Attendre que DEMARRAGE soit
+    écrit garantit que ce `try` est déjà franchi au moment du signal.
+    """
+    chemin = os.path.join(dossier, "technique.log")
+    limite_temps = time.monotonic() + limite
+    while time.monotonic() < limite_temps:
+        if os.path.exists(chemin):
+            with open(chemin, encoding="utf-8") as f:
+                if sous_chaine in f.read():
+                    return
+        time.sleep(0.02)
+    raise AssertionError(
+        "« {} » n'est jamais apparu dans technique.log après {}s".format(
+            sous_chaine, limite))
+
+
+def demarrer_sandbox_court(config_extra=None, attendre_demarrage_technique=False):
+    """Construit et démarre un serveur complet dans son propre bac à sable.
+
+    Pour un test qui a besoin d'arrêter lui-même son serveur (ARRET,
+    l'interrupteur de journal technique) plutôt que de partager celui, à
+    vie plus longue, de ServeurEnMarche. Rend (dossier, port, processus) ;
+    l'appelant nettoie (terminer le processus, puis supprimer le dossier).
+
+    attendre_demarrage_technique : à True pour un appelant qui va envoyer un
+    signal au processus (voir attendre_ligne_technique) — False par défaut,
+    car certains appelants désactivent le journal technique
+    (journal_technique=False), où DEMARRAGE ne s'écrirait jamais.
+    """
+    dossier = tempfile.mkdtemp(prefix="bilan-test-sandbox-")
+    os.mkdir(os.path.join(dossier, "serveur"))
+    os.mkdir(os.path.join(dossier, "formulaire"))
+    for nom in ("serveur/serveur.py", "serveur/generer_autorite.py",
+                "formulaire/index.html", "formulaire/index-v1.html",
+                "formulaire/style.css",
+                "formulaire/script.js", "formulaire/schema.json"):
+        shutil.copy(os.path.join(PROJET, nom), os.path.join(dossier, nom))
+
+    sortie = subprocess.run(
+        [sys.executable, os.path.join("serveur", "generer_autorite.py"),
+         "127.0.0.1"],
+        cwd=dossier, capture_output=True, text=True)
+    assert sortie.returncode == 0, sortie.stderr
+
+    port = port_libre()
+    config = {"port": port, "dossier_pdf": "bilans",
+              "utilisateur": UTILISATEUR,
+              "mot_de_passe": serveur.hacher(MOT_DE_PASSE),
+              "certificat": "certificat.pem",
+              "cle_privee": "cle.pem"}
+    config.update(config_extra or {})
+    with open(os.path.join(dossier, "config.json"), "w") as f:
+        json.dump(config, f)
+
+    processus = subprocess.Popen(
+        [sys.executable, os.path.join("serveur", "serveur.py")],
+        cwd=dossier, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        text=True)
+
+    limite = time.monotonic() + 30
+    while time.monotonic() < limite:
+        if processus.poll() is not None:
+            raise AssertionError(
+                "le serveur s'est arrêté : " + processus.stdout.read())
+        try:
+            with socket.create_connection(("127.0.0.1", port), 0.2):
+                break
+        except OSError:
+            time.sleep(0.05)
+    else:
+        raise AssertionError("le serveur n'a pas démarré à temps")
+
+    if attendre_demarrage_technique:
+        attendre_ligne_technique(dossier, "DEMARRAGE")
+
+    return dossier, port, processus
 
 
 @unittest.skipIf(cryptography_absente(),
@@ -71,6 +194,18 @@ class ServeurEnMarche(unittest.TestCase):
         assert sortie.returncode == 0, sortie.stderr
 
         cls.port = port_libre()
+        # Noms à vérifier absents du journal technique une fois TOUS les
+        # tests de la classe exécutés (tearDownClass). Un dépôt abouti
+        # laisse toujours son fichier dans bilans/, quel que soit le chemin
+        # par lequel il est arrivé (deposer() ou une requête directe comme
+        # test_sante_ne_rend_pas_muettes_les_requetes_suivantes) : c'est là
+        # que tearDownClass les redérive, à la toute fin, plutôt que de
+        # dépendre d'un enregistrement manuel qui finirait incomplet — le
+        # motif maison. cls.noms_sensibles ne couvre donc plus que ce qui ne
+        # laisse AUCUN fichier : un dépôt refusé, ou une sonde hostile qui
+        # ne dépose jamais (voir enregistrer_nom_sensible). Les deux sources
+        # sont réunies dans tearDownClass.
+        cls.noms_sensibles = []
         with open(os.path.join(cls.dossier, "config.json"), "w") as f:
             json.dump({"port": cls.port, "dossier_pdf": "bilans",
                        "utilisateur": UTILISATEUR,
@@ -116,7 +251,63 @@ class ServeurEnMarche(unittest.TestCase):
         cls.processus.terminate()
         cls.processus.wait(timeout=10)
         cls.processus.stdout.close()
-        shutil.rmtree(cls.dossier, ignore_errors=True)
+        try:
+            # Contrôle final, sur l'intégralité du fichier accumulé par
+            # TOUS les tests de la classe, quel que soit l'ordre dans
+            # lequel ils se sont exécutés : un contrôle fait au passage
+            # d'un seul test ne voit que ce qui est déjà écrit à cet
+            # instant, pas les lignes produites par les tests suivants
+            # (constat d'audit C4-T1).
+            technique = os.path.join(cls.dossier, "technique.log")
+            if os.path.exists(technique):
+                with open(technique, encoding="utf-8") as f:
+                    contenu_technique = f.read()
+
+                # Levées explicites, jamais `assert` : sous `python -O`, un
+                # `assert` nu est éliminé et cette garde — celle qui prouve
+                # qu'aucun nom de patient n'entre dans un fichier conçu pour
+                # circuler — ne lèverait plus rien (constat d'audit).
+                message = chercher_adresse(contenu_technique)
+                if message is not None:
+                    raise AssertionError(message)
+
+                # Union des deux sources : les fichiers réellement
+                # déposés (bilans/, qui couvre tout dépôt abouti, quel que
+                # soit le chemin par lequel il est arrivé) et les noms
+                # explicitement enregistrés pour ce qui ne laisse aucun
+                # fichier (dépôt refusé, sonde hostile).
+                bilans = os.path.join(cls.dossier, "bilans")
+                noms_a_verifier = list(cls.noms_sensibles)
+                if os.path.isdir(bilans):
+                    noms_a_verifier.extend(os.listdir(bilans))
+
+                restes = [ligne.partition(" ")[2]
+                         for ligne in contenu_technique.splitlines()]
+                # Toutes les violations sont collectées plutôt que de
+                # s'arrêter à la première : un nom masqué par un autre dans
+                # le même message serait une preuve ambiguë.
+                fuites = []
+                for nom in noms_a_verifier:
+                    for fragment in fragments_nom(nom):
+                        if any(fragment in reste for reste in restes):
+                            fuites.append((nom, fragment))
+                            break
+                if fuites:
+                    raise AssertionError(
+                        "fragment(s) de nom figurant dans le journal "
+                        "technique : " + "; ".join(
+                            "« {} » (du nom « {} »)".format(fragment, nom)
+                            for nom, fragment in fuites))
+
+                if UTILISATEUR in contenu_technique:
+                    raise AssertionError(
+                        "l'identifiant de compte figure dans le journal "
+                        "technique")
+                if MOT_DE_PASSE in contenu_technique:
+                    raise AssertionError(
+                        "le mot de passe figure dans le journal technique")
+        finally:
+            shutil.rmtree(cls.dossier, ignore_errors=True)
 
     # --- outillage ---------------------------------------------------------
 
@@ -138,12 +329,37 @@ class ServeurEnMarche(unittest.TestCase):
             connexion.close()
 
     def deposer(self, nom, contenu=PDF):
+        self.enregistrer_nom_sensible(nom)
         entete = base64.b64encode(nom.encode("utf-8")).decode("ascii")
         return self.requete("POST", "/depot", contenu, {"X-Fichier": entete})
+
+    def enregistrer_nom_sensible(self, nom):
+        """Un nom à vérifier absent du journal technique, lu à la toute fin
+        par tearDownClass — appelé par deposer(), et directement par un test
+        qui emploie un nom sensible sans le déposer (une URL hostile, par
+        exemple)."""
+        type(self).noms_sensibles.append(nom)
 
     @property
     def bilans(self):
         return os.path.join(self.dossier, "bilans")
+
+    @property
+    def technique(self):
+        return os.path.join(self.dossier, "technique.log")
+
+    def fragments_nom(self, nom):
+        """Délègue à la fonction de module : une seule dérivation, jamais
+        retranscrite — sinon une règle changée d'un seul côté rendrait la
+        garde fausse en silence (constat de revue C4-T1)."""
+        return fragments_nom(nom)
+
+    def aucune_adresse_dans(self, texte):
+        """Délègue à chercher_adresse(), fonction de module : même motif
+        qu'au-dessus."""
+        message = chercher_adresse(texte)
+        if message is not None:
+            self.fail(message)
 
     # --- TLS ---------------------------------------------------------------
 
@@ -338,10 +554,17 @@ class ServeurEnMarche(unittest.TestCase):
     def test_sante_n_encombre_pas_le_journal(self):
         journal = os.path.join(self.dossier, "journal.log")
         avant = os.path.getsize(journal) if os.path.exists(journal) else 0
+        # Le journal technique doit rester silencieux aussi, sous peine de
+        # milliers de lignes par jour (décision D2, point 3).
+        avant_technique = (os.path.getsize(self.technique)
+                           if os.path.exists(self.technique) else 0)
         for _ in range(5):
             self.requete("GET", "/sante", utilisateur=None)
         apres = os.path.getsize(journal) if os.path.exists(journal) else 0
+        apres_technique = (os.path.getsize(self.technique)
+                           if os.path.exists(self.technique) else 0)
         self.assertEqual(avant, apres)
+        self.assertEqual(avant_technique, apres_technique)
 
     def test_sante_ne_rend_pas_muettes_les_requetes_suivantes(self):
         # Même instance de gestionnaire sur une connexion persistante : le
@@ -363,6 +586,218 @@ class ServeurEnMarche(unittest.TestCase):
         with open(os.path.join(self.dossier, "journal.log"),
                   encoding="utf-8") as f:
             self.assertIn("Bilan_trace.pdf", f.read())
+
+    # --- journal technique (C4-T1) ------------------------------------------
+
+    def tls_1_1_refuse(self):
+        """Reprend le patron de test_tls_ancien_refuse : une connexion TLS 1.1
+        que le serveur doit refuser, ce qui produit un TLS_REFUSE."""
+        contexte = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        contexte.check_hostname = False
+        contexte.verify_mode = ssl.CERT_NONE
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            contexte.maximum_version = ssl.TLSVersion.TLSv1_1
+        with self.assertRaises(ssl.SSLError):
+            with socket.create_connection(("127.0.0.1", self.port), 10) as brute:
+                with contexte.wrap_socket(brute):
+                    pass
+
+    def test_scenario_complet_reconstituable(self):
+        # Dépôt authentifié réussi, dépôt refusé pour non-PDF, requête sans
+        # authentification, requête avec mauvais mot de passe, connexion TLS
+        # 1.1 refusée : l'ordre du §9.
+        statut, _, corps = self.deposer("Bilan_scenario.pdf")
+        self.assertEqual(statut, 200)
+        self.requete("POST", "/depot", b"MZ pas un pdf", {
+            "X-Fichier": base64.b64encode(b"faux.pdf").decode("ascii")})
+        self.requete("GET", "/", utilisateur=None)
+        self.requete("GET", "/", mot_de_passe="mauvais-mot-de-passe")
+        self.tls_1_1_refuse()
+
+        with open(self.technique, encoding="utf-8") as f:
+            contenu = f.read()
+
+        self.assertRegex(contenu, r"DEMARRAGE port=\d+ certificat=[0-9a-f]{16} .+")
+        self.assertIn("DEPOT ok {} octets".format(len(PDF)), contenu)
+        self.assertIn("AUTH_REFUSEE", contenu)
+        self.assertIn("TLS_REFUSE", contenu)
+        # Premier démarrage de ce serveur : le dossier du bac à sable est
+        # neuf, donc aucune ligne DEMARRAGE antérieure à comparer.
+        self.assertIn("premier démarrage observé", contenu)
+
+    def test_journal_technique_sans_donnee_identifiante(self):
+        # Le test anti-fuite : celui qui tient lieu de preuve en audit. Le
+        # nom déposé porte un accent et un motif de nom propre (ce qui a
+        # déjà coûté deux fois dans ce dépôt).
+        nom = "Bilan_2026-08-22_Dupré-Léa.pdf"
+        statut, _, _ = self.deposer(nom)
+        self.assertEqual(statut, 200)
+
+        self.requete("POST", "/depot", b"MZ pas un pdf", {
+            "X-Fichier": base64.b64encode(b"faux.pdf").decode("ascii")})
+        self.requete("GET", "/", utilisateur=None)
+        self.requete("GET", "/", mot_de_passe="mauvais-mot-de-passe")
+        self.tls_1_1_refuse()
+
+        if os.name != "nt":
+            # Un échec d'écriture réel, avec un nom de patient dans le
+            # chemin : la cause la plus probable de fuite (décision D4).
+            os.chmod(self.bilans, 0o500)
+            try:
+                statut, _, _ = self.deposer(nom)
+                self.assertEqual(statut, 500)
+            finally:
+                os.chmod(self.bilans, 0o700)
+
+        with open(self.technique, encoding="utf-8") as f:
+            contenu = f.read()
+
+        self.aucune_adresse_dans(contenu)
+
+        # Comme pour le motif IPv6, le fragment se cherche dans la ligne
+        # privée de son premier mot : l'horodatage du jour même contient
+        # littéralement l'année du bilan ("2026"), ce qui n'est pas une
+        # fuite mais ferait rougir le test à tort.
+        restes = [ligne.partition(" ")[2] for ligne in contenu.splitlines()]
+        for fragment in self.fragments_nom(nom):
+            with self.subTest(fragment=fragment):
+                for reste in restes:
+                    self.assertNotIn(fragment, reste)
+        self.assertNotIn(UTILISATEUR, contenu)
+        self.assertNotIn(MOT_DE_PASSE, contenu)
+
+    def test_journal_nominatif_toujours_nominatif(self):
+        # Garde-fou inverse : journal.log reste la traçabilité du cabinet.
+        # Un futur « nettoyage » ne doit pas le vider à son tour.
+        statut, _, _ = self.deposer("Bilan_toujours_nominatif.pdf")
+        self.assertEqual(statut, 200)
+        with open(os.path.join(self.dossier, "journal.log"),
+                  encoding="utf-8") as f:
+            self.assertIn("Bilan_toujours_nominatif.pdf", f.read())
+
+    def test_chemin_hostile_absent_du_journal_technique(self):
+        # Un nom de patient porté par l'URL elle-même (jamais déposé), une
+        # traversée de répertoire, sa forme encodée en pourcents, et des
+        # séparateurs Windows : classe_route() doit les absorber tous les
+        # quatre dans le vocabulaire fermé de ROUTES_TECHNIQUES, sans qu'un
+        # seul caractère du chemin brut ne s'y recopie. Le contrôle lui-même
+        # a lieu à la fin, dans tearDownClass, sur le fichier complet.
+        nom_dans_l_url = "Bilan_2026-11-03_Castel-Noe.pdf"
+        self.enregistrer_nom_sensible(nom_dans_l_url)
+
+        chemins_hostiles = (
+            "/" + nom_dans_l_url,
+            "/../../../../etc/passwd",
+            "/%2e%2e/%2e%2e/%2e%2e/etc/passwd",
+            "/..\\..\\..\\windows\\win.ini",
+        )
+        for chemin in chemins_hostiles:
+            for methode in ("GET", "HEAD"):
+                with self.subTest(chemin=chemin, methode=methode):
+                    statut, _, _ = self.requete(methode, chemin)
+                    self.assertIn(statut, (403, 404))
+
+    def test_reponse_journalisee_avec_code_reel(self):
+        # Rien n'ancrait l'émission de REPONSE (constat d'audit) : si cette
+        # branche de log_message() disparaît ou se dégrade, la suite doit
+        # rougir ici, pas seulement par ricochet sur le test anti-fuite.
+        statut, _, _ = self.requete("GET", "/")
+        self.assertEqual(statut, 200)
+        statut, _, _ = self.requete("POST", "/autre", PDF)
+        self.assertEqual(statut, 404)
+
+        with open(self.technique, encoding="utf-8") as f:
+            contenu = f.read()
+
+        self.assertIn("REPONSE methode=GET route=formulaire code=200", contenu)
+        self.assertIn("REPONSE methode=POST route=autre code=404", contenu)
+        # Témoin : au moins une ligne REPONSE porte un code réel, non nul —
+        # sans quoi l'extraction serait retombée sur son repli par défaut.
+        self.assertRegex(contenu, r"REPONSE methode=\w+ route=\w+ code=[1-9]\d{2}")
+
+
+class ServeurArret(unittest.TestCase):
+    """L'arrêt se vérifie sur un serveur à lui seul : le bac à sable de
+    ServeurEnMarche est démonté à la fin de toute la classe
+    (tearDownClass), pas d'un test à l'autre — ARRET ne peut donc pas s'y
+    observer.
+
+    SIGINT est la seule voie portable vers un KeyboardInterrupt réel dans un
+    sous-processus : sous Windows, CTRL_BREAK_EVENT ne déclenche pas la même
+    exception Python, et le vérifier de façon fiable dépasserait ce contrat.
+    """
+
+    @unittest.skipIf(cryptography_absente(),
+                     "cryptography requis pour fabriquer les certificats")
+    @unittest.skipIf(os.name == "nt",
+                     "SIGINT n'équivaut pas à un KeyboardInterrupt portable "
+                     "sous Windows ; voir la note de la classe")
+    def test_arret_journalise(self):
+        dossier, port, processus = demarrer_sandbox_court(
+            attendre_demarrage_technique=True)
+        self.addCleanup(shutil.rmtree, dossier, ignore_errors=True)
+
+        # communicate() vide le tube de sortie en même temps qu'il attend :
+        # un wait(timeout=…) seul, sans lecture, bloque indéfiniment si le
+        # tube se remplit (stdout=PIPE non drainé) — constat d'audit, ce
+        # n'est pas le verrou du journal, qui ne porte pas sur stderr.
+        processus.send_signal(signal.SIGINT)
+        try:
+            sortie, _ = processus.communicate(timeout=10)
+        except subprocess.TimeoutExpired:
+            processus.kill()
+            sortie, _ = processus.communicate(timeout=10)
+            self.fail(
+                "le serveur n'a pas quitté dans les 10 s après SIGINT "
+                "(processus encore vivant : tube de sortie plein) ; "
+                "sortie du processus :\n" + sortie)
+
+        with open(os.path.join(dossier, "technique.log"),
+                  encoding="utf-8") as f:
+            contenu = f.read()
+        self.assertIn("ARRET motif=interruption", contenu,
+                     "sortie du processus :\n" + sortie)
+
+
+class InterrupteurJournalTechnique(unittest.TestCase):
+    """Retour arrière niveau 1 (§11) : journal_technique à false désactive
+    entièrement le second journal, sans gêner le dépôt ni journal.log."""
+
+    @unittest.skipIf(cryptography_absente(),
+                     "cryptography requis pour fabriquer les certificats")
+    def test_aucun_fichier_sans_interrupteur(self):
+        dossier, port, processus = demarrer_sandbox_court(
+            {"journal_technique": False})
+        self.addCleanup(shutil.rmtree, dossier, ignore_errors=True)
+
+        try:
+            contexte = ssl.create_default_context(
+                cafile=os.path.join(dossier, "autorite.crt"))
+            jeton = base64.b64encode(
+                "{}:{}".format(UTILISATEUR, MOT_DE_PASSE).encode("utf-8"))
+            nom = base64.b64encode("Bilan_interrupteur.pdf".encode("utf-8"))
+            connexion = http.client.HTTPSConnection(
+                "127.0.0.1", port, context=contexte, timeout=10)
+            try:
+                connexion.request("POST", "/depot", PDF, {
+                    "Authorization": "Basic " + jeton.decode("ascii"),
+                    "X-Fichier": nom.decode("ascii")})
+                reponse = connexion.getresponse()
+                statut = reponse.status
+                reponse.read()
+            finally:
+                connexion.close()
+        finally:
+            # Même exposition que ServeurArret (tube de sortie non drainé) :
+            # communicate() plutôt que wait() seul.
+            processus.terminate()
+            processus.communicate(timeout=10)
+
+        self.assertEqual(statut, 200)
+        self.assertFalse(
+            os.path.exists(os.path.join(dossier, "technique.log")))
+        self.assertTrue(os.path.exists(os.path.join(dossier, "journal.log")))
 
 
 class RefusDeDemarrer(unittest.TestCase):

@@ -8,6 +8,8 @@ bilans/
 Bilan_entrants/
 journal.log
 journal.log.*
+technique.log
+technique.log.*
 
 # Documents internes : prix, marges, analyse concurrentielle
 docs/projection.md

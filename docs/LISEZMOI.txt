@@ -85,12 +85,15 @@ OÙ VONT LES FICHIERS
 
    bilans/        les PDF reçus de la tablette (données patient)
    journal.log    horodatage de chaque accès et de chaque dépôt
+   technique.log  diagnostic technique, sans aucun nom de patient
    config.json    identifiant et empreinte du mot de passe
    cle.pem        clé privée du chiffrement
 
-   Les trois derniers ne doivent JAMAIS être copiés, envoyés
-   ni partagés. Le dossier bilans/ doit en revanche être inclus
-   dans la sauvegarde du cabinet.
+   journal.log, config.json et cle.pem ne doivent JAMAIS être
+   copiés, envoyés ni partagés. technique.log, lui, peut être
+   envoyé au support : il ne contient aucune donnée de patient.
+   Le dossier bilans/ doit en revanche être inclus dans la
+   sauvegarde du cabinet.
 
    Pour envoyer les PDF ailleurs que dans bilans/, modifier la
    ligne "dossier_pdf" de config.json.

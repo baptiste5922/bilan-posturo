@@ -204,6 +204,24 @@ Past 5 MB it is archived as `journal.log.1` and a new log starts; three
 generations are kept. Calls to `/sante`, which arrive continuously from every
 tablet that is switched on, are not recorded.
 
+### The second log, the one that can be sent
+
+A second file, `C:\BilanPosturo\technique.log`, lives next to the first one.
+It notes startups, shutdowns and technical incidents (certificate,
+authentication, deliveries), but **never an address, never a file name, never
+anything that belongs to a patient**. That is the difference between the two:
+`journal.log` must never leave the practice; `technique.log` can, by email, to
+support, for a remote diagnosis without any health data leaving the PC.
+
+It grows and is capped the same way as the other log (5 MB, three archived
+generations) — not by age: it is not purged automatically after a delay, only
+once it exceeds that size.
+
+To switch it off (there should be no reason to, but the fallback exists): open
+`config.json` at the root, add or set the `"journal_technique"` line to
+`false`, save, restart the server. The file already written can stay as is;
+it simply stops being fed.
+
 ### Files that must never be shared
 
 - `autorite-cle.pem` — allows forging trusted certificates

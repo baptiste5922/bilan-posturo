@@ -42,6 +42,9 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 RACINE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIG = os.path.join(RACINE, "config.json")
 JOURNAL = os.path.join(RACINE, "journal.log")
+# Journal technique : non identifiant par construction (C4-T1). Il coexiste
+# avec JOURNAL, qui reste nominatif et ne quitte jamais le cabinet.
+TECHNIQUE = os.path.join(RACINE, "technique.log")
 
 # Racine web : elle ne contient que le formulaire. Ni config.json, ni les
 # clés privées, ni le code Python n'y figurent, si bien qu'aucune requête ne
@@ -55,6 +58,43 @@ ITERATIONS = 240_000               # coût du hachage PBKDF2
 # journal croîtrait indéfiniment. 5 Mo représentent environ 40 000 requêtes.
 JOURNAL_TAILLE_MAX = 5 * 1024 * 1024
 JOURNAL_ARCHIVES = 3
+
+# Vocabulaire fermé du journal technique : la source dont les tests se
+# dérivent, jamais recopiée. Un nom d'événement hors de cet ensemble devient
+# "EVENEMENT_INCONNU" plutôt que de lever (journaliser_technique).
+EVENEMENTS_TECHNIQUES = frozenset({
+    "DEMARRAGE", "ARRET", "TLS_REFUSE", "AUTH_REFUSEE",
+    "REPONSE", "DEPOT", "ECHEC_ECRITURE", "ROTATION",
+})
+
+# ROTATION échappe de nécessité à journaliser_technique() (interblocage
+# certain : le verrou n'est pas réentrant), donc à la garde qui ne relève
+# que les appels littéraux à cette fonction. Le libellé se dérive ici une
+# seule fois, jamais retranscrit au site d'écriture
+# (_ajouter_ligne_technique, plus bas) : constat d'audit C4-T1.
+EVENEMENT_ROTATION = "ROTATION"
+if EVENEMENT_ROTATION not in EVENEMENTS_TECHNIQUES:
+    # Levée explicite, jamais `assert` : sous python -O, un `assert` nu au
+    # niveau du module disparaîtrait aussi silencieusement qu'ailleurs, et
+    # ce lien ne serait plus vérifié du tout (constat d'audit C4-T1).
+    raise AssertionError(
+        "EVENEMENT_ROTATION ({!r}) doit appartenir à EVENEMENTS_TECHNIQUES"
+        .format(EVENEMENT_ROTATION))
+
+# Classes de route fermées : jamais un chemin brut, contrôlé par le client,
+# n'atteint le journal technique (décision D3).
+ROUTES_TECHNIQUES = frozenset({"depot", "sante", "formulaire", "autre"})
+
+# Motifs de refus de dépôt, fermés eux aussi : un motif hors de cet ensemble
+# devient "motif-inconnu" (detail_refus_depot).
+MOTIFS_REFUS_DEPOT = frozenset({
+    "content-length-invalide", "corps-vide", "trop-volumineux",
+    "transfert-interrompu", "non-pdf",
+})
+
+# Interrupteur de retour arrière (étape 8) : à False, le journal technique
+# n'est jamais écrit. Positionné depuis la configuration dans demarrer().
+JOURNAL_TECHNIQUE_ACTIF = True
 
 # Seuls ces fichiers sont servis. Le filtre double la séparation des dossiers :
 # même si la racine web venait à contenir autre chose, rien d'autre ne sortirait.
@@ -70,6 +110,7 @@ CONFIG_DEFAUT = {
     "mot_de_passe": "",
     "certificat": "certificat.pem",
     "cle_privee": "cle.pem",
+    "journal_technique": True,
 }
 
 
@@ -225,30 +266,41 @@ def ecrire_stderr(ligne):
         pass
 
 
-def faire_tourner_journal():
+def faire_tourner_journal(chemin=None):
     """Archive le journal au-delà de JOURNAL_TAILLE_MAX.
+
+    Partagée par les deux journaux : le défaut se résout ici, dans le corps,
+    et non dans la signature — sinon il serait figé à l'import, et les tests
+    qui remplacent le global JOURNAL (RotationDuJournal) cesseraient d'agir
+    sur cette fonction.
 
     Conserve JOURNAL_ARCHIVES générations. Toute erreur est ignorée : un
     journal qu'on ne peut pas faire tourner ne doit pas empêcher le serveur
-    de répondre.
+    de répondre. Rend True si une rotation a eu lieu, pour que l'appelant
+    (déjà sous verrou dans journaliser_technique) puisse noter l'événement
+    sans ré-acquérir ce verrou.
     """
-    try:
-        if os.path.getsize(JOURNAL) < JOURNAL_TAILLE_MAX:
-            return
-    except OSError:
-        return
+    if chemin is None:
+        chemin = JOURNAL
 
     try:
-        plus_ancienne = "{}.{}".format(JOURNAL, JOURNAL_ARCHIVES)
+        if os.path.getsize(chemin) < JOURNAL_TAILLE_MAX:
+            return False
+    except OSError:
+        return False
+
+    try:
+        plus_ancienne = "{}.{}".format(chemin, JOURNAL_ARCHIVES)
         if os.path.exists(plus_ancienne):
             os.remove(plus_ancienne)
         for rang in range(JOURNAL_ARCHIVES - 1, 0, -1):
-            source = "{}.{}".format(JOURNAL, rang)
+            source = "{}.{}".format(chemin, rang)
             if os.path.exists(source):
-                os.replace(source, "{}.{}".format(JOURNAL, rang + 1))
-        os.replace(JOURNAL, JOURNAL + ".1")
+                os.replace(source, "{}.{}".format(chemin, rang + 1))
+        os.replace(chemin, chemin + ".1")
+        return True
     except OSError:
-        pass
+        return False
 
 
 def journaliser(ligne):
@@ -261,6 +313,140 @@ def journaliser(ligne):
                 f.write(ligne)
         except OSError:
             pass
+
+
+# --------------------------------------------------------------------------
+# Journal technique (C4-T1) — non identifiant, conçu pour circuler
+# --------------------------------------------------------------------------
+
+def empreinte_certificat(chemin):
+    """Seize premiers chiffres hexadécimaux du SHA-256 du certificat.
+
+    Substitut d'adresse (décision D2) : le certificat porte l'adresse en
+    subjectAltName, donc toute réémission pour une nouvelle adresse change
+    l'empreinte, sans que celle-ci ne soit elle-même une adresse ni ne
+    s'inverse. Bibliothèque standard seule ; aucune clé privée n'est lue.
+    """
+    try:
+        with open(chemin, encoding="ascii") as f:
+            pem = f.read()
+        der = ssl.PEM_cert_to_DER_cert(pem)
+        return hashlib.sha256(der).hexdigest()[:16]
+    except (OSError, ValueError, ssl.SSLError):
+        return "indisponible"
+
+
+def verdict_certificat(empreinte):
+    """Compare l'empreinte courante à celle inscrite au dernier démarrage.
+
+    Relit la dernière ligne DEMARRAGE de technique.log, sans lire d'archive
+    ni tenir d'état séparé (étape 7) : si rien n'est trouvé, ou en cas
+    d'erreur de lecture, le verdict est "premier démarrage observé". Un
+    fichier non décodable (réenregistré en ANSI par un correspondant, ou
+    tronqué en plein caractère multi-octets par un disque plein) lève
+    UnicodeDecodeError, qui dérive de ValueError et non d'OSError : sans ce
+    second type, l'exception remonte et empêche le serveur de démarrer —
+    exactement ce que le §11 du contrat interdit à ce journal de faire.
+    """
+    try:
+        with open(TECHNIQUE, encoding="utf-8") as f:
+            lignes = f.readlines()
+    except (OSError, ValueError):
+        return "premier démarrage observé"
+
+    precedente = None
+    for ligne in reversed(lignes):
+        if "DEMARRAGE" in ligne:
+            correspondance = re.search(r"certificat=([0-9a-f]+)", ligne)
+            if correspondance:
+                precedente = correspondance.group(1)
+            break
+
+    if precedente is None:
+        return "premier démarrage observé"
+    if precedente == empreinte:
+        return "certificat identique au démarrage précédent"
+    return "certificat différent du démarrage précédent"
+
+
+def classe_route(chemin):
+    """Classe un chemin canonique en une des quatre catégories fermées.
+
+    Jamais un chemin brut, contrôlé par le client, n'atteint le journal
+    technique (décision D3) : une tentative de traversée ou un nom de
+    fichier ne traverse jamais cette fonction, qui ne rend que des membres
+    de ROUTES_TECHNIQUES.
+    """
+    if chemin == "/depot":
+        return "depot"
+    if chemin == "/sante":
+        return "sante"
+    if chemin in ("/", ""):
+        return "formulaire"
+    extension = os.path.splitext(chemin)[1].lower()
+    if extension in EXTENSIONS_SERVIES:
+        return "formulaire"
+    return "autre"
+
+
+def detail_refus_depot(motif):
+    """Compose le détail d'un dépôt refusé, sur un vocabulaire fermé : une
+    valeur hors de MOTIFS_REFUS_DEPOT devient "motif-inconnu" plutôt que
+    d'être recopiée telle quelle."""
+    if motif not in MOTIFS_REFUS_DEPOT:
+        motif = "motif-inconnu"
+    return "refus motif={}".format(motif)
+
+
+def detail_depot_ok(octets):
+    """Compose le détail d'un dépôt réussi : une taille, jamais un nom."""
+    return "ok {} octets".format(octets)
+
+
+def detail_echec_ecriture(erreur):
+    """Compose le détail d'un échec d'écriture à partir d'errno et de
+    strerror seuls : str(OSError) inclurait le chemin complet, donc le nom
+    du patient (décision D4). C'est le point le plus facile à rater de tout
+    le contrat — d'où une fonction dédiée, plutôt qu'un formatage recopié à
+    chaque site."""
+    return "errno={} {}".format(erreur.errno, erreur.strerror)
+
+
+def _ajouter_ligne_technique(ligne):
+    try:
+        with open(TECHNIQUE, "a", encoding="utf-8") as f:
+            f.write(ligne)
+    except OSError:
+        pass
+
+
+def journaliser_technique(evenement, detail=""):
+    """Trace une ligne dans technique.log, sans jamais rien écrire sur
+    stderr (décision D5, pour ne pas doubler chaque ligne), ni lever sur un
+    nom d'événement fautif : un journal ne doit jamais coûter un dépôt.
+    """
+    if not JOURNAL_TECHNIQUE_ACTIF:
+        return
+    if evenement not in EVENEMENTS_TECHNIQUES:
+        evenement = "EVENEMENT_INCONNU"
+
+    # L'horodatage est sans espace (isoformat, timespec="seconds") : le
+    # premier mot de chaque ligne en est un, et le test anti-fuite s'appuie
+    # sur ce fait pour appliquer le motif IPv6 à la ligne privée de son
+    # premier mot.
+    horodatage = datetime.datetime.now().isoformat(timespec="seconds")
+
+    with _verrou_journal:
+        # faire_tourner_journal() est appelée ici, sous le verrou déjà
+        # acquis : surtout ne jamais rappeler journaliser_technique() depuis
+        # l'intérieur de ce bloc, ce serait un interblocage (verrou non
+        # réentrant). L'événement ROTATION s'écrit donc directement.
+        if faire_tourner_journal(TECHNIQUE):
+            _ajouter_ligne_technique("{} {} archive\n".format(
+                datetime.datetime.now().isoformat(timespec="seconds"),
+                EVENEMENT_ROTATION))
+        _ajouter_ligne_technique("{} {} {}\n".format(
+            horodatage, evenement, detail))
 
 
 # --------------------------------------------------------------------------
@@ -332,6 +518,10 @@ class ServeurBilan(ThreadingHTTPServer):
         except ssl.SSLError as erreur:
             journaliser("{} TLS refusé : {}\n".format(
                 datetime.datetime.now().isoformat(timespec="seconds"), erreur))
+            # self.client_address n'est pas disponible à ce stade, et ne
+            # doit pas y être cherché : aucune adresse dans technique.log
+            # (décision D1).
+            journaliser_technique("TLS_REFUSE", "raison={}".format(erreur))
             raise
 
 
@@ -347,9 +537,25 @@ class Gestionnaire(SimpleHTTPRequestHandler):
     def handle_one_request(self):
         # Une connexion persistante sert plusieurs requêtes avec la même
         # instance : sans remise à zéro, une sonde de santé rendrait muettes
-        # toutes les requêtes suivantes de la même connexion.
+        # toutes les requêtes suivantes de la même connexion, et un code de
+        # réponse laissé en place ferait porter à cette requête le code
+        # d'une précédente.
         self.silencieux = False
+        self._code_reponse_technique = 0
         super().handle_one_request()
+
+    def log_request(self, code="-", size="-"):
+        # Capture le code AVANT qu'il ne soit mis en forme dans la chaîne de
+        # log_message() : log_message() est aussi appelée par log_error()
+        # avec une tout autre forme d'arguments (vu par exemple à l'étape 4,
+        # évaluation de la fuite), et reconstruire le code à partir du
+        # format interne de BaseHTTPRequestHandler serait fragile — une
+        # version de Python qui modifie cette chaîne romprait
+        # silencieusement l'extraction, sans rien faire échouer d'autre.
+        if isinstance(code, HTTPStatus):
+            code = code.value
+        self._code_reponse_technique = code
+        super().log_request(code, size)
 
     def log_message(self, format, *args):
         # La sonde de santé est interrogée toutes les quelques dizaines de
@@ -360,6 +566,21 @@ class Gestionnaire(SimpleHTTPRequestHandler):
         journaliser("{} {} {}\n".format(
             datetime.datetime.now().isoformat(timespec="seconds"),
             self.address_string(), format % args))
+
+        # Voie technique : ni adresse (self.address_string() n'y est jamais
+        # passé), ni chemin brut — route est une classe fermée. Le code de
+        # réponse n'est fiable que lorsque log_request() a déjà tourné pour
+        # cette requête (remis à 0 par handle_one_request sinon) : un appel
+        # ad hoc à log_message(), comme ceux de DEPOT ou ECHEC_ECRITURE, n'a
+        # pas encore de code de réponse à cet instant.
+        methode = getattr(self, "command", None)
+        if methode not in ("GET", "HEAD", "POST"):
+            methode = "autre"
+        chemin = getattr(self, "path", "") or ""
+        route = classe_route(chemin.split("?", 1)[0].split("#", 1)[0])
+        code = getattr(self, "_code_reponse_technique", 0)
+        journaliser_technique("REPONSE", "methode={} route={} code={}".format(
+            methode, route, code))
 
     # --- authentification --------------------------------------------------
 
@@ -387,6 +608,11 @@ class Gestionnaire(SimpleHTTPRequestHandler):
         return identifiant_ok and mot_de_passe_ok
 
     def exiger_authentification(self):
+        # Ni identifiant, ni mot de passe, ni adresse : seule la classe de
+        # route, fermée (décision D3). Un compteur d'échecs par identité
+        # relève de C6, pas d'ici.
+        journaliser_technique("AUTH_REFUSEE", "route={}".format(
+            classe_route(self.chemin_demande())))
         self.send_response(HTTPStatus.UNAUTHORIZED)
         self.send_header("WWW-Authenticate", 'Basic realm="Bilan posturologique"')
         self.send_header("Content-Length", "0")
@@ -483,15 +709,19 @@ class Gestionnaire(SimpleHTTPRequestHandler):
         try:
             taille = int(self.headers.get("Content-Length", 0))
         except ValueError:
+            journaliser_technique("DEPOT",
+                                  detail_refus_depot("content-length-invalide"))
             self.repondre_json(HTTPStatus.BAD_REQUEST,
                                {"erreur": "Content-Length invalide"})
             return
 
         if taille <= 0:
+            journaliser_technique("DEPOT", detail_refus_depot("corps-vide"))
             self.repondre_json(HTTPStatus.BAD_REQUEST,
                                {"erreur": "Corps de requête vide"})
             return
         if taille > TAILLE_MAX:
+            journaliser_technique("DEPOT", detail_refus_depot("trop-volumineux"))
             self.repondre_json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
                                {"erreur": "Fichier trop volumineux"})
             return
@@ -499,6 +729,8 @@ class Gestionnaire(SimpleHTTPRequestHandler):
         contenu = self.rfile.read(taille)
         if len(contenu) != taille:
             # Connexion coupée en cours d'envoi : le PDF serait tronqué.
+            journaliser_technique("DEPOT",
+                                  detail_refus_depot("transfert-interrompu"))
             self.repondre_json(HTTPStatus.BAD_REQUEST,
                                {"erreur": "Transfert interrompu"})
             return
@@ -514,6 +746,7 @@ class Gestionnaire(SimpleHTTPRequestHandler):
                 pass
 
         if not contenu.startswith(b"%PDF"):
+            journaliser_technique("DEPOT", detail_refus_depot("non-pdf"))
             self.repondre_json(HTTPStatus.BAD_REQUEST,
                                {"erreur": "Le fichier reçu n'est pas un PDF"})
             return
@@ -525,12 +758,16 @@ class Gestionnaire(SimpleHTTPRequestHandler):
             ecrire_atomiquement(destination, contenu)
         except OSError as erreur:
             self.log_message("ECHEC ecriture %s : %s", destination, erreur)
+            # errno/strerror seuls, jamais str(erreur) : il contient le
+            # chemin complet, donc le nom du patient (décision D4).
+            journaliser_technique("ECHEC_ECRITURE", detail_echec_ecriture(erreur))
             self.repondre_json(HTTPStatus.INTERNAL_SERVER_ERROR,
                                {"erreur": "Écriture impossible sur le PC"})
             return
 
         self.log_message("DEPOT %s (%d octets)",
                          os.path.basename(destination), len(contenu))
+        journaliser_technique("DEPOT", detail_depot_ok(len(contenu)))
         self.repondre_json(HTTPStatus.OK, {
             "ok": True,
             "fichier": os.path.basename(destination),
@@ -564,6 +801,9 @@ def demarrer():
 
     Gestionnaire.config = config
     Gestionnaire.dossier_pdf = dossier_pdf
+
+    global JOURNAL_TECHNIQUE_ACTIF
+    JOURNAL_TECHNIQUE_ACTIF = config["journal_technique"]
 
     certificat = os.path.join(RACINE, config["certificat"])
     cle = os.path.join(RACINE, config["cle_privee"])
@@ -610,12 +850,23 @@ def demarrer():
     print("  journal       : {}".format(JOURNAL))
     print("\nCtrl+C pour arrêter.\n")
 
+    empreinte = empreinte_certificat(certificat)
+    journaliser_technique("DEMARRAGE", "port={} certificat={} {}".format(
+        config["port"], empreinte, verdict_certificat(empreinte)))
+
+    motif_arret = "autre"
     try:
         serveur.serve_forever()
     except KeyboardInterrupt:
         print("\nArrêt du serveur.")
+        motif_arret = "interruption"
     finally:
+        # Le port se libère d'abord, sans dépendre d'une écriture de
+        # journal : un journal ne doit jamais coûter autre chose que
+        # lui-même (§10 du contrat), et surtout pas la disponibilité du
+        # port pour une relance.
         serveur.server_close()
+        journaliser_technique("ARRET", "motif={}".format(motif_arret))
     return 0
 
 

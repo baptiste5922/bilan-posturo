@@ -142,6 +142,7 @@ exist for SYSTEM.
 | `utilisateur` | HTTP Basic username |
 | `mot_de_passe` | PBKDF2 digest, never the password itself |
 | `certificat` / `cle_privee` | Paths to the TLS files |
+| `journal_technique` | `true` by default; `false` turns off the second, non-identifying log (see below) |
 
 ---
 
@@ -206,6 +207,7 @@ config.json          password digest
 *.pem                server and authority private keys
 autorite.crt         local authority certificate
 journal.log*         IP addresses, timestamps (and its rotated archives)
+technique.log*       installation fingerprint, no IP and no patient name — still kept out of the repo
 bilans/              health data
 Bilan_entrants/
 BilanPosturo-*.zip   distribution archives
@@ -246,8 +248,9 @@ bilan-posturo/
 └── config.json             not committed; created at the root at setup
 ```
 
-Runtime state — `config.json`, `journal.log`, the certificates and `bilans/`
-— lives at the project root, never inside `formulaire/`.
+Runtime state — `config.json`, `journal.log`, `technique.log`, the
+certificates and `bilans/` — lives at the project root, never inside
+`formulaire/`.
 
 
 The code is in French, and so are the two documents the practice actually uses:
