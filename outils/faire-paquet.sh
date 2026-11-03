@@ -9,9 +9,12 @@
 # copie. Un défaut qui s'annonce comme un succès est le pire des deux.
 set -e
 #
-# L'archive reproduit l'arborescence du dépôt : les scripts calculent leurs
-# chemins à partir de leur propre emplacement, et fonctionnent donc au
-# cabinet exactement comme ici.
+# Les scripts livrés à la racine du paquet (installer-demarrage.ps1,
+# demarrer-serveur.bat) prennent pour racine LEUR PROPRE DOSSIER, à côté de
+# serveur/ et formulaire/. Ce n'est pas une supposition :
+# tests/test_scripts_installation.py fabrique le paquet par ce script, l'extrait,
+# et évalue le calcul de racine de chaque script à l'endroit où l'archive le
+# dépose. Déplacer un script dans le paquet fait rougir ce test.
 
 # Se placer à la racine du projet, quel que soit le dossier d'appel.
 cd "$(dirname "$0")/.." || exit 1

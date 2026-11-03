@@ -145,6 +145,14 @@ It registers the `BilanPosturo` scheduled task (at system startup, as SYSTEM,
 restarted up to five times) and the firewall rule.
 `.\desinstaller-demarrage.ps1` reverts to manual start.
 
+Before a remote installation, run the check-only mode first: it verifies the
+script's location, `config.json` and `pythonw.exe`, then stops before the
+scheduled task and the firewall rule, changing nothing.
+
+```powershell
+.\installer-demarrage.ps1 -Verifier   # check only, changes nothing
+```
+
 ```powershell
 Get-ScheduledTask -TaskName BilanPosturo          # state
 Get-ScheduledTaskInfo -TaskName BilanPosturo      # last result, last run

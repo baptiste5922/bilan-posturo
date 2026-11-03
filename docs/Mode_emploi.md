@@ -149,6 +149,14 @@ Il crée la tâche planifiée `BilanPosturo` (démarrage du PC, compte SYSTEM,
 relance automatique jusqu'à cinq fois) et la règle de pare-feu. Pour revenir
 au lancement manuel : `.\desinstaller-demarrage.ps1`.
 
+Avant une installation à distance, faire passer le contrôle seul : il vérifie
+l'emplacement du script, `config.json` et `pythonw.exe`, puis s'arrête avant
+la tâche planifiée et le pare-feu, sans rien modifier.
+
+```powershell
+.\installer-demarrage.ps1 -Verifier   # contrôle seul, ne modifie rien
+```
+
 ```powershell
 Get-ScheduledTask -TaskName BilanPosturo          # état
 Get-ScheduledTaskInfo -TaskName BilanPosturo      # dernier résultat, heure
