@@ -12,9 +12,16 @@
     ou, depuis une console PowerShell ouverte en administrateur :
         .\installer-demarrage.ps1
 
+    Option -Verifier : controle seul. Toutes les verifications prealables sont
+    faites (serveur, config.json, pythonw.exe), le resultat est affiche, puis
+    le script s'arrete avant la tache planifiee et le pare-feu. A utiliser
+    avant une installation a distance : il ne modifie rien.
+
     demarrer-serveur.bat reste utilisable pour un demarrage manuel ponctuel,
     par exemple pour lire les messages du serveur dans une fenetre.
 #>
+
+param([switch]$Verifier)
 
 #Requires -RunAsAdministrator
 
@@ -23,16 +30,22 @@ $ErrorActionPreference = "Stop"
 $NOM_TACHE = "BilanPosturo"
 $NOM_REGLE = "Bilan posturologique"
 
-$racine  = Split-Path -Parent $PSScriptRoot
-if (-not $racine) { $racine = Split-Path -Parent $MyInvocation.MyCommand.Path }
+# La racine est le dossier qui contient ce script : le paquet le depose a cote
+# de serveur\ et formulaire\. Pas de recherche ascendante de serveur\ : un
+# script lance du mauvais dossier doit s'arreter, pas aller executer sous
+# SYSTEM le serveur d'une autre installation.
+$racine = $PSScriptRoot
+if (-not $racine) {
+    throw "Emplacement du script inconnu. Lancer le fichier lui-meme (clic droit > Executer avec PowerShell), ne pas copier son contenu dans une console."
+}
 $serveur = Join-Path $racine "serveur\serveur.py"
 $config  = Join-Path $racine "config.json"
 
 if (-not (Test-Path $serveur)) {
-    throw "serveur\serveur.py introuvable. Lancer ce script depuis le dossier de l'application."
+    throw "serveur\serveur.py introuvable dans $racine. Lancer ce script depuis le dossier de l'application, celui qui contient serveur\ et formulaire\."
 }
 if (-not (Test-Path $config)) {
-    throw "config.json introuvable. Definir d'abord le mot de passe : python serveur\serveur.py --config"
+    throw "config.json introuvable dans $racine. Definir d'abord le mot de passe : python serveur\serveur.py --config"
 }
 
 $port = (Get-Content $config -Raw | ConvertFrom-Json).port
@@ -50,6 +63,11 @@ Write-Host "Application : $racine"
 Write-Host "Python      : $python"
 Write-Host "Port        : $port"
 Write-Host ""
+
+if ($Verifier) {
+    Write-Host "Verification seulement : aucune tache planifiee ni regle de pare-feu n'a ete modifiee."
+    exit 0
+}
 
 # --- La tache ------------------------------------------------------------
 
