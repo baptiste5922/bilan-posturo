@@ -12,6 +12,24 @@
 **Dernière mise à jour :** 19 octobre 2026
 **État de départ :** V1 en production chez un cabinet depuis deux mois.
 
+> **Décisions métier du 3 novembre 2026** (Baptiste), reportées dans les
+> tâches concernées :
+> 1. **Pas de tunnel de support.** Le support passe par `technique.log` envoyé
+>    par courriel et par une séance d'assistance ouverte par le praticien.
+>    C4-T5 sort de la V2.
+> 2. **Mises à jour tirées et signées** : le PC vérifie GitHub Releases et
+>    n'installe qu'un paquet signé (C5, plan inchangé).
+> 3. **Licence expirée : délai de grâce, puis export bloqué.** Trente jours de
+>    bandeau, puis la saisie reste possible mais l'export est refusé. Jamais
+>    d'arrêt du serveur, et jamais un bilan déjà produit n'est touché (C8-T1).
+> 4. **Évolutions après livraison : une révision annuelle**, incluse dans
+>    l'abonnement ; une urgence se facture à part (C9-T3).
+>
+> **Premier prospect hors cabinet pilote (novembre 2026)** : un formateur en
+> posturologie, à installer à distance. Sa fiche impose un type `grille` que
+> le vocabulaire n'a pas (C1-T6), et la relecture des scripts d'installation
+> pour l'installer à distance a mis en évidence un défaut probable (C3-T3a).
+
 ---
 
 ## Sommaire
@@ -417,6 +435,37 @@ l'en-tête ; le moteur de rendu, identique chez tous les clients, produit le DOM
 
 ---
 
+### C1-T6 — Type `grille` : cases et mesures en tableau
+
+- **Effort :** M
+- **Process :** Complet — révise le format de schéma (`version_schema` 2) et
+  le moteur partagé par tous les cabinets.
+- **Dépendances :** C1-T3b ; ne touche pas au schéma du cabinet pilote.
+- **Périmètre :** `docs/schema-formulaire.md`, `formulaire/moteur/rendu.js`,
+  `formulaire/script.js` (brouillon, PDF), `tests/`
+- **Pourquoi :** le type `tableau` n'admet qu'**un seul choix par ligne**. Or
+  la fiche du premier prospect hors pilote est faite surtout de grilles :
+  - tests posturaux sur dur et mousse, en G et en D, avec plusieurs cases
+    cochées par ligne ;
+  - Maddox, Maddox perceptif, MCP 2 et 3, avec des valeurs à saisir ;
+  - en-têtes de colonnes groupés et cellules neutralisées.
+
+  Ce qu'il faut savoir rendre est maquetté dans une fiche de démonstration
+  écrite hors moteur, non versionnée : elle reprend la fiche du prospect.
+- **Travail :**
+  1. Un huitième type `grille`. Ses cellules sont de nature fermée : `case` ou
+     `texte-court`. Il porte des groupes d'en-têtes et des cellules
+     neutralisées.
+  2. La clé de brouillon de chaque cellule est stable et dérivée de la ligne et
+     de la colonne.
+  3. Le format passe en version 2 du schéma, et le moteur rend toujours la
+     version 1 à l'identique.
+- **Critères d'acceptation :**
+  - Le schéma du cabinet pilote se rend au pixel près comme avant (outillage
+    `outils/reference-visuelle/`).
+  - Une grille saisie se restaure depuis le brouillon et s'imprime dans le PDF.
+  - Chaque garde est mise en échec par une mutation, aussi sous `-O`.
+
 ## C2 — Identité du cabinet en configuration
 
 **Pourquoi.** Le nom, l'adresse, le courriel et le téléphone de la praticienne
@@ -596,6 +645,26 @@ Android abandonne, ou le fait mal et appelle au support chaque semaine. À
   cabinet ; seule leur syntaxe est vérifiée en intégration continue. Prévoir une
   VM Windows propre pour les essais, pas la machine de développement.
 
+### C3-T3a — Corriger le calcul de racine des scripts d'installation
+
+- **Effort :** S
+- **Process :** Complet — script exécuté sur le poste d'un client.
+- **Dépendances :** C6-T4 (renormalisation des `.ps1`, faite)
+- **Périmètre :** `installer-demarrage.ps1`, `desinstaller-demarrage.ps1`,
+  `tests/`
+- **Problème, relevé à la lecture le 3 novembre 2026, à confirmer sous
+  Windows :** `installer-demarrage.ps1` calcule
+  `$racine = Split-Path -Parent $PSScriptRoot`, soit le dossier **parent** de
+  celui du script. Or `outils/faire-paquet.sh` livre le script à la racine du
+  paquet : sur une installation neuve, il chercherait `serveur\serveur.py` un
+  niveau trop haut et s'arrêterait sur « introuvable ». Les scripts n'ont
+  jamais tourné ailleurs qu'au cabinet pilote.
+- **Critères d'acceptation :** un test lit les deux scripts et vérifie que la
+  racine calculée est le dossier qui contient `serveur/`, tel que le paquet le
+  livre ; essai réel sur une VM Windows propre, consigné.
+- **Risque :** bloque toute installation à distance — c'est le premier geste
+  du prospect de Bordeaux.
+
 ### C3-T4 — Procédure de recette d'installation
 
 - **Effort :** S
@@ -743,6 +812,13 @@ d'une installation à distance. L'éditeur est à Lille, le cabinet en Bretagne.
 
 ### C4-T5 — Réseau privé Tailscale et ACL
 
+> **Sortie de la V2 le 3 novembre 2026** (décision métier n°1). L'argument de
+> vente « aucun lien permanent avec Internet » l'emporte sur le confort du
+> support. Le diagnostic à distance passe par `technique.log` (C4-T1), envoyé
+> par le praticien, et par `/etat` (C4-T3) consulté pendant une séance
+> d'assistance qu'il ouvre lui-même. À rouvrir seulement sur demande
+> explicite d'un client, en option.
+
 - **Effort :** M (dont exploitation)
 - **Process :** Complet — ouvre un accès distant ; le périmètre des ACL est tout le sujet.
 - **Dépendances :** C4-T3, C0-T2
@@ -807,6 +883,11 @@ avant toute nouvelle fonctionnalité. La fiabilité est la marge.
   - Chaque cas ci-dessus est couvert par un test.
 
 ### C5-T2 — Client de mise à jour
+
+> **Décision du 3 novembre 2026 :** le PC tire les mises à jour lui-même et
+> n'installe qu'un paquet signé. Seul flux sortant : du code public, jamais
+> une donnée de santé. C'est à écrire tel quel dans le contrat de
+> sous-traitance (C0-T2).
 
 - **Effort :** L
 - **Process :** Complet — remplace du code sur le parc, vérification de signature comprise.
@@ -894,6 +975,16 @@ gratuits.
   antérieur est ignoré avec un message, sans casser le formulaire ; test Node.
 
 ### C6-T4 — Nettoyage du dépôt
+
+> **État : livrée le 3 novembre 2026**, en deux commits.
+> - Renormalisation isolée des deux `.ps1` : l'index passe en LF, le disque
+>   garde CRLF et BOM, et le diff est vide sous `--ignore-cr-at-eol`.
+> - Contrôle des secrets étendu à `cles-editeur/` et aux extensions de clé
+>   privée, avec lecture des chemins sans guillemets. Il a été éprouvé sur
+>   quatre clés factices indexées, toutes refusées.
+>
+> `.DS_Store` n'était déjà plus suivi. Le secret d'API DNS est sans objet
+> depuis C3-T1.
 
 > **Divergence latente à refermer, diagnostiquée le 20 octobre pendant C4-T1.**
 > `.gitattributes:23` exige `*.ps1 text eol=crlf`, mais les blobs de
@@ -1057,6 +1148,12 @@ abonné d'un ex-abonné. À cadrer pendant l'industrialisation, pas après.
 
 ### C8-T1 — Clé de licence signée à durée limitée
 
+> **Comportement à l'expiration, tranché le 3 novembre 2026 :** trente jours
+> de bandeau d'alerte, puis la saisie reste possible mais l'export est refusé,
+> avec le même mécanisme et le même message clair que le refus d'un bilan
+> anonyme (C2-T1). Le serveur ne s'arrête jamais, et les bilans déjà produits
+> ne sont jamais touchés.
+
 - **Effort :** M
 - **Process :** Complet — clé signée et vérification : même exigence que C5-T1.
 - **Dépendances :** C5-T1 (même outillage de signature), C0-T1
@@ -1089,6 +1186,15 @@ détermine le prix du setup **et** le plafond de croissance.
 
 ### C9-T1 — Questionnaire de feuille de route
 
+> **État : livrée le 3 novembre 2026** (`docs/feuille-de-route-client.md`), à
+> relire par Baptiste (process Direct). Le questionnaire est dérivé du
+> vocabulaire du schéma : sept formes, les dispositions, `indication`, l'ordre
+> des schémas. Il reprend aussi les sept champs de `cabinet` et les marqueurs
+> de `convention_nommage`, ainsi que le questionnaire matériel de
+> l'installation à distance. Les grilles y sont signalées à part, en attendant
+> C1-T6. **Critère à mesurer :** produire un schéma depuis la première
+> feuille réellement remplie, sans rappeler le client.
+
 - **Effort :** S
 - **Process :** Direct — document commercial, aucune ligne de code.
 - **Dépendances :** C1-T1 (le vocabulaire du schéma détermine les questions
@@ -1115,6 +1221,11 @@ détermine le prix du setup **et** le plafond de croissance.
   route remplie prend moins de trois heures, mesuré sur deux cas.
 
 ### C9-T3 — Politique d'évolution après livraison
+
+> **Tranchée le 3 novembre 2026 : une révision annuelle**, incluse dans
+> l'abonnement ; une modification urgente hors révision se facture à part.
+> Déjà annoncée au client dans `docs/feuille-de-route-client.md`. Il reste à
+> l'écrire dans les CGV, qui naîtront avec C0-T2.
 
 - **Effort :** S
 - **Process :** Direct — décision commerciale, écrite dans les CGV.
