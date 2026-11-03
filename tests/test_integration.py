@@ -21,6 +21,7 @@ import ssl
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 import warnings
@@ -224,6 +225,20 @@ class ServeurEnMarche(unittest.TestCase):
             [sys.executable, os.path.join("serveur", "serveur.py")],
             cwd=cls.dossier,
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        # Le tube doit être vidé EN CONTINU (C7-T5). Le serveur écrit une
+        # ligne sur stderr par requête ; sous Windows, le tampon d'un tube
+        # est petit, et un tube jamais lu finit plein : chaque requête qui
+        # journalise se bloque alors dans sys.stderr.write(), sans réponse,
+        # et les tests expirent un par un en lecture TLS (ssl.recv_into) —
+        # seule /sante, muette, répond encore. C'est le symptôme du
+        # 14 octobre et du 3 novembre ; aucun risque au cabinet, où
+        # pythonw n'a pas de stderr. Le fil garde la sortie pour les
+        # messages d'échec.
+        cls.sortie_serveur = []
+        cls.lecteur = threading.Thread(
+            target=lambda: cls.sortie_serveur.extend(iter(cls.processus.stdout.readline, "")),
+            daemon=True)
+        cls.lecteur.start()
 
         cls.contexte = ssl.create_default_context(
             cafile=os.path.join(cls.dossier, "autorite.crt"))
@@ -233,8 +248,9 @@ class ServeurEnMarche(unittest.TestCase):
             limite = time.monotonic() + 30
             while time.monotonic() < limite:
                 if cls.processus.poll() is not None:
+                    cls.lecteur.join(timeout=5)
                     raise AssertionError("le serveur s'est arrêté : "
-                                         + cls.processus.stdout.read())
+                                         + "".join(cls.sortie_serveur))
                 try:
                     with socket.create_connection(("127.0.0.1", cls.port), 0.2):
                         break
@@ -249,6 +265,7 @@ class ServeurEnMarche(unittest.TestCase):
             # occupé pour les exécutions suivantes.
             cls.processus.terminate()
             cls.processus.wait(timeout=10)
+            cls.lecteur.join(timeout=5)
             cls.processus.stdout.close()
             shutil.rmtree(cls.dossier, ignore_errors=True)
             raise
@@ -257,6 +274,7 @@ class ServeurEnMarche(unittest.TestCase):
     def tearDownClass(cls):
         cls.processus.terminate()
         cls.processus.wait(timeout=10)
+        cls.lecteur.join(timeout=5)
         cls.processus.stdout.close()
         try:
             # Contrôle final, sur l'intégralité du fichier accumulé par
