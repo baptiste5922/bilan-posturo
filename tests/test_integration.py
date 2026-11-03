@@ -125,7 +125,8 @@ def demarrer_sandbox_court(config_extra=None, attendre_demarrage_technique=False
     for nom in ("serveur/serveur.py", "serveur/generer_autorite.py",
                 "formulaire/index.html", "formulaire/index-v1.html",
                 "formulaire/style.css",
-                "formulaire/script.js", "formulaire/schema.json"):
+                "formulaire/script.js", "formulaire/schema.json",
+                "formulaire/version.json"):
         shutil.copy(os.path.join(PROJET, nom), os.path.join(dossier, nom))
 
     sortie = subprocess.run(
@@ -188,7 +189,8 @@ class ServeurEnMarche(unittest.TestCase):
         for nom in ("serveur/serveur.py", "serveur/generer_autorite.py",
                     "formulaire/index.html", "formulaire/index-v1.html",
                     "formulaire/style.css",
-                    "formulaire/script.js", "formulaire/schema.json"):
+                    "formulaire/script.js", "formulaire/schema.json",
+                "formulaire/version.json"):
             shutil.copy(os.path.join(PROJET, nom),
                         os.path.join(cls.dossier, nom))
 
@@ -658,7 +660,11 @@ class ServeurEnMarche(unittest.TestCase):
         with open(self.technique, encoding="utf-8") as f:
             contenu = f.read()
 
-        self.assertRegex(contenu, r"DEMARRAGE port=\d+ certificat=[0-9a-f]{16} .+")
+        # La version vient de formulaire/version.json, la source unique
+        # (C4-T4) : dérivée, jamais recopiée dans le motif.
+        version = serveur.lire_version(os.path.join(PROJET, "formulaire", "version.json"))
+        self.assertRegex(contenu, r"DEMARRAGE version=" + re.escape(version)
+                         + r" port=\d+ certificat=[0-9a-f]{16} .+")
         self.assertIn("DEPOT ok {} octets".format(len(PDF)), contenu)
         self.assertIn("AUTH_REFUSEE", contenu)
         self.assertIn("TLS_REFUSE", contenu)

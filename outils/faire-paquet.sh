@@ -64,7 +64,8 @@ rm -rf "$PAQUET"
 # de ses conditions d'usage.
 for obligatoire in "$PAQUET/LICENSE" "$PAQUET/TIERS.md" \
                    "$PAQUET/formulaire/index.html" "$PAQUET/formulaire/index-v1.html" \
-                   "$PAQUET/formulaire/moteur/rendu.js" "$PAQUET/formulaire/schema.json"; do
+                   "$PAQUET/formulaire/moteur/rendu.js" "$PAQUET/formulaire/schema.json" \
+                   "$PAQUET/formulaire/version.json"; do
     if ! unzip -l "$PAQUET.zip" "$obligatoire" > /dev/null 2>&1; then
         echo "ERREUR : $obligatoire manque dans l'archive." >&2
         echo "Le paquet ne doit pas partir incomplet : ni sans licence, ni sans moteur de rendu ni schéma." >&2

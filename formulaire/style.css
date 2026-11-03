@@ -596,3 +596,12 @@ header.bloc {
     font-weight: bold;
     font-size: 14px;
 }
+
+/* Numéro de version (C4-T4), hors de #form-bilan : jamais dans le PDF.
+   Aucune couleur propre : il hérite du texte courant, atténué. */
+#version-application {
+    margin: 24px 0 8px;
+    text-align: center;
+    font-size: 12px;
+    opacity: 0.55;
+}

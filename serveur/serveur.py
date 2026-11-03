@@ -51,6 +51,30 @@ TECHNIQUE = os.path.join(RACINE, "technique.log")
 # peut les atteindre même si le filtre d'extensions venait à être contourné.
 FORMULAIRE = os.path.join(RACINE, "formulaire")
 
+# Source unique du numéro de version (C4-T4) : le formulaire la lit par la
+# même route que schema.json, le serveur la lit ici au démarrage, et
+# tests/test_version.py échoue si package.json en diverge.
+FICHIER_VERSION = os.path.join(FORMULAIRE, "version.json")
+VERSION_INCONNUE = "inconnue"
+
+
+def lire_version(chemin=FICHIER_VERSION):
+    """Le numéro de version, ou "inconnue" — jamais une levée.
+
+    Un fichier absent, illisible ou malformé ne doit pas empêcher le cabinet
+    de démarrer. Le numéro est restreint à [0-9A-Za-z.+-] : il part dans
+    technique.log, le journal qui circule, et rien d'autre qu'un numéro ne
+    doit pouvoir y entrer par ce chemin.
+    """
+    try:
+        with open(chemin, encoding="utf-8") as f:
+            version = json.load(f).get("version")
+    except (OSError, ValueError, AttributeError):
+        return VERSION_INCONNUE
+    if isinstance(version, str) and re.fullmatch(r"[0-9A-Za-z.+-]{1,32}", version):
+        return version
+    return VERSION_INCONNUE
+
 TAILLE_MAX = 30 * 1024 * 1024      # 30 Mo : un bilan pèse ~1 à 3 Mo
 ITERATIONS = 240_000               # coût du hachage PBKDF2
 
@@ -952,6 +976,7 @@ def demarrer():
     print("Bilan posturologique — serveur démarré")
     print("  sur ce PC     : https://localhost:{}".format(config["port"]))
     print("  tablette      : https://<ip-du-pc>:{}".format(config["port"]))
+    print("  version       : {}".format(lire_version()))
     print("  identifiant   : {}".format(config["utilisateur"]))
     print("  dépôt des PDF : {}".format(dossier_pdf))
     print("  journal       : {}".format(JOURNAL))
@@ -962,8 +987,8 @@ def demarrer():
     print("\nCtrl+C pour arrêter.\n")
 
     empreinte = empreinte_certificat(certificat)
-    journaliser_technique("DEMARRAGE", "port={} certificat={} {}".format(
-        config["port"], empreinte, verdict_certificat(empreinte)))
+    journaliser_technique("DEMARRAGE", "version={} port={} certificat={} {}".format(
+        lire_version(), config["port"], empreinte, verdict_certificat(empreinte)))
 
     motif_arret = "autre"
     try:

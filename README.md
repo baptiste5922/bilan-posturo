@@ -243,6 +243,7 @@ bilan-posturo/
 │   ├── index-v1.html       frozen V1, the one-tap fallback (C1-T3b)
 │   ├── moteur/rendu.js     the rendering engine (C1-T3)
 │   ├── schema.json         the form's content, read by moteur/rendu.js
+│   ├── version.json        the single version number (server, footer, technique.log)
 │   ├── script.js           PDF, stylus, draft, delivery
 │   ├── style.css
 │   ├── lib/                jspdf + html2canvas, committed

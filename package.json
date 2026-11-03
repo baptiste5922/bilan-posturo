@@ -1,12 +1,12 @@
 {
   "name": "bilan-posturo",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Tablet postural-assessment form with client-side PDF generation and delivery to a local practice server",
   "license": "BUSL-1.1",
   "private": true,
   "scripts": {
     "vendor": "mkdir -p formulaire/lib && cp node_modules/jspdf/dist/jspdf.umd.min.js node_modules/html2canvas/dist/html2canvas.min.js formulaire/lib/",
-    "test": "python3 -m unittest discover -s tests -v && node tests/test_file_depots.js && node tests/test_pagination.js && node tests/test_palette.js && node tests/test_inventaire_formulaire.js && node tests/test_comparaison_dom.js && node tests/test_demarrage_moteur.js && node tests/test_nommage.js && node tests/test_concurrence_export.js",
+    "test": "python3 -m unittest discover -s tests -v && node tests/test_file_depots.js && node tests/test_pagination.js && node tests/test_version.js && node tests/test_palette.js && node tests/test_inventaire_formulaire.js && node tests/test_comparaison_dom.js && node tests/test_demarrage_moteur.js && node tests/test_nommage.js && node tests/test_concurrence_export.js",
     "test:js": "node tests/test_file_depots.js"
   },
   "dependencies": {

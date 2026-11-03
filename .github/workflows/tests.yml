@@ -47,6 +47,9 @@ jobs:
       - name: Run PDF pagination tests
         run: node tests/test_pagination.js
 
+      - name: Run version footer tests
+        run: node tests/test_version.js
+
       - name: Run palette tests
         run: node tests/test_palette.js
 

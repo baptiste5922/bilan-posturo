@@ -946,6 +946,32 @@ function appliquerCabinet() {
     });
 }
 
+/**
+ * Affiche le numéro de version en pied de page (C4-T4), lu dans
+ * version.json — la source unique que le serveur lit aussi au démarrage.
+ * Le paragraphe est ajouté à la fin du <body>, donc hors de #form-bilan :
+ * il n'entre jamais dans le PDF. Silencieux en cas d'échec : une version
+ * absente ne doit rien coûter à la consultation.
+ */
+async function afficherVersion() {
+    try {
+        const reponse = await fetch("version.json",
+            { credentials: "same-origin", cache: "no-store" });
+        if (!reponse.ok) return;
+        const donnees = await reponse.json();
+        if (!donnees || typeof donnees.version !== "string") return;
+        let pied = document.getElementById("version-application");
+        if (!pied) {
+            pied = document.createElement("p");
+            pied.id = "version-application";
+            document.body.appendChild(pied);
+        }
+        pied.textContent = "Bilan posturo — version " + donnees.version;
+    } catch (erreur) {
+        console.warn("Version de l'application non affichée :", erreur);
+    }
+}
+
 let applicationDemarree = false;
 
 /**
@@ -982,6 +1008,7 @@ function demarrerApplication() {
     // propriété à préserver — « le formulaire reste utilisable » même si le
     // PC est injoignable à cet instant.
     chargerCabinet().then(appliquerCabinet);
+    afficherVersion();
 }
 
 document.addEventListener("DOMContentLoaded", function () {

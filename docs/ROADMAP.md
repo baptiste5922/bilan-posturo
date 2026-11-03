@@ -798,6 +798,18 @@ d'une installation à distance. L'éditeur est à Lille, le cabinet en Bretagne.
 
 ### C4-T4 — Numéro de version affiché
 
+> **État : livrée le 3 novembre 2026** (contrat court `docs/contrats/C4-T4.md`).
+> La source unique est `formulaire/version.json` (1.1.0). Elle est lue :
+> - par le serveur au démarrage (console et `DEMARRAGE version=…` dans
+>   `technique.log`) ;
+> - par le formulaire, pour un pied de page hors de `#form-bilan`, donc hors
+>   du PDF.
+>
+> `tests/test_version.py` échoue si `package.json` diverge. Sept mutations sont
+> toutes rouges, aussi sous `-O`. **Reste pour C4-T3 :** afficher la même
+> valeur dans `/etat`, qui n'existe pas encore. Son contrat doit réutiliser
+> `lire_version()`, jamais une seconde source.
+
 - **Effort :** S
 - **Process :** Allégé — une constante propagée, couverte par un test de divergence.
 - **Dépendances :** aucune

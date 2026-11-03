@@ -208,6 +208,13 @@ Au-delà de 5 Mo, il est archivé en `journal.log.1` et un nouveau journal
 commence ; trois générations sont conservées. Les appels à `/sante`, qui
 arrivent en continu depuis chaque tablette allumée, n'y figurent pas.
 
+### Quelle version est installée ?
+
+Elle s'affiche en tout petit au bas du formulaire, sur la tablette
+(« Bilan posturo — version 1.1.0 »), et sur chaque ligne `DEMARRAGE` de
+`technique.log` (`version=1.1.0`). Le numéro vit dans un seul fichier,
+`formulaire/version.json` : c'est la première chose que demande l'assistance.
+
 ### Le second journal, celui qu'on peut envoyer
 
 Un deuxième fichier, `C:\BilanPosturo\technique.log`, vit à côté du premier.
