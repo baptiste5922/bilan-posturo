@@ -91,6 +91,23 @@ def _affectations(texte, variable):
     return trouvees
 
 
+def affectations_racine(texte):
+    """Les affectations de `$racine`, sous la seule forme que l'évaluateur sait lire.
+
+    `$script:racine =`, `${racine} =`, `Set-Variable -Name racine`,
+    `-OutVariable racine` rétabliraient le défaut d'origine sans qu'aucune
+    affectation reconnue ne bouge : le mot « racine » est donc refusé partout où
+    il n'est pas précédé de `$`. Les formes à portée ou à accolades en ont une
+    autre devant (`:`, `{`) ; les lectures `$racine` restent libres.
+    """
+    for m in re.finditer(r"(?<!\$)racine", texte, re.IGNORECASE):
+        ligne = texte[texte.rfind("\n", 0, m.start()) + 1:].split("\n")[0]
+        raise FormeNonReconnue(
+            "forme non reconnue : « racine » hors de la forme $racine "
+            "(étendre l'évaluateur) : " + ligne.strip())
+    return _affectations(texte, "racine")
+
+
 def evaluer_racine(expression, dossier_script, chemin_script):
     """Évalue `expression` comme le ferait PowerShell, dans cette grammaire :
 
@@ -121,6 +138,103 @@ def evaluer_racine(expression, dossier_script, chemin_script):
         refuser()
 
     return lire(reste)
+
+
+# Verbes à effet de bord : tâche planifiée, pare-feu, fichiers, services.
+# `New-ScheduledTaskAction` & co. ne modifient rien et ne sont pas visés ; seul
+# `New-NetFirewall*` (et `New-Item`) crée quelque chose. La liste est un motif
+# sur les verbes, pas une énumération de commandes : une commande ajoutée un
+# jour au script est couverte sans toucher au test.
+EFFETS_DE_BORD = re.compile(
+    r"\b(?:(?:Register|Unregister|Set|Start|Stop|Restart|Remove|Add|Enable"
+    r"|Disable|Invoke|Clear|Copy|Move|Rename)-\w+|New-NetFirewall\w*|New-Item)\b",
+    re.IGNORECASE)
+
+
+def verifier_ordre_des_effets(texte):
+    """Rend la liste des défauts de l'ordre `-Verifier` ; vide si tout va bien.
+
+    Le bloc `if ($Verifier) { … exit 0 }` doit précéder tout effet de bord. Un
+    bloc déplacé après `Register-ScheduledTask` laissait la suite verte, et un
+    essai à sec aurait écrasé la tâche SYSTEM de la machine d'essai.
+    """
+    debut = re.search(r"^[ \t]*if\s*\(\s*\$Verifier\s*\)\s*\{", texte,
+                      re.IGNORECASE | re.MULTILINE)
+    if debut is None:
+        return ["bloc if ($Verifier) { … } introuvable"]
+    profondeur, fin = 0, None
+    for i in range(debut.end() - 1, len(texte)):
+        if texte[i] == "{":
+            profondeur += 1
+        elif texte[i] == "}":
+            profondeur -= 1
+            if profondeur == 0:
+                fin = i
+                break
+    if fin is None:
+        return ["bloc -Verifier non refermé"]
+    bloc = texte[debut.start():fin]
+    sortie = re.search(r"^[ \t]*exit\s+0\s*$", bloc, re.IGNORECASE | re.MULTILINE)
+    if sortie is None:
+        return ["le bloc -Verifier ne contient pas « exit 0 »"]
+    defauts = []
+    for m in EFFETS_DE_BORD.finditer(texte[:fin]):
+        defauts.append("effet de bord « {} » avant la sortie de -Verifier".format(
+            m.group(0)))
+    if not EFFETS_DE_BORD.search(texte[fin:]):
+        defauts.append("aucun effet de bord après le bloc -Verifier : la garde "
+                       "ne garderait rien")
+    return defauts
+
+
+# ---------------------------------------------------------------------------
+# Contrôle des données réelles : le motif est celui de la CI, lu dans le fichier.
+# ---------------------------------------------------------------------------
+
+def lire_motif_des_secrets():
+    """Le motif du pas « Check that no secret is committed » de la CI.
+
+    Lu dans `.github/workflows/tests.yml` plutôt que recopié : une liste tenue à
+    la main avait déjà oublié `journal.log.*`, `Bilan_entrants/` et
+    `cles-editeur/`. Échoue si le motif est introuvable.
+    """
+    texte = (RACINE / ".github" / "workflows" / "tests.yml").read_text(
+        encoding="utf-8")
+    pas = texte.find("Check that no secret is committed")
+    if pas < 0:
+        raise RuntimeError("pas « Check that no secret is committed » introuvable")
+    # Les deux lignes doivent se suivre : chercher chacune séparément
+    # attraperait le `motif=` d'un pas voisin (celui des licences) quand
+    # celui-ci disparaît ou change de forme.
+    deux = re.search(
+        r"""^\s*motif='([^'\n]+)'\s*\n\s*motif="\$motif"'([^'\n]+)'\s*$""",
+        texte[pas:], re.MULTILINE)
+    if deux is None:
+        raise RuntimeError("les deux lignes motif= du contrôle des secrets "
+                           "sont introuvables dans tests.yml")
+    premier, second = deux.group(1), deux.group(2)
+    # Garde contre un motif vidé : il doit au moins nommer les clés.
+    if r"\.pem$" not in premier or "cles-editeur" not in second:
+        raise RuntimeError("le motif lu dans tests.yml ne ressemble plus à "
+                           "celui du contrôle des secrets")
+    # Concaténation pure, comme `motif="$motif"'…'` : la seconde ligne commence
+    # elle-même par « | ». Un « | » de plus créerait une alternative vide, qui
+    # accepte tous les chemins.
+    motif = re.compile(premier + second, re.IGNORECASE)
+    if motif.search("formulaire/index.html"):
+        raise RuntimeError("le motif lu dans tests.yml accepte un fichier ordinaire")
+    return motif
+
+
+def fichiers_sensibles(dossier, motif):
+    """Les fichiers de `dossier` (chemins relatifs, séparateur /) que le motif refuse."""
+    trouves = []
+    for chemin in Path(dossier).rglob("*"):
+        if chemin.is_file():
+            relatif = chemin.relative_to(dossier).as_posix()
+            if motif.search(relatif):
+                trouves.append(relatif)
+    return sorted(trouves)
 
 
 # ---------------------------------------------------------------------------
@@ -203,18 +317,42 @@ class RacineDesScriptsDansLePaquet(unittest.TestCase):
 
     def _racines_de(self, script):
         texte = _retirer_commentaires(_lire_script(script))
-        return texte, _affectations(texte, "racine")
+        try:
+            return texte, affectations_racine(texte)
+        except FormeNonReconnue as erreur:
+            self.fail(script.name + " : " + str(erreur))
 
     def test_bac_a_sable_sans_donnees_reelles(self):
-        """Le paquet de test ne contient ni clé, ni configuration, ni journal."""
-        interdits = []
-        for chemin in Path(self.travail).rglob("*"):
-            nom = chemin.name.lower()
-            if (nom in ("config.json", "journal.log", "technique.log")
-                    or nom.endswith(".pem") or nom == "autorite.crt"
-                    or (nom == "bilans" and chemin.is_dir())):
-                interdits.append(str(chemin))
-        self.assertEqual(interdits, [], "données réelles dans le bac à sable")
+        """Ni le bac à sable, ni l'archive extraite ne contiennent ce que la CI
+        refuse de versionner : clés, configuration, journaux, bilans."""
+        motif = lire_motif_des_secrets()
+        # Le bac à sable est une copie de la racine du dépôt ; l'archive
+        # extraite est jugée depuis la racine du paquet, comme au cabinet.
+        extrait = Path(self.travail) / "extrait"
+        trouves = [
+            f for f in fichiers_sensibles(self.travail, motif)
+            if not f.startswith("extrait/")]
+        trouves += ["paquet/" + f for f in fichiers_sensibles(self.paquet, motif)]
+        self.assertEqual(trouves, [], "données réelles dans le bac à sable")
+        self.assertTrue(extrait.is_dir())
+
+    def test_detecteur_de_donnees_reelles_mord(self):
+        """Des fichiers factices de chaque forme, déposés dans un dossier
+        temporaire seulement, sont tous refusés ; un fichier ordinaire passe."""
+        motif = lire_motif_des_secrets()
+        formes = ("config.json", "journal.log", "journal.log.1", "technique.log",
+                  "technique.log.2", "serveur.pem", "autorite.crt",
+                  "bilans/2026/bilan.pdf", "Bilan_entrants/x.pdf",
+                  "cles-editeur/licence.key", "cles-editeur/sous/x.txt",
+                  "x.p12", "x.pfx", "id_ed25519", "cle_privee.txt",
+                  "cle-privee.txt")
+        with tempfile.TemporaryDirectory(prefix="bilan-detecteur-") as dossier:
+            for forme in formes + ("serveur/serveur.py",):
+                cible = Path(dossier) / forme
+                cible.parent.mkdir(parents=True, exist_ok=True)
+                cible.write_bytes(b"")
+            self.assertEqual(
+                fichiers_sensibles(dossier, motif), sorted(formes))
 
     def test_au_moins_un_script_evalue(self):
         """Garde anti-vide : si l'archive ne contient plus de `.ps1` calculant
@@ -272,6 +410,50 @@ class RacineDesScriptsDansLePaquet(unittest.TestCase):
                     re.match(motif, valeur, re.IGNORECASE),
                     "{} : ${} doit être joint à $racine, trouvé « {} »".format(
                         relatif, variable, valeur))
+
+    def test_verifier_precede_les_effets_de_bord(self):
+        """Dans l'archive comme dans le dépôt, `-Verifier` sort avant tout effet."""
+        avec_verifier = [s for s in self.scripts
+                         if re.search(r"\$Verifier\b",
+                                      _retirer_commentaires(_lire_script(s)),
+                                      re.IGNORECASE)]
+        self.assertTrue(
+            avec_verifier, "aucun .ps1 de l'archive ne porte -Verifier : "
+            "la garde ne garderait rien")
+        for script in avec_verifier + [SCRIPT_INSTALLATION]:
+            with self.subTest(script=str(script)):
+                texte = _retirer_commentaires(_lire_script(script))
+                self.assertEqual(verifier_ordre_des_effets(texte), [])
+
+    def test_garde_d_ordre_de_verifier_mord(self):
+        """La garde elle-même, sur des textes fabriqués."""
+        bon = ("param([switch]$Verifier)\nGet-Content x\n"
+               "if ($Verifier) {\n    Write-Host 'a'\n    exit 0\n}\n"
+               "Register-ScheduledTask -TaskName x\n")
+        self.assertEqual(verifier_ordre_des_effets(bon), [])
+        apres = bon.replace("Register-ScheduledTask -TaskName x\n", "") \
+            .replace("if ($Verifier)", "Register-ScheduledTask -TaskName x\n"
+                     "if ($Verifier)") + "Start-ScheduledTask -TaskName x\n"
+        self.assertTrue(verifier_ordre_des_effets(apres))
+        self.assertTrue(verifier_ordre_des_effets(
+            bon.replace("exit 0", "return")))
+        self.assertTrue(verifier_ordre_des_effets(
+            bon.replace("$Verifier)", "$Autre)")))
+        self.assertTrue(verifier_ordre_des_effets(
+            bon.replace("Register-ScheduledTask -TaskName x\n", "")))
+
+    def test_formes_d_affectation_non_evaluees_refusees(self):
+        for ligne in ("$script:racine = Split-Path -Parent $PSScriptRoot",
+                      "${racine} = Split-Path -Parent $PSScriptRoot",
+                      "Set-Variable -Name racine -Value (Split-Path -Parent "
+                      "$PSScriptRoot)",
+                      "Get-Item . -OutVariable racine"):
+            with self.subTest(ligne=ligne):
+                with self.assertRaises(FormeNonReconnue):
+                    affectations_racine("$racine = $PSScriptRoot\n" + ligne)
+        self.assertEqual(
+            affectations_racine("$racine = $PSScriptRoot\nJoin-Path $racine 'x'"),
+            ["$PSScriptRoot"])
 
     def test_forme_inconnue_refusee(self):
         """Le vocabulaire est fermé : `Resolve-Path`, par exemple, échoue au
