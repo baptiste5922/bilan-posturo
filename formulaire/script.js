@@ -203,14 +203,15 @@ function calculerPages(blocs, hauteurPagePx, hauteurTotalePx) {
     return pages;
 }
 
-// Non réentrance de l'export. Avant la garde d'identité, le premier geste de exporterBilanPDF() était de masquer le
-// bouton, SANS aucun point de suspension devant lui — ce masquage était
-// la sérialisation. La garde a introduit un `await chargerCabinet()`
-// AVANT ce masquage, rouvrant une fenêtre où rien ne bouge à l'écran et où
-// un second clic lance une seconde exécution complète (chemin_libre() ne
-// refuse pas un doublon, il le nomme "-2.pdf" : deux bilans déposés). Ce
-// drapeau, posé en tout premier geste et avant tout `await`, referme cette
-// fenêtre quelle que soit la suite de la fonction.
+// Non réentrance de l'export. Avant la garde d'identité, le premier geste de
+// exporterBilanPDF() était de masquer le bouton, SANS aucun point de
+// suspension devant lui — ce masquage était la sérialisation. La garde a
+// introduit un `await chargerCabinet()` AVANT ce masquage, rouvrant une
+// fenêtre où rien ne bouge à l'écran et où un second clic lance une seconde
+// exécution complète (chemin_libre() ne refuse pas un doublon, il le nomme
+// "-2.pdf" : deux bilans déposés). Ce drapeau, posé en tout premier geste et
+// avant tout `await`, referme cette fenêtre quelle que soit la suite de la
+// fonction.
 let exportEnCours = false;
 
 async function exporterBilanPDF() {
