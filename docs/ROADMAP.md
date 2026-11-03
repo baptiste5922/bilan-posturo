@@ -384,8 +384,9 @@ l'en-tête ; le moteur de rendu, identique chez tous les clients, produit le DOM
 - **Effort :** M
 - **Process :** Complet — touche le formulaire de production, celui d'une consultation du lendemain.
 - **Dépendances :** C1-T3
-- **Périmètre :** `clients/morlaix/schema.json`, `clients/morlaix/theme.json`,
-  suppression du HTML sur mesure
+- **Périmètre :** `clients/cabinet-01/schema.json`, `clients/cabinet-01/theme.json`
+  (décision D8 de C2-T1 : la convention de nommage des clients ne porte jamais
+  un nom de ville), suppression du HTML sur mesure
 - **Travail :**
   1. Écrire le schéma du cabinet actuel, en totalité.
   2. Basculer la production dessus et faire valider un bilan réel par la
@@ -425,7 +426,17 @@ HTML.
 
 ### C2-T1 — Bloc `cabinet` dans `config.json` et route `GET /cabinet`
 
-- **Effort :** M
+> **État : livrée le 3 novembre 2026**, après revue (`docs/revues/C2-T1.md`)
+> et constat de rendu réel. Contrat `docs/contrats/C2-T1.md`. L'identité du cabinet
+> (praticienne, adresse, courriel, téléphone) ne vit plus dans le dépôt : elle
+> est saisie par `--config`, servie par la route authentifiée `GET /cabinet`,
+> et lue par le formulaire au chargement. Les deux en-têtes de production sont
+> vides ; l'export est refusé, pas dégradé, quand l'identité manque (D7). Le
+> critère ci-dessous, qui écrivait les motifs qu'il cherchait en clair, est
+> remplacé par un renvoi à `tests/test_identite_absente.py` : la feuille de
+> route ne doit pas elle-même porter la donnée qu'une tâche retire ailleurs.
+
+- **Effort :** L (requalifiée par son contrat ; annoncée M)
 - **Process :** Complet — nouvelle route serveur.
 - **Dépendances :** C1-T2 souhaitable
 - **Périmètre :** `serveur/serveur.py`, `formulaire/script.js`, `tests/test_serveur.py`
@@ -447,8 +458,11 @@ HTML.
      bascule de C1-T3b ; si elle a disparu d'ici là, il n'y en aura qu'un. Le
      critère par `grep` couvre les deux de toute façon.
 - **Critères d'acceptation :**
-  - `grep -i "LE GOFF\|Grand'Rue\|legoffpodologue\|02 98 88" formulaire/` ne
-    renvoie rien.
+  - `python3 -m unittest tests.test_identite_absente` passe, et passe aussi
+    sous `python3 -O` ; les quatre mutations de mise en échec le font rougir
+    (contrat C2-T1, étape 9). Remplace l'ancien critère, qui écrivait en clair
+    les quatre coordonnées qu'il cherchait — la feuille de route ne doit pas
+    être elle-même le document qui les recopie.
   - `GET /cabinet` sans identifiants renvoie 401.
   - Serveur injoignable : l'en-tête reste vide, le formulaire reste utilisable,
     et l'export PDF est refusé avec un message explicite.

@@ -50,7 +50,7 @@ la main est explicitement exemptée de cette trajectoire.
 
 ---
 
-## 2. Ce que le cabinet de Morlaix prouve déjà
+## 2. Ce que le cabinet pilote prouve déjà
 
 La voie n°2 tourne en production depuis août 2026, pour la totalité des bilans
 d'un cabinet. Ce n'est pas une hypothèse à instruire : c'est la seule des trois
@@ -78,7 +78,7 @@ de la box.
 
 ### 3.1 Voie n°1 — sous-domaine réel + Let's Encrypt par challenge DNS-01
 
-L'idée : `morlaix.cabinets-exemple.fr` résout vers `192.168.1.13`, le
+L'idée : `cabinet-exemple.cabinets-exemple.fr` résout vers `192.168.1.13`, le
 certificat est émis par Let's Encrypt via un enregistrement TXT
 `_acme-challenge` public. La tablette fait confiance nativement : zéro
 manipulation de certificat.
@@ -122,7 +122,7 @@ Les contournements existent et ils sont tous mauvais :
   débranchée.
 - **Publication de la liste des clients.** Tout certificat Let's Encrypt est
   versé aux journaux de *Certificate Transparency*, publics et indexés :
-  `morlaix.cabinets-exemple.fr` y resterait consultable à jamais, révélant
+  `cabinet-exemple.cabinets-exemple.fr` y resterait consultable à jamais, révélant
   l'existence et la localisation de chaque cabinet client. Aucune donnée de
   santé ne fuit, mais la liste commerciale et la cartographie du parc, oui. Un
   certificat *wildcard* par cabinet masquerait le sous-domaine ; c'est une

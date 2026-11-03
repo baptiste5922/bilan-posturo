@@ -56,6 +56,12 @@ jobs:
       - name: Run engine start-up safety-net tests
         run: node tests/test_demarrage_moteur.js
 
+      - name: Run file naming convention tests
+        run: node tests/test_nommage.js
+
+      - name: Run identity and export concurrency tests
+        run: node tests/test_concurrence_export.js
+
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -224,101 +230,16 @@ jobs:
           fi
           echo "Aucune mention de licence contradictoire."
 
-      - name: Check that cabinet identity is not copied into the schema documents
-        run: |
-          set -e
-          # Les motifs sont dérivés de formulaire/index.html à l'exécution,
-          # jamais écrits en dur : en cas d'échec, seul un nom de fichier et
-          # un numéro de ligne *source* sont nommés, jamais le contenu, sans
-          # quoi ce journal deviendrait lui-même le canal de fuite qu'il
-          # doit empêcher.
-          #
-          # R3 (audit C1-T1, réaudit C1-T3) : la version précédente ancrait le
-          # bloc d'identité sur des numéros de ligne figés (72-75) et ignorait
-          # une ligne au texte vide par un simple `continue`, sans jamais
-          # vérifier qu'il restait quelque chose à contrôler — une insertion de
-          # lignes au-dessus du bloc rendait la garde muette, verte à vide,
-          # plutôt qu'absente. Elle localise désormais le bloc par son ancre
-          # `<section id="infos_podo">` … `</section>`, et échoue si cette
-          # ancre est introuvable ou si aucune ligne de texte non vide n'en
-          # est extraite.
-          #
-          # Constat moyen n°2 (audit C1-T3b) : la garde portait sur une liste
-          # FERMÉE de cinq cibles, qui autorisait implicitement tout fichier
-          # absent de la liste à recopier une coordonnée sans que rien ne s'en
-          # aperçoive — c'est exactement ce qui est arrivé avec
-          # tests/test_coquille.py (jamais ajouté à la liste) et, une fois,
-          # avec un document de mises en échec (même défaut). Elle scanne
-          # désormais TOUS les fichiers suivis par git, à l'exception de la
-          # source elle-même et de sa copie gelée explicitement justifiée :
-          # formulaire/index-v1.html, la fiche de secours, dont l'identité
-          # recopiée est nécessaire (même en-tête que la production) et sous
-          # garde d'empreinte SHA-256 séparée (tests/test_coquille.py) — ce
-          # n'est pas un endroit où l'identité pourrait fuiter sans bruit,
-          # c'est la source elle-même, répétée par nécessité.
-          #
-          # `git ls-files -z` et non `git ls-files | tr` : sans `-z`, git
-          # échappe les chemins non ASCII à la façon du C et les entoure de
-          # guillemets, et un document accentué — ils le sont tous ici —
-          # porteur d'une mention contradictoire passerait sans bruit. La
-          # boucle remplace un `xargs -0 grep`, qui rendrait 123 aussi bien
-          # pour « aucune correspondance » que pour une erreur réelle.
-          source="formulaire/index.html"
-          exclus='^formulaire/index(-v1)?\.html$'
-          if [ ! -f "$source" ]; then
-            echo "::error::Fichier introuvable pour le contrôle d'identité du cabinet : $source"
-            exit 1
-          fi
-
-          ancre_debut=$(grep -n '<section id="infos_podo">' "$source" | head -1 | cut -d: -f1)
-          if [ -z "$ancre_debut" ]; then
-            echo "::error::Ancre <section id=\"infos_podo\"> introuvable dans $source : la garde ne peut plus localiser le bloc d'identité."
-            exit 1
-          fi
-
-          decalage_fin=$(tail -n "+$ancre_debut" "$source" | grep -n '</section>' | head -1 | cut -d: -f1)
-          if [ -z "$decalage_fin" ]; then
-            echo "::error::Balise fermante </section> introuvable après la ligne $ancre_debut de $source."
-            exit 1
-          fi
-          ancre_fin=$((ancre_debut + decalage_fin - 1))
-
-          set +e
-          lignes_extraites=$(sed -n "${ancre_debut},${ancre_fin}p" "$source" |
-            sed -E 's/<[^>]*>//g' | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' | grep -v '^$')
-          set -e
-          if [ -z "$lignes_extraites" ]; then
-            echo "::error::Aucune ligne de texte non vide extraite de l'ancre <section id=\"infos_podo\"> ($source, lignes $ancre_debut-$ancre_fin) : la garde n'a plus rien à contrôler."
-            exit 1
-          fi
-
-          fichier_lignes=$(mktemp)
-          suivis=$(mktemp)
-          trap 'rm -f "$fichier_lignes" "$suivis"' EXIT
-          printf '%s\n' "$lignes_extraites" > "$fichier_lignes"
-          git ls-files -z > "$suivis"
-
-          fautifs=""
-          while IFS= read -r -d '' fichier; do
-            printf '%s\n' "$fichier" | grep -qE "$exclus" && continue
-            if [ ! -f "$fichier" ]; then
-              echo "::error::Chemin listé par git mais introuvable : $fichier"
-              exit 1
-            fi
-            while IFS= read -r texte; do
-              [ -z "$texte" ] && continue
-              if grep -IqF -- "$texte" "$fichier"; then
-                fautifs="$fautifs $fichier"
-                break
-              fi
-            done < "$fichier_lignes"
-          done < "$suivis"
-
-          if [ -n "$fautifs" ]; then
-            echo "::error::Coordonnée du cabinet recopiée, voir $source ligne(s) $ancre_debut-$ancre_fin, dans :$fautifs"
-            exit 1
-          fi
-          echo "Aucune coordonnée du cabinet recopiée."
+      - name: Check that no cabinet identity remains in the repository
+        # C2-T1 : l'identité du cabinet ne vit plus dans le dépôt, donc plus
+        # dans #infos_podo — le pas précédent, qui dérivait ses motifs de ce
+        # bloc et échouait explicitement s'il n'y trouvait aucune ligne de
+        # texte, serait aujourd'hui vert à vide ("la garde n'a plus rien à
+        # contrôler"). Il est remplacé par un contrôle d'absence, écrit une
+        # seule fois (tests/test_identite_absente.py) : la CI se contente de
+        # le lancer, elle n'en porte pas une seconde implémentation en shell
+        # qui divergerait tôt ou tard de la première.
+        run: python -m unittest tests.test_identite_absente -v
 
   scripts-windows:
     # Les scripts d'installation ne tournent qu'au cabinet, sous Windows :

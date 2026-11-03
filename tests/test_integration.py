@@ -145,7 +145,12 @@ def demarrer_sandbox_court(config_extra=None, attendre_demarrage_technique=False
         json.dump(config, f)
 
     processus = subprocess.Popen(
-        [sys.executable, os.path.join("serveur", "serveur.py")],
+        # -u : sortie non bufferisée. Sans cela, le bloc d'informations
+        # affiché au démarrage (dont l'avertissement d'identité, C2-T1)
+        # reste dans le tampon de Python et ne traverse jamais le tuyau
+        # avant un terminate() — un test qui lit cette sortie après coup
+        # verrait une chaîne vide, pas l'absence réelle de l'avertissement.
+        [sys.executable, "-u", os.path.join("serveur", "serveur.py")],
         cwd=dossier, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         text=True)
 
@@ -524,6 +529,41 @@ class ServeurEnMarche(unittest.TestCase):
         statut, _, _ = self.requete("POST", "/autre", PDF)
         self.assertEqual(statut, 404)
 
+    # --- identité du cabinet (C2-T1) ----------------------------------------
+
+    def test_cabinet_sans_authentification_401(self):
+        # Contrairement à /sante : des coordonnées professionnelles ne sont
+        # pas un secret, mais rien n'oblige à les offrir à qui scanne le
+        # port (décision D2). Corps vide : rien ne doit fuiter avant même
+        # l'authentification.
+        statut, entetes, corps = self.requete("GET", "/cabinet", utilisateur=None)
+        self.assertEqual(statut, 401)
+        self.assertIn("WWW-Authenticate", dict(entetes))
+        self.assertEqual(corps, b"")
+
+    def test_cabinet_authentifie_200_liste_blanche(self):
+        statut, entetes, corps = self.requete("GET", "/cabinet")
+        self.assertEqual(statut, 200)
+        entetes_min = {c.lower(): v for c, v in entetes}
+        self.assertEqual(entetes_min.get("content-type"),
+                         "application/json; charset=utf-8")
+        donnees = json.loads(corps.decode("utf-8"))
+        self.assertEqual(set(donnees), set(serveur.CLES_CABINET))
+
+        # Liste blanche (décision D4) : aucune clé de CONFIG_DEFAUT en dehors
+        # de "cabinet" ne doit jamais apparaître dans cette réponse, dérivée
+        # du vocabulaire fermé plutôt que transcrite.
+        interdites = set(serveur.CONFIG_DEFAUT) - {"cabinet"}
+        self.assertEqual(interdites & set(donnees), set())
+        for champ in ("mot_de_passe", "utilisateur", "certificat",
+                     "cle_privee", "dossier_pdf", "port"):
+            self.assertNotIn(champ, donnees)
+
+    def test_cabinet_cache_control_unique(self):
+        _, entetes, _ = self.requete("GET", "/cabinet")
+        occurrences = [v for c, v in entetes if c.lower() == "cache-control"]
+        self.assertEqual(occurrences, ["no-store"])
+
     # --- sonde de santé ----------------------------------------------------
 
     def test_sante_repond_sans_authentification(self):
@@ -798,6 +838,41 @@ class InterrupteurJournalTechnique(unittest.TestCase):
         self.assertFalse(
             os.path.exists(os.path.join(dossier, "technique.log")))
         self.assertTrue(os.path.exists(os.path.join(dossier, "journal.log")))
+
+
+class AvertissementIdentiteCabinet(unittest.TestCase):
+    """Étape 4 du contrat C2-T1 : un bloc "cabinet" absent ou incomplet
+    avertit sur la sortie standard, sans jamais refuser de démarrer — le
+    risque réel (§12) est un cabinet mis à jour sans relancer --config."""
+
+    @unittest.skipIf(cryptography_absente(),
+                     "cryptography requis pour fabriquer les certificats")
+    def test_demarrage_avertit_si_identite_absente(self):
+        dossier, port, processus = demarrer_sandbox_court()
+        try:
+            # Le serveur tourne (serve_forever) : lire jusqu'à l'EOF
+            # bloquerait indéfiniment sans l'arrêter d'abord. Même
+            # exposition que ServeurArret (tube de sortie non drainé).
+            processus.terminate()
+            sortie, _ = processus.communicate(timeout=10)
+        finally:
+            shutil.rmtree(dossier, ignore_errors=True)
+
+        self.assertIn("AVERTISSEMENT", sortie)
+        self.assertIn("--config", sortie)
+
+    @unittest.skipIf(cryptography_absente(),
+                     "cryptography requis pour fabriquer les certificats")
+    def test_demarrage_silencieux_si_identite_renseignee(self):
+        dossier, port, processus = demarrer_sandbox_court(
+            {"cabinet": {"praticien": "Dr Témoin"}})
+        try:
+            processus.terminate()
+            sortie, _ = processus.communicate(timeout=10)
+        finally:
+            shutil.rmtree(dossier, ignore_errors=True)
+
+        self.assertNotIn("AVERTISSEMENT", sortie)
 
 
 class RefusDeDemarrer(unittest.TestCase):

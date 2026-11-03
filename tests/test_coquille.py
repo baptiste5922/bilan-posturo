@@ -36,7 +36,12 @@ INDEX_MOTEUR = RACINE / "formulaire" / "index-moteur.html"
 RENDU_JS = RACINE / "formulaire" / "moteur" / "rendu.js"
 
 EMPREINTE_V1_ATTENDUE = (
-    "589eee333e68bdbde9e46c1343392e767baa5cfa6b1abfee02026d9431958a6e"
+    # Recalculée pour C2-T1 (décision D6) : l'en-tête ne porte plus les
+    # coordonnées du cabinet. Preuve du recalcul, consignée dans le message
+    # de commit — `git diff --numstat -- formulaire/index-v1.html` rend
+    # `0  4` (quatre lignes supprimées, aucune ajoutée, aucune modifiée).
+    # C'est le deuxième recalcul depuis la création de ce témoin.
+    "b3cd0df073f45802a4223fc6bdca0a253ab5457277cb084f4d2dd9fe4cc2d138"
 )
 
 
@@ -155,7 +160,12 @@ class IntegriteDeLEnTete(unittest.TestCase):
             "pour ne pas publier l'identité du cabinet dans ce journal",
         )
 
-    def test_ancre_identite_presente_avec_son_texte(self):
+    def test_ancre_identite_vide(self):
+        # C2-T1 : l'identité du cabinet ne vit plus dans le dépôt, elle est
+        # lue en exécution sur GET /cabinet et écrite dans cette ancre par
+        # appliquerCabinet() (script.js). Avant C2-T1, ce test exigeait
+        # l'inverse (du texte non vide) : il serait aujourd'hui faux par
+        # construction, d'où le remplacement plutôt qu'une simple retouche.
         for nom, texte in (("formulaire/index.html", self.coquille),
                             ("formulaire/index-v1.html", self.v1)):
             self.assertIn('<section id="infos_podo">', texte, "ancre introuvable dans %s" % nom)
@@ -166,7 +176,12 @@ class IntegriteDeLEnTete(unittest.TestCase):
                 l.strip() for l in re.sub(r"<[^>]*>", "\n", section).split("\n")
                 if l.strip()
             ]
-            self.assertTrue(lignes, "aucune ligne de texte dans l'ancre #infos_podo de %s" % nom)
+            self.assertEqual(
+                lignes, [],
+                "l'ancre #infos_podo de %s porte encore du texte : "
+                "l'identité du cabinet ne doit plus être écrite dans le "
+                "dépôt (contrat C2-T1)" % nom,
+            )
 
 
 class IdsReservesCoquille(unittest.TestCase):

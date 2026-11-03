@@ -82,8 +82,10 @@ if EVENEMENT_ROTATION not in EVENEMENTS_TECHNIQUES:
         .format(EVENEMENT_ROTATION))
 
 # Classes de route fermées : jamais un chemin brut, contrôlé par le client,
-# n'atteint le journal technique (décision D3).
-ROUTES_TECHNIQUES = frozenset({"depot", "sante", "formulaire", "autre"})
+# n'atteint le journal technique (décision D3). "cabinet" (C2-T1, décision
+# D5) permet de distinguer, à distance, « la tablette n'a jamais demandé
+# l'identité » de « elle l'a demandée et a reçu 401 ».
+ROUTES_TECHNIQUES = frozenset({"depot", "sante", "formulaire", "cabinet", "autre"})
 
 # Motifs de refus de dépôt, fermés eux aussi : un motif hors de cet ensemble
 # devient "motif-inconnu" (detail_refus_depot).
@@ -111,7 +113,25 @@ CONFIG_DEFAUT = {
     "certificat": "certificat.pem",
     "cle_privee": "cle.pem",
     "journal_technique": True,
+    # Identité du cabinet (C2-T1) : chaînes vides par défaut, jamais un
+    # exemple générique — un exemple finit tôt ou tard imprimé sur un bilan
+    # réel (décision D3 du contrat). Sert à remplir l'en-tête du formulaire
+    # via GET /cabinet, et à nommer le fichier PDF (convention_nommage).
+    "cabinet": {
+        "nom": "",
+        "praticien": "",
+        "adresse": "",
+        "courriel": "",
+        "telephone": "",
+        "logo": "images/favicon.jpeg",
+        "convention_nommage": "Bilan_{date}_{patient}",
+    },
 }
+
+# Dérivée de CONFIG_DEFAUT, jamais retranscrite : la route /cabinet, la
+# saisie de --config et les tests s'appuient tous sur cette même liste
+# (piège « une liste normative recopiée finit fausse »).
+CLES_CABINET = tuple(CONFIG_DEFAUT["cabinet"])
 
 
 # --------------------------------------------------------------------------
@@ -125,6 +145,23 @@ def charger_config():
         config = json.load(f)
     complet = dict(CONFIG_DEFAUT)
     complet.update(config)
+
+    # Fusion à deux niveaux pour la seule clé "cabinet" : une fusion de
+    # surface écraserait un bloc partiel au lieu de le compléter clé à clé,
+    # ce qui romprait tout config.json d'un cabinet déjà installé avant
+    # cette version. Aucune levée : un "cabinet" absent, null, ou qui n'est
+    # pas un dictionnaire retombe simplement sur les défauts. Une sous-clé
+    # qui n'est pas une chaîne (null, nombre, objet, écrits à la main) y
+    # retombe aussi : sinon demarrer() lève sur .strip() et le cabinet ne
+    # redémarre plus après la réparation manuelle que la doc conseille.
+    cabinet = dict(CONFIG_DEFAUT["cabinet"])
+    brut = config.get("cabinet")
+    if isinstance(brut, dict):
+        for cle in CLES_CABINET:
+            if isinstance(brut.get(cle), str):
+                cabinet[cle] = brut[cle]
+    complet["cabinet"] = cabinet
+
     return complet
 
 
@@ -153,6 +190,31 @@ def verifier_mot_de_passe(mot_de_passe, stocke):
         return False
 
 
+def saisir_cabinet(config):
+    """Demande chaque champ de l'identité du cabinet, valeur courante entre
+    crochets ; une saisie vide la conserve. Ne fait aucune entrée-sortie
+    fichier : travaille uniquement sur le dictionnaire reçu.
+
+    Dérivée de CLES_CABINET, jamais retranscrite : un champ ajouté au bloc
+    "cabinet" de CONFIG_DEFAUT est saisi ici sans modification de cette
+    fonction.
+    """
+    # Copie défensive : config["cabinet"] peut être le dictionnaire partagé
+    # de CONFIG_DEFAUT (repli de definir_mot_de_passe sur un config.json
+    # absent) — le modifier en place altérerait les défauts pour le reste
+    # du processus.
+    cabinet = dict(config.get("cabinet") or CONFIG_DEFAUT["cabinet"])
+
+    print("\nIdentité du cabinet, affichée sur chaque bilan généré.")
+    for cle in CLES_CABINET:
+        saisie = input("{} [{}] : ".format(cle, cabinet.get(cle, ""))).strip()
+        if saisie:
+            cabinet[cle] = saisie
+
+    config["cabinet"] = cabinet
+    return config
+
+
 def definir_mot_de_passe():
     config = charger_config() or dict(CONFIG_DEFAUT)
 
@@ -167,6 +229,8 @@ def definir_mot_de_passe():
     if premier != getpass.getpass("Confirmation : "):
         print("Refusé : les deux saisies diffèrent.")
         return 1
+
+    config = saisir_cabinet(config)
 
     config["mot_de_passe"] = hacher(premier)
     with open(CONFIG, "w", encoding="utf-8") as f:
@@ -381,6 +445,8 @@ def classe_route(chemin):
         return "depot"
     if chemin == "/sante":
         return "sante"
+    if chemin == "/cabinet":
+        return "cabinet"
     if chemin in ("/", ""):
         return "formulaire"
     extension = os.path.splitext(chemin)[1].lower()
@@ -662,12 +728,18 @@ class Gestionnaire(SimpleHTTPRequestHandler):
         if self.chemin_demande() == "/sante":
             self.repondre_sante(avec_corps=True)
             return
+        if self.chemin_demande() == "/cabinet":
+            self.repondre_cabinet(avec_corps=True)
+            return
         if self.autorise_lecture():
             super().do_GET()
 
     def do_HEAD(self):
         if self.chemin_demande() == "/sante":
             self.repondre_sante(avec_corps=False)
+            return
+        if self.chemin_demande() == "/cabinet":
+            self.repondre_cabinet(avec_corps=False)
             return
         if self.autorise_lecture():
             super().do_HEAD()
@@ -691,6 +763,35 @@ class Gestionnaire(SimpleHTTPRequestHandler):
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(corps)))
+        self.end_headers()
+        if avec_corps:
+            self.wfile.write(corps)
+
+    # --- identité du cabinet (C2-T1) ----------------------------------------
+
+    def repondre_cabinet(self, avec_corps):
+        """Répond l'identité du cabinet, authentifiée contrairement à
+        /sante : des coordonnées professionnelles ne sont pas un secret,
+        mais rien n'oblige à les offrir à qui scanne le port (décision D2).
+
+        Construit par itération sur CLES_CABINET, jamais par sérialisation
+        du sous-dictionnaire lu dans le fichier (décision D4) : un
+        config.json bricolé pourrait porter n'importe quoi sous "cabinet",
+        la réponse ne rend que ce qu'elle a promis.
+        """
+        if not self.authentifie():
+            self.exiger_authentification()
+            return
+
+        cabinet = self.config.get("cabinet") or {}
+        donnees = {cle: cabinet.get(cle, "") for cle in CLES_CABINET}
+        corps = json.dumps(donnees, ensure_ascii=False).encode("utf-8")
+
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(corps)))
+        # Pas de Cache-Control ici : end_headers() l'émet déjà, un second
+        # appel produirait l'en-tête en double.
         self.end_headers()
         if avec_corps:
             self.wfile.write(corps)
@@ -794,6 +895,12 @@ def demarrer():
         print("Lancez d'abord :  python3 serveur/serveur.py --config")
         return 1
 
+    # Un cabinet mis à jour sans relancer --config n'a pas encore saisi son
+    # identité : ce n'est pas un refus de démarrer (le formulaire reste
+    # utile pour tout sauf l'export), mais un bilan ne pourra pas sortir
+    # (D7) tant que l'identité manque. L'avertissement nomme le geste.
+    identite_absente = not config["cabinet"]["praticien"].strip()
+
     dossier_pdf = config["dossier_pdf"]
     if not os.path.isabs(dossier_pdf):
         dossier_pdf = os.path.join(RACINE, dossier_pdf)
@@ -848,6 +955,10 @@ def demarrer():
     print("  identifiant   : {}".format(config["utilisateur"]))
     print("  dépôt des PDF : {}".format(dossier_pdf))
     print("  journal       : {}".format(JOURNAL))
+    if identite_absente:
+        print("\nAVERTISSEMENT : identité du cabinet non configurée — les "
+              "bilans ne pourront pas être exportés.")
+        print("Lancez :  python3 serveur/serveur.py --config")
     print("\nCtrl+C pour arrêter.\n")
 
     empreinte = empreinte_certificat(certificat)

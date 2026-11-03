@@ -203,19 +203,60 @@ function calculerPages(blocs, hauteurPagePx, hauteurTotalePx) {
     return pages;
 }
 
+// Non réentrance de l'export. Avant la garde d'identité, le premier geste de exporterBilanPDF() était de masquer le
+// bouton, SANS aucun point de suspension devant lui — ce masquage était
+// la sérialisation. La garde a introduit un `await chargerCabinet()`
+// AVANT ce masquage, rouvrant une fenêtre où rien ne bouge à l'écran et où
+// un second clic lance une seconde exécution complète (chemin_libre() ne
+// refuse pas un doublon, il le nomme "-2.pdf" : deux bilans déposés). Ce
+// drapeau, posé en tout premier geste et avant tout `await`, referme cette
+// fenêtre quelle que soit la suite de la fonction.
+let exportEnCours = false;
+
 async function exporterBilanPDF() {
+    if (exportEnCours) return;   // second clic pendant un export : ignoré
+
     const { jsPDF } = window.jspdf;
     const element = document.getElementById("form-bilan");
     const bouton = document.getElementById("btn-export");
 
     if (!element) {
         console.error("Élément #form-bilan introuvable.");
-        return;
+        return;   // exportEnCours jamais posé à true : rien à relâcher
     }
 
+    exportEnCours = true;
+    // Le bouton disparaît avant toute attente : la praticienne voit que son
+    // geste est pris. Ce masquage n'arrête pas un second appel déjà en route
+    // (double clic plus rapide que le rendu) : c'est le drapeau qui le fait.
     if (bouton) bouton.style.display = "none";
 
     try {
+        // Un bilan de santé sans en-tête n'est pas versable au dossier patient
+        // (décision D7) : l'export est refusé plutôt que dégradé. La garde vit
+        // ici, dans la fonction, parce que la fiche de secours l'appelle par
+        // onclick= et ne passe pas par demarrerApplication(). Avant de
+        // renoncer, on retente une fois : une coupure réseau au chargement de
+        // la page ne doit pas condamner l'export d'une consultation entière si
+        // le PC est revenu depuis.
+        if (!identiteUtilisable()) {
+            await chargerCabinet();
+            // Resynchronise le DOM avant la capture : sans cela, un PC revenu
+            // entre-temps autoriserait l'export mais html2canvas capturerait
+            // encore l'en-tête vide laissé par le chargement initial.
+            appliquerCabinet();
+        }
+        if (!identiteUtilisable()) {
+            const message = cabinet
+                ? "L'identité du cabinet n'est pas configurée sur le PC : "
+                + "lancez python3 serveur/serveur.py --config, puis réessayez. "
+                + "Votre saisie est conservée."
+                : "Le PC ne répond pas : vérifiez qu'il est allumé et que le "
+                + "serveur est démarré, puis réessayez. Votre saisie est "
+                + "conservée.";
+            annoncer(message, "erreur", true);
+            return;
+        }
         // La lecture des couleurs est dans le try : hors de lui, une
         // défaillance remonterait sans passer par le catch, donc sans
         // message, et la praticienne verrait un bouton qui ne fait rien.
@@ -330,11 +371,31 @@ async function exporterBilanPDF() {
         annoncer("La création du PDF a échoué. Rien n'a été enregistré, "
                + "votre saisie est intacte.", "erreur");
     } finally {
+        exportEnCours = false;
         if (bouton) bouton.style.display = "block";
     }
 }
 
-/** Nom de fichier construit à partir de la date et de l'identité du patient. */
+// Gabarit de secours : appliqué quand cabinet.convention_nommage est absent
+// ou que sa substitution rend une chaîne vide. Avec ce gabarit précis, la
+// sortie est identique caractère pour caractère à celle d'avant C2-T1 — la
+// condition qui protège la production (contrat C2-T1, §9).
+const GABARIT_NOMMAGE_DEFAUT = "Bilan_{date}_{patient}";
+
+/**
+ * Remplace chaque marqueur `{xxx}` du gabarit par la valeur correspondante.
+ * Un marqueur inconnu du dictionnaire `marqueurs` est remplacé par la
+ * chaîne vide plutôt que laissé tel quel ou levé en erreur.
+ */
+function appliquerGabaritNommage(gabarit, marqueurs) {
+    return gabarit.replace(/\{(\w+)\}/g, function (correspondance, nom) {
+        return Object.prototype.hasOwnProperty.call(marqueurs, nom)
+            ? marqueurs[nom] : "";
+    });
+}
+
+/** Nom de fichier construit à partir de la date, de l'identité du patient et
+ *  de la convention de nommage déclarée en configuration (`cabinet`). */
 function construireNomFichier() {
     const valeur = function (id) {
         const champ = document.getElementById(id);
@@ -342,9 +403,22 @@ function construireNomFichier() {
     };
 
     const date = valeur("date-bilan") || new Date().toISOString().slice(0, 10);
-    const identite = [valeur("nom"), valeur("prenom")].filter(Boolean).join("-");
+    const nom = valeur("nom");
+    const prenom = valeur("prenom");
+    const patient = [nom, prenom].filter(Boolean).join("-") || "sans-nom";
+    const marqueurs = { date: date, nom: nom, prenom: prenom, patient: patient };
 
-    return ["Bilan", date, identite || "sans-nom"].join("_") + ".pdf";
+    const gabarit = (cabinet && cabinet.convention_nommage) || GABARIT_NOMMAGE_DEFAUT;
+    let radical = appliquerGabaritNommage(gabarit, marqueurs);
+    if (!radical) {
+        // Gabarit fautif (vide, ou qui ne rend que des marqueurs inconnus) :
+        // mieux vaut le nom par défaut qu'un fichier "" + ".pdf".
+        radical = appliquerGabaritNommage(GABARIT_NOMMAGE_DEFAUT, marqueurs);
+    }
+
+    // L'extension est toujours ajoutée ici, jamais par le gabarit : sinon un
+    // gabarit fautif pourrait produire un nom que le serveur refuse.
+    return radical + ".pdf";
 }
 
 /**
@@ -777,6 +851,100 @@ function majBoutons(etat) {
     etat.boutons.forEach(function (bouton) { bouton.disabled = vide; });
 }
 
+/* ===================== Identité du cabinet (C2-T1) ===================== */
+
+const DELAI_CABINET = 5000;   // ms : réseau local, 5 s suffisent
+
+/** null tant qu'aucune réponse exploitable n'a été reçue du serveur. */
+let cabinet = null;
+
+// Numéro de génération du dernier appel à chargerCabinet() démarré : la page charge l'identité une fois au démarrage, et
+// l'export en relance une seconde tentative si la première n'a pas encore
+// abouti. Les deux partagent la même minuterie d'abandon par instance, mais
+// chacune la sienne ; sans ce compteur, un appel plus ancien resté en vol
+// peut aboutir (ou s'abandonner) APRÈS un appel plus récent qui, lui, a
+// réussi — et remettre `cabinet` à null par-dessus une identité déjà
+// confirmée, juste avant une capture html2canvas qui sortirait alors un
+// PDF sans en-tête. Seul l'appel dont la génération est encore la plus
+// récente au moment où il conclut a le droit d'écrire l'état partagé :
+// c'est toujours la tentative la plus tardivement DÉMARRÉE qui l'emporte,
+// quel que soit l'ordre dans lequel les réponses arrivent.
+let cabinetGeneration = 0;
+
+/**
+ * Lit l'identité du cabinet sur le serveur. Toute réponse non ok, tout JSON
+ * invalide ou toute exception (délai dépassé, serveur injoignable) laissent
+ * `cabinet` à null — aucune valeur de repli inventée : un faux en-tête sur
+ * un document de santé est pire qu'un en-tête absent (décision D3 du
+ * contrat C2-T1).
+ */
+async function chargerCabinet() {
+    const generation = ++cabinetGeneration;
+    const abandon = new AbortController();
+    const minuterie = setTimeout(function () { abandon.abort(); }, DELAI_CABINET);
+    let resultat = null;
+    try {
+        const reponse = await fetch("/cabinet", {
+            cache: "no-store",
+            signal: abandon.signal
+        });
+        if (reponse.ok) {
+            resultat = await reponse.json();
+        }
+    } catch (erreur) {
+        resultat = null;
+    } finally {
+        clearTimeout(minuterie);
+    }
+    // N'écrit l'état partagé que si aucun appel plus récent n'a démarré
+    // entre-temps (voir le commentaire de cabinetGeneration ci-dessus).
+    if (generation === cabinetGeneration) {
+        cabinet = resultat;
+    }
+    return cabinet;
+}
+
+/**
+ * Rend `true` si l'identité suffit à produire un en-tête, donc à autoriser
+ * l'export (décision D7) : la route a répondu et `praticien` n'est pas
+ * vide une fois nettoyé des espaces.
+ */
+function identiteUtilisable() {
+    return !!(cabinet && cabinet.praticien && cabinet.praticien.trim());
+}
+
+/**
+ * Remplit #infos_podo depuis `cabinet`, un <p> par champ non vide, dans
+ * l'ordre praticien, adresse, courriel, téléphone. `textContent` seul,
+ * jamais `innerHTML` (§10 du contrat) : l'identité vient d'un fichier de
+ * configuration local, donc de confiance, mais elle est écrite dans la
+ * page, et c'est aussi ce qui garde la voie libre pour la CSP à venir.
+ */
+function appliquerCabinet() {
+    const section = document.getElementById("infos_podo");
+    if (!section) return;
+
+    section.textContent = "";
+
+    if (!identiteUtilisable()) {
+        annoncer("L'identité du cabinet n'a pas pu être affichée : "
+               + "vérifiez que le PC est allumé et le serveur démarré.",
+                 "avertissement", true);
+        return;
+    }
+
+    [
+        cabinet.praticien,
+        cabinet.adresse,
+        cabinet.courriel ? "mail: " + cabinet.courriel : "",
+        cabinet.telephone ? "tel: " + cabinet.telephone : ""
+    ].filter(Boolean).forEach(function (texte) {
+        const paragraphe = document.createElement("p");
+        paragraphe.textContent = texte;
+        section.appendChild(paragraphe);
+    });
+}
+
 let applicationDemarree = false;
 
 /**
@@ -807,6 +975,12 @@ function demarrerApplication() {
     initSauvegarde();    // s'appuie sur zonesDessin pour restaurer les traits
     initDossierBilans();
     initFileDepots();    // rattrape les bilans qu'une panne a laissés en attente
+
+    // Asynchrone et sans attente : le formulaire s'affiche et se remplit
+    // immédiatement, l'en-tête du cabinet arrive quand il arrive. C'est la
+    // propriété à préserver — « le formulaire reste utilisable » même si le
+    // PC est injoignable à cet instant.
+    chargerCabinet().then(appliquerCabinet);
 }
 
 document.addEventListener("DOMContentLoaded", function () {

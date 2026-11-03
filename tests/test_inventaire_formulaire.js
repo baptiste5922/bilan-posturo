@@ -574,8 +574,8 @@ try {
     if (geleesDisparues.length > 0) {
         throw new Error(`id gelé(s) déclaré(s) dans la liste « Clés gelées » mais plus émis ni par la coquille (formulaire/index.html) ni par formulaire/schema.json : ${geleesDisparues.join(", ")}`);
     }
-    if (attendus.length !== 7) {
-        throw new Error(`${attendus.length} id(s) gelé(s) exigé(s) trouvé(s) (${attendus.join(", ")}), 7 attendus (conteneur #form-bilan compris)`);
+    if (attendus.length !== 8) {
+        throw new Error(`${attendus.length} id(s) gelé(s) exigé(s) trouvé(s) (${attendus.join(", ")}), 8 attendus (conteneur #form-bilan compris)`);
     }
     console.log(`6. clés gelées exhaustives (${attendus.length} id attendus, conteneur #form-bilan compris)`);
 

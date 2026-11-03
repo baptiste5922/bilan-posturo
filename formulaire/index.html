@@ -28,9 +28,10 @@
             n'est plus écrit ici à la main. Il est rendu au chargement par
             `moteur/rendu.js` à partir de `schema.json`, dans le `<main>`
             vide de `#form-bilan` ci-dessous. L'en-tête du cabinet, lui,
-            reste en dur : il sort en configuration avec C2-T1, pas avant —
-            le faire ici aurait ajouté une clé racine au schéma dans la même
-            tâche que la bascule, rendant un échec indiagnosticable.
+            est sorti en configuration par C2-T1 : `#infos_podo` ci-dessous
+            est une ancre vide, remplie au chargement par
+            `chargerCabinet()`/`appliquerCabinet()` (`script.js`) depuis
+            `GET /cabinet`, authentifiée.
             `formulaire/index-v1.html` est la copie gelée (empreinte
             vérifiée par `tests/test_coquille.py`) de l'ancien `index.html`,
             servie à la même adresse : c'est la fiche de secours, le niveau 1
@@ -88,11 +89,7 @@
             <label for="date-bilan" class="titre_section">Réalisé le</label>
             <input type="date" id="date-bilan" name="date_consultation">
             <section id="infos_podo">
-                <p>Françoise LE GOFF-LE BIGOT, Pédicure-Podologue</p>
-                <p>32 Grand'Rue, MORLAIX 29600</p>
-                <p>mail: legoffpodologuemorlaix@gmail.com</p>
-                <p>tel: 02 98 88 58 92</p>
-                
+
             </section>
         </header>
 

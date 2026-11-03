@@ -6,8 +6,10 @@ Bibliothèque standard uniquement, comme le serveur lui-même.
 """
 
 import base64
+import contextlib
 import email
 import io
+import json
 import os
 import re
 import shutil
@@ -21,6 +23,31 @@ sys.path.insert(0, os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "serveur"))
 
 import serveur
+
+# Garde-fou, pas un correctif (constat de revue C2-T1) : serveur.CONFIG
+# pointe par défaut sur config.json du cabinet réel, à la racine du dépôt
+# (serveur.py:42-43). Chaque test de ce module qui écrit une configuration
+# le repatche explicitement vers un fichier temporaire (ConfigurationCabinet
+# .setUp, plus bas) ; celui qui l'oublierait écrirait silencieusement
+# par-dessus le fichier réel d'un cabinet en exercice. On empoisonne donc la
+# valeur par défaut pour toute la durée de ce module, avant le premier
+# test : un oubli futur écrit dans un fichier jetable, jamais dans
+# config.json réel. Portée volontairement limitée à ce module : c'est ici,
+# et seulement ici, que des fonctions qui écrivent CONFIG
+# (definir_mot_de_passe, saisir_cabinet) sont appelées en mémoire plutôt que
+# dans un sous-processus isolé (tests/test_integration.py démarre toujours
+# serveur.py dans un bac à sable séparé, où CONFIG se recalcule depuis un
+# autre __file__).
+_CONFIG_REEL_NE_JAMAIS_RESTAURER_PAR_DEFAUT = serveur.CONFIG
+
+
+def setUpModule():
+    serveur.CONFIG = os.path.join(
+        tempfile.gettempdir(), "bilan-posturo-config-de-test-jamais-ecrit.json")
+
+
+def tearDownModule():
+    serveur.CONFIG = _CONFIG_REEL_NE_JAMAIS_RESTAURER_PAR_DEFAUT
 
 
 class AssainirNom(unittest.TestCase):
@@ -583,3 +610,119 @@ class DepotEchecEcritureSansFuite(unittest.TestCase):
         # nom (décision D4 ne s'applique qu'au journal technique).
         with open(self.journal, encoding="utf-8") as f:
             self.assertIn(nom, f.read())
+
+
+class ConfigurationCabinet(unittest.TestCase):
+    """Bloc "cabinet" (C2-T1) : fusion profonde, liste blanche, classe de route.
+
+    Le config.json réel du cabinet n'est jamais lu ni écrit ici : CONFIG est
+    systématiquement substitué par un fichier temporaire.
+    """
+
+    def setUp(self):
+        self.dossier = tempfile.mkdtemp(prefix="bilan-test-config-")
+        self.addCleanup(shutil.rmtree, self.dossier, ignore_errors=True)
+        self.config_json = os.path.join(self.dossier, "config.json")
+        self.patch = unittest.mock.patch.object(serveur, "CONFIG", self.config_json)
+        self.patch.start()
+        self.addCleanup(self.patch.stop)
+
+    def ecrire(self, contenu):
+        with open(self.config_json, "w", encoding="utf-8") as f:
+            json.dump(contenu, f)
+
+    def test_cles_cabinet_derivees_de_config_defaut(self):
+        self.assertEqual(
+            serveur.CLES_CABINET, tuple(serveur.CONFIG_DEFAUT["cabinet"]))
+        self.assertEqual(
+            set(serveur.CLES_CABINET),
+            {"nom", "praticien", "adresse", "courriel", "telephone",
+             "logo", "convention_nommage"})
+
+    def test_cabinet_absent_complete_par_defaut(self):
+        self.ecrire({"mot_de_passe": "x"})
+        config = serveur.charger_config()
+        self.assertEqual(config["cabinet"], serveur.CONFIG_DEFAUT["cabinet"])
+
+    def test_cabinet_partiel_fusionne_cle_a_cle(self):
+        # "Dr Martin" et "1 rue du Test" : des valeurs plates, jamais un
+        # courriel ni un numéro de téléphone littéral — tests/test_identite_
+        # absente.py balaie l'arbre suivi par git, ce fichier compris, et de
+        # tels motifs y seraient détectés comme une fuite.
+        self.ecrire({"cabinet": {"praticien": "Dr Martin", "adresse": "1 rue du Test"}})
+        config = serveur.charger_config()
+        self.assertEqual(config["cabinet"]["praticien"], "Dr Martin")
+        self.assertEqual(config["cabinet"]["adresse"], "1 rue du Test")
+        # Les clés absentes du fichier restent aux valeurs par défaut,
+        # jamais écrasées par la fusion.
+        self.assertEqual(config["cabinet"]["telephone"], "")
+        self.assertEqual(config["cabinet"]["logo"], "images/favicon.jpeg")
+        self.assertEqual(
+            config["cabinet"]["convention_nommage"], "Bilan_{date}_{patient}")
+
+    def test_cabinet_non_dictionnaire_tolere(self):
+        for valeur in (None, "n'importe quoi", 42, []):
+            with self.subTest(valeur=valeur):
+                self.ecrire({"cabinet": valeur})
+                config = serveur.charger_config()
+                self.assertEqual(config["cabinet"], serveur.CONFIG_DEFAUT["cabinet"])
+
+    def test_sous_cle_cabinet_non_textuelle_toleree(self):
+        # Un config.json corrigé à la main peut porter "praticien": null :
+        # la sous-clé retombe sur sa valeur par défaut au lieu de faire
+        # lever demarrer() sur .strip(), et les autres sous-clés valides
+        # sont conservées.
+        for valeur in (None, 42, {"a": 1}, ["x"], True):
+            with self.subTest(valeur=valeur):
+                self.ecrire({"cabinet": {"praticien": valeur,
+                                         "adresse": "1 rue du Test"}})
+                config = serveur.charger_config()
+                self.assertEqual(config["cabinet"]["praticien"], "")
+                self.assertEqual(config["cabinet"]["adresse"], "1 rue du Test")
+                self.assertEqual(config["cabinet"]["praticien"].strip(), "")
+
+    def test_classe_route_cabinet(self):
+        self.assertEqual(serveur.classe_route("/cabinet"), "cabinet")
+        self.assertIn("cabinet", serveur.ROUTES_TECHNIQUES)
+
+    def test_config_saisit_les_champs_cabinet(self):
+        self.ecrire({"utilisateur": "cabinet",
+                     "cabinet": {"praticien": "Ancien Nom"}})
+
+        reponses = iter([
+            "",              # identifiant : conserve "cabinet"
+            "",               # nom
+            "Nouveau Nom",   # praticien : remplace "Ancien Nom"
+            "",               # adresse
+            "contact-cabinet-test",  # courriel (jamais un "@" littéral :
+                                      # tests/test_identite_absente.py le
+                                      # relèverait comme une fuite)
+            "",               # telephone
+            "",               # logo
+            "",               # convention_nommage
+        ])
+
+        # Capturée : definir_mot_de_passe() imprime sur la sortie standard
+        # ("Configuration écrite...", "Identifiant : ..."), qui est aussi là
+        # où unittest affiche son verdict ("Ran N tests ... OK"). Un message
+        # qui ressemble à un incident, juste avant ce verdict, a déjà fait
+        # craindre qu'un test venait d'écraser le config.json réel du
+        # cabinet (constat de revue C2-T1) — alors qu'il est correctement
+        # redirigé vers self.config_json (setUp ci-dessus).
+        with unittest.mock.patch("builtins.input", lambda invite: next(reponses)), \
+             unittest.mock.patch.object(
+                 serveur.getpass, "getpass",
+                 side_effect=["motdepasse123", "motdepasse123"]), \
+             contextlib.redirect_stdout(io.StringIO()):
+            code = serveur.definir_mot_de_passe()
+
+        self.assertEqual(code, 0)
+        with open(self.config_json, encoding="utf-8") as f:
+            ecrit = json.load(f)
+
+        self.assertEqual(set(ecrit["cabinet"]), set(serveur.CLES_CABINET))
+        self.assertEqual(ecrit["cabinet"]["praticien"], "Nouveau Nom")
+        self.assertEqual(ecrit["cabinet"]["courriel"], "contact-cabinet-test")
+        # Les champs laissés vides conservent la valeur antérieure.
+        self.assertEqual(ecrit["cabinet"]["logo"], "images/favicon.jpeg")
+        self.assertTrue(ecrit["mot_de_passe"].startswith("pbkdf2_sha256$"))

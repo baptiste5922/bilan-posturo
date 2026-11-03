@@ -130,7 +130,7 @@ liste ci-dessous. Un moteur C1-T3 qui renommerait un de ces `id`, **conteneur
 compris**, casse soit le CSS, soit le JavaScript qui le cible par cet `id`
 littéral.
 
-- `form-bilan` — conteneur de tout le formulaire. Le plus critique des sept :
+- `form-bilan` — conteneur de tout le formulaire. Le plus critique des huit :
   `script.js:208` (`document.getElementById("form-bilan")`, génération du
   PDF) et `script.js:871` (`champsDuFormulaire()`, sélecteur `#form-bilan
   input, …`, collecte du brouillon) y échouent silencieusement s'il disparaît
@@ -150,6 +150,14 @@ littéral.
   (`style.css:342`).
 - `logo` — image d'identité du cabinet, hors schéma : voir section 9
   (`style.css:46`).
+- `infos_podo` — ancre de l'en-tête, hors schéma elle aussi : gelé depuis
+  C2-T1, qui y lit `document.getElementById("infos_podo")`
+  (fonction `appliquerCabinet()` de `script.js`) pour y écrire l'identité du
+  cabinet lue sur `GET /cabinet`. Avant C2-T1, l'`id` existait déjà dans la
+  coquille et était réservé par le moteur (`IDS_RESERVES_COQUILLE`,
+  `formulaire/moteur/rendu.js`), mais n'était lu par aucun sélecteur
+  littéral : ce n'est donc qu'à partir de cette tâche qu'il devient gelé au
+  sens de cette section. Voir aussi section 9 (ligne 306 et environs).
 
 Aucun autre `id` référencé par `script.js` ou `style.css` n'est présent dans
 `#form-bilan` : les autres (`btn-export`, `barre-brouillon`, `barre-attente`,
@@ -302,10 +310,13 @@ formulaire actuel ; aucun élément n'est « non exprimable ».
   requiert une liste déroulante, et en ajouter une « au cas où » créerait un
   type à maintenir chez tous les clients sans qu'aucun champ existant n'en ait
   besoin.
-- **`paragraphe`** — les seuls textes statiques du formulaire sont l'identité
-  du cabinet (lignes 72-75, qui relève du thème, voir C2-T1 et section 9
-  ci-dessous) et les libellés de lignes des deux tableaux, déjà portés par le
-  type `tableau`. Aucun champ actuel n'a besoin d'un texte statique propre.
+- **`paragraphe`** — le seul texte statique du formulaire restait, avant
+  C2-T1, l'identité du cabinet (ancre `#infos_podo`, qui relevait du thème,
+  voir le contrat C2-T1 et section 9 ci-dessous) ; cette ancre est désormais
+  vide dans le dépôt et remplie en exécution depuis `GET /cabinet`, donc hors
+  schéma de toute façon. Restent les libellés de lignes des deux tableaux,
+  déjà portés par le type `tableau`. Aucun champ actuel n'a besoin d'un texte
+  statique propre.
 
 Ajouter un huitième type — que ce soit l'un de ces trois ou un autre — relève
 d'une révision de la version du format de schéma (section 5.1), jamais d'un

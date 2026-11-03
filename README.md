@@ -74,7 +74,7 @@ python -m pip install cryptography
 
 ## Setup
 
-**1. Set the credentials**
+**1. Set the credentials, and the practice identity**
 
 ```bash
 python serveur/serveur.py --config
@@ -82,6 +82,18 @@ python serveur/serveur.py --config
 
 The password is hashed with PBKDF2-SHA256 (240,000 iterations, random salt)
 and written to `config.json`. It is never stored in clear text.
+
+The same command also prompts for the practice identity (practitioner's name,
+address, email, phone) — printed in the PDF header, never written to the
+repository. An empty answer keeps the current value of the username and of
+each identity field, so re-running `--config` to change only the password
+leaves the identity untouched. The password itself is always asked again:
+at an already-installed practice that only adds its identity, type the
+**current** password, or the tablet loses access until the new one is entered. Skipping this step
+is not an option: the server starts anyway but warns on its console, and
+**export is refused** until the identity is set — a health document without a
+practice header cannot be filed. Details, the file-naming template, and the
+upgrade path for an already-installed practice: `docs/configuration.md`.
 
 **2. Generate the authority and the certificate**
 
@@ -143,6 +155,7 @@ exist for SYSTEM.
 | `mot_de_passe` | PBKDF2 digest, never the password itself |
 | `certificat` / `cle_privee` | Paths to the TLS files |
 | `journal_technique` | `true` by default; `false` turns off the second, non-identifying log (see below) |
+| `cabinet` | Practice identity (name, address, email, phone, logo path, file-naming template), set by `--config`, served by `GET /cabinet` (authenticated). Details: `docs/configuration.md` |
 
 ---
 
