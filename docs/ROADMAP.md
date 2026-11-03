@@ -1047,6 +1047,20 @@ devient un appel de support, et un appel de support consomme la marge du mois.
 
 ### C7-T1 — Tester `calculerPages()`
 
+> **État : livrée le 3 novembre 2026.** `tests/test_pagination.js`, branché en
+> intégration continue à côté de `test_file_depots.js`. Sept cas : les cinq
+> demandés, plus une coupe ordinaire et une page unique. Des invariants sont
+> vérifiés à chaque découpage : pages contiguës, première page en haut,
+> dernière page au bas du document, aucun bloc ne déborde. La fonction est
+> extraite du fichier de production, jamais recopiée.
+>
+> **Mises en échec :** trois mutations sur quatre rougissent. La quatrième
+> retire la boucle `while (… blocs[i].bas <= debut) i++` qui suit une coupe
+> franche. Elle reste verte parce que cette boucle **ne peut jamais avancer** :
+> après la coupe, le bloc courant est par construction plus bas que la
+> nouvelle limite. C'est du code mort, sans conséquence, à retirer lors d'une
+> tâche qui touche `script.js`, pas ici (process Direct : tests seuls).
+
 - **Effort :** S
 - **Process :** Direct — tests seuls, aucun code de production modifié.
 - **Dépendances :** aucune

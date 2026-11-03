@@ -44,6 +44,9 @@ jobs:
       - name: Run form tests
         run: node tests/test_file_depots.js
 
+      - name: Run PDF pagination tests
+        run: node tests/test_pagination.js
+
       - name: Run palette tests
         run: node tests/test_palette.js
 
