@@ -79,8 +79,16 @@ jobs:
       - name: Check that no secret is committed
         run: |
           set -e
-          motif='\.pem$|autorite\.crt$|^config\.json$|^journal\.log|^technique\.log|^bilans/'
-          if git ls-files | grep -Ei "$motif"; then
+          # Les clés privées de l'éditeur (signature des mises à jour, C5 ;
+          # des licences, C8) vivent dans cles-editeur/, hors du dépôt : le
+          # dossier comme les extensions usuelles d'une clé sont refusés,
+          # avant même que ces clés existent. Le secret d'API DNS prévu à
+          # l'origine est sans objet depuis C3-T1 (autorité locale retenue).
+          # core.quotePath=false : sans lui, git entoure de guillemets les
+          # chemins accentués, et un motif ancré par ^ ne les voit plus.
+          motif='\.pem$|autorite\.crt$|^config\.json$|^journal\.log|^technique\.log|^bilans/|^Bilan_entrants/'
+          motif="$motif"'|^cles-editeur/|\.key$|\.p12$|\.pfx$|id_ed25519|_privee\.|-privee\.'
+          if git -c core.quotePath=false ls-files | grep -Ei "$motif"; then
             echo "::error::Un fichier sensible est versionné."
             exit 1
           fi

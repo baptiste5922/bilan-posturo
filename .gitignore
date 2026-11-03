@@ -32,3 +32,9 @@ __pycache__/
 #claude
 
 .claude/**
+
+# Clés privées de l'éditeur : signature des mises à jour (C5) et des
+# licences (C8). Elles ne vivent jamais dans le dépôt ; la CI refuse aussi
+# ces motifs s'ils étaient forcés dans l'index.
+cles-editeur/
+*.key
