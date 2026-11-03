@@ -64,13 +64,42 @@ modifiee. » Contrôler ensuite que rien n'a été créé :
 | Tâche absente après le contrôle (oui / non) | |
 | Sortie complète (sans adresse du cabinet) | |
 
-**(b) Installation réelle** : clic droit sur `installer-demarrage.ps1` >
-Exécuter avec PowerShell. Attendu : « Le serveur ecoute sur le port … ».
+**(b) Installation réelle**, dans la **même console PowerShell ouverte en
+administrateur** (pas par « clic droit > Exécuter avec PowerShell » : ce
+verbe n'élève pas, et sa fenêtre se referme à la fin du script, ce qui rend
+illisible tout message d'erreur, celui qu'on doit pouvoir dicter au
+téléphone pendant une installation à distance) :
+
+```powershell
+.\installer-demarrage.ps1
+```
+
+Attendu : « Le serveur ecoute sur le port … ». Noter aussi, à part, si le
+clic droit ouvre une fenêtre qui se referme avant qu'on puisse la lire : la
+documentation d'installation devra alors cesser de le conseiller (C3-T3).
 
 | Résultat | |
 |---|---|
 | Phrase affichée | |
 | Adresse proposée pour la tablette (VM seulement) | |
+
+**(b bis) Qui peut modifier ce que SYSTEM exécute ?** Constat moyen n°2 de
+`docs/audits/C3-T3a.md` : la tâche tourne sous SYSTEM ; si un compte
+standard peut modifier `serveur\` ou le `pythonw.exe` lancé, c'est une
+élévation de privilège. Relever, sans rien changer :
+
+```powershell
+icacls C:\BilanPosturo
+icacls C:\BilanPosturo\serveur
+(Get-ScheduledTask -TaskName BilanPosturo).Actions.Execute
+icacls (Split-Path (Get-ScheduledTask -TaskName BilanPosturo).Actions.Execute)
+```
+
+| Résultat | |
+|---|---|
+| « Utilisateurs authentifiés » ou « Utilisateurs » ont-ils (M) ou (F) sur `C:\BilanPosturo` ? | |
+| Idem sur le dossier de `pythonw.exe` ? | |
+| Python installé « pour tous les utilisateurs » (sous `C:\Program Files`) ? | |
 
 **(c) La tâche pointe au bon endroit.**
 

@@ -155,3 +155,29 @@ Windows) ; `PortabiliteWindows` est OK. Le diff du `.ps1` compte 22 ajouts
 - **H1 au cabinet pilote (8.10)** : si H1 se confirme, la tâche SYSTEM exécute le `serveur.py` d'**août**, à la racine, et non celui du paquet du 14 octobre resté dans le sous-dossier. La version réellement en service est à établir avant toute prochaine mise à jour.
 - `demarrer-serveur.bat` est en LF dans l'arbre de travail, malgré `*.bat text eol=crlf`, et `faire-paquet.sh` copie l'arbre tel quel. Ce n'est pas un problème de sécurité ; à ranger avec la correction isolée des fins de ligne (C6-T4).
 - Quand `C3-T3` absorbera ce script, le contrôle d'emplacement et de droits a toute sa place dans `-Verifier`, qui devient le premier geste de l'installation à distance.
+
+---
+
+## Addendum du 3 novembre 2026 — constats fermés, intégration continue
+
+**Constats corrigibles, fermés** par le commit « C3-T3a Ferme les trois
+constats d'audit… » puis par la revue (`docs/revues/C3-T3a.md`) :
+
+| Constat | Fermeture |
+|---|---|
+| Moyen n°1 — ordre de `-Verifier` non gardé (A4) | `verifier_ordre_des_effets()`, sur l'archive et sur le dépôt ; A4 et A5 rouges. Elle est **rejouée aussi dans `ExecutionReelleSousWindows._lancer()`, avant toute exécution** (Important n°1 de la revue) : la classe statique est sautée sous Windows faute de `zip`, et sans cet appel un script régressé aurait été lancé en administrateur. |
+| Faible — formes d'affectation non évaluées | `affectations_racine()` refuse `$script:racine`, `${racine}`, `Set-Variable` ; B1 à B3 rouges. |
+| Faible — liste de contrôle du bac à sable tenue à la main | Motif lu dans le pas « aucun secret versionné » de la CI ; seize formes factices refusées. |
+| Moyen n°2 — droits de ce que SYSTEM exécute | **Hors périmètre, versé dans C3-T3** (feuille de route), relevé `icacls` ajouté à la fiche d'essai, étape (b bis). |
+
+**Intégration continue (critères 8.4 et 8.5) :**
+
+| Exécution | Branche | Résultat |
+|---|---|---|
+| 41731923283 | `c3-t3a-racine-installation-2` (rebasée sur `main`, avec C7-T5) | **Verte**, 7 jobs ; sous `windows-latest` 3.9 et 3.13, `test_verifier_depuis_la_racine` et `test_lance_d_un_sous_dossier_s_arrete` en `ok`. **Preuve de 8.4.** |
+| 41730284715 | `c3-t3a-racine-installation` (avant rebasage) | Les deux mêmes tests en `ok`, mais l'exécution est **rouge** : `ServeurEnMarche` expire sous Windows. Ce n'est pas C3-T3a. C'est le tube `stdout=PIPE` jamais vidé du harnais, corrigé par C7-T5, qui était absent de cette base. |
+| 41730347550 | `c3-t3a-mutation-m1` (M1 : `Split-Path -Parent $PSScriptRoot` rétabli ; branche jetable, supprimée, jamais fusionnée) | Les deux tests en **FAIL** sous Windows. **Preuve de 8.5.** |
+
+Vérification que la mutation n'est pas dans `main` :
+`git log main --oneline -- installer-demarrage.ps1` ne montre que `5230ceb` et
+`e9fd8ee`.

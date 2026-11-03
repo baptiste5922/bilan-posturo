@@ -621,6 +621,22 @@ Android abandonne, ou le fait mal et appelle au support chaque semaine. À
 
 ### C3-T3 — Installateur en un geste
 
+> **Deux exigences ajoutées le 3 novembre 2026 par l'audit et la revue de
+> C3-T3a :**
+> 1. **Droits de ce que SYSTEM exécute.** La tâche planifiée exécute sous
+>    SYSTEM le dossier `serveur\` et un `pythonw.exe`. Or, par défaut, un
+>    dossier créé sous `C:\` hérite du droit « Modifier » des utilisateurs
+>    authentifiés, et un Python installé « pour l'utilisateur seul » vit dans
+>    son profil. Un compte standard peut donc obtenir les droits SYSTEM.
+>    L'installateur doit installer Python pour tous les utilisateurs (ou
+>    embarquer le sien sous `C:\Program Files`), poser des droits restreints
+>    sur le dossier de l'application, et le vérifier avant de se déclarer
+>    installé. Relevé initial : fiche `docs/essais/C3-T3a-windows.md`,
+>    étape (b bis).
+> 2. **Ne plus conseiller « clic droit > Exécuter avec PowerShell »** si
+>    l'essai confirme que la fenêtre se referme sans laisser lire le message.
+>    Ce verbe n'élève pas non plus.
+
 - **Effort :** L
 - **Process :** Complet — écrit sur le poste d'un client ; le retour arrière y coûte un déplacement.
 - **Dépendances :** C3-T1, C3-T2, C2-T1
@@ -646,6 +662,22 @@ Android abandonne, ou le fait mal et appelle au support chaque semaine. À
   VM Windows propre pour les essais, pas la machine de développement.
 
 ### C3-T3a — Corriger le calcul de racine des scripts d'installation
+
+> **État : livrée au dépôt le 3 novembre 2026, pas encore au prospect.**
+> - **Correctif :** la racine est le dossier du script, sans recherche
+>   ascendante.
+> - **Nouveau mode `-Verifier` :** il contrôle tout puis s'arrête avant la
+>   tâche planifiée et le pare-feu.
+> - **Tests et CI :** le test statique fabrique le vrai paquet. En CI, sous
+>   Windows, le script est réellement exécuté : vert (run 41731923283), et
+>   rouge sur la mutation (run 41730347550).
+> - **Contrôles :** audit `docs/audits/C3-T3a.md`, revue
+>   `docs/revues/C3-T3a.md`.
+>
+> **Restent à faire par Baptiste :** l'essai sur une VM Windows propre (8.9)
+> et la vérification au cabinet pilote (8.10), sur
+> `docs/essais/C3-T3a-windows.md`. **Le paquet ne part pas à Bordeaux avant
+> 8.9.**
 
 - **Effort :** S
 - **Process :** Complet — script exécuté sur le poste d'un client.
@@ -1121,6 +1153,24 @@ devient un appel de support, et un appel de support consomme la marge du mois.
   jour régresse.
 
 ### C7-T5 — Stabiliser `ServeurEnMarche` sous Windows
+
+> **État : livrée le 3 novembre 2026, cause unique trouvée.** Les deux
+> instabilités ci-dessous n'en font qu'une : `ServeurEnMarche` lançait le
+> serveur avec `stdout=PIPE` sans jamais lire ce tube.
+> - **Le mécanisme :** le serveur écrit une ligne sur stderr par requête. Une
+>   fois le petit tampon Windows plein, chaque requête qui journalise se
+>   bloque, et les tests expirent en lecture TLS. `/sante`, muette, répond
+>   seule.
+> - **Les observations :** c'est le « délai TLS » du 14 octobre. Le
+>   3 novembre, l'échec est devenu systématique sous Windows, en 3.9 comme en
+>   3.13, une fois ajoutés les tests de C2-T1.
+> - **Le correctif :** un fil lecteur vide le tube en continu.
+> - **Mesure :** dix exécutions complètes de la CI, toutes vertes (runs
+>   41731416364 à 41731824174). Le critère des trente exécutions consécutives
+>   reste à compléter, au fil des CI suivantes.
+> - **Reste :** `demarrer_sandbox_court` (`ServeurArret`) garde un `PIPE`
+>   relu par `communicate()`. Son échec d'environ une fois sur soixante est le
+>   même mécanisme : à traiter de la même façon si on le revoit.
 
 > **Second flake, de mécanisme différent, mesuré le 20 octobre pendant C4-T1.**
 > `ServeurArret.test_arret_journalise` échoue environ une fois sur vingt à

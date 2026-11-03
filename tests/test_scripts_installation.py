@@ -556,6 +556,16 @@ class ExecutionReelleSousWindows(unittest.TestCase):
         if powershell is None:
             self.fail("powershell.exe est introuvable : sous Windows, c'est un "
                       "échec et non un saut")
+        # La garde d'ordre est rejouée ICI, avant toute exécution : elle vit
+        # aussi dans RacineDesScriptsDansLePaquet, mais cette classe est
+        # sautée sous Windows faute de zip. Sans cet appel, un script où
+        # l'ordre de -Verifier aurait régressé serait lancé en administrateur
+        # et écraserait la tâche SYSTEM de la machine d'essai.
+        defauts = verifier_ordre_des_effets(
+            Path(script).read_text(encoding="utf-8-sig"))
+        if defauts:
+            self.fail("exécution refusée, -Verifier ne sort pas avant tout "
+                      "effet de bord : " + " ; ".join(defauts))
         resultat = subprocess.run(
             [powershell, "-NoProfile", "-ExecutionPolicy", "Bypass",
              "-File", str(script), "-Verifier"],
