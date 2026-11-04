@@ -62,6 +62,9 @@ jobs:
       - name: Run grid type tests
         run: node tests/test_grille.js
 
+      - name: Run grid export tests
+        run: node tests/test_export_grille.js
+
       - name: Run engine start-up safety-net tests
         run: node tests/test_demarrage_moteur.js
 

@@ -1,0 +1,91 @@
+{
+  "version_schema": 2,
+  "blocs": [
+    {
+      "cle": "bloc-1",
+      "champs": [
+        {
+          "type": "grille",
+          "cle": "grille-1",
+          "libelle": "Grille 1 :",
+          "colonnes": [
+            {
+              "cle": "colonne-1",
+              "libelle": "Colonne 1",
+              "nature": "texte-court"
+            },
+            {
+              "cle": "colonne-2",
+              "libelle": "Colonne 2",
+              "nature": "texte-court"
+            },
+            {
+              "cle": "colonne-3",
+              "libelle": "Colonne 3",
+              "nature": "texte-court"
+            },
+            {
+              "cle": "colonne-4",
+              "libelle": "Colonne 4",
+              "nature": "texte-court"
+            },
+            {
+              "cle": "colonne-5",
+              "libelle": "Colonne 5",
+              "nature": "texte-court"
+            },
+            {
+              "cle": "colonne-6",
+              "libelle": "Colonne 6",
+              "nature": "texte-court"
+            },
+            {
+              "cle": "colonne-7",
+              "libelle": "Colonne 7",
+              "nature": "texte-court"
+            },
+            {
+              "cle": "colonne-8",
+              "libelle": "Colonne 8",
+              "nature": "texte-court"
+            },
+            {
+              "cle": "colonne-9",
+              "libelle": "Colonne 9",
+              "nature": "texte-court"
+            },
+            {
+              "cle": "colonne-10",
+              "libelle": "Colonne 10",
+              "nature": "texte-court"
+            },
+            {
+              "cle": "colonne-11",
+              "libelle": "Colonne 11",
+              "nature": "texte-court"
+            },
+            {
+              "cle": "colonne-12",
+              "libelle": "Colonne 12",
+              "nature": "texte-court"
+            }
+          ],
+          "lignes": [
+            {
+              "cle": "ligne-1",
+              "libelle": "Ligne 1"
+            },
+            {
+              "cle": "ligne-2",
+              "libelle": "Ligne 2"
+            },
+            {
+              "cle": "ligne-3",
+              "libelle": "Ligne 3"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -34,7 +34,19 @@
 //   ESSAI_SCHEMA=tests/donnees/schema-v2-grilles-fictives.json \
 //   node outils/reference-visuelle/essai-grille.js
 //
-// Code de sortie 0 si les sept lignes sont « OK ».
+// Amendement A1 (aucune grille rognée dans le PDF) : trois variables facultatives.
+//
+//   ESSAI_LARGEUR=1024   largeur de fenêtre imposée par Emulation.setDeviceMetricsOverride,
+//                        puis RELUE par window.innerWidth avant toute mesure (un Chrome
+//                        déjà en écoute est réutilisé par cdp.js avec sa propre taille).
+//                        Défaut : 1280, la fenêtre de référence.
+//   ESSAI_MODE=refus     scénario de refus (ESSAI_SCHEMA = schema-v2-grille-trop-large.json).
+//   (sans)               scénario complet : sept vérifications d'origine, plus
+//                        8. la copie capturée n'a aucune grille hors de #form-bilan,
+//                        9. (à 1280 seulement) la largeur disponible pour une grille égale
+//                           LARGEUR_GRILLE_REFERENCE_PX, lue dans le source servi.
+//
+// Code de sortie 0 si toutes les lignes sont « OK ».
 
 const fs = require("fs");
 const path = require("path");
@@ -46,6 +58,8 @@ const IDENTIFIANTS_BRUTS = process.env.ESSAI_IDENTIFIANTS;
 const SORTIE = process.env.ESSAI_SORTIE;
 const SCHEMA = process.env.ESSAI_SCHEMA;
 const PORT_CHROME = parseInt(process.env.ESSAI_PORT_CHROME || "9335", 10);
+const LARGEUR = parseInt(process.env.ESSAI_LARGEUR || "1280", 10);
+const MODE_REFUS = process.env.ESSAI_MODE === "refus";
 
 if (!BILANS || !IDENTIFIANTS_BRUTS || !SORTIE || !SCHEMA) {
     console.error("ESSAI_BILANS, ESSAI_IDENTIFIANTS, ESSAI_SORTIE et ESSAI_SCHEMA sont obligatoires "
@@ -88,21 +102,25 @@ schema.blocs.forEach(function (bloc) {
         });
     });
 });
-if (grilles.length < 3 || !zoneDeTete) {
+if (!MODE_REFUS && (grilles.length < 3 || !zoneDeTete)) {
     console.error("ESSAI_SCHEMA doit porter une zone de texte de tête puis au moins trois grilles.");
+    process.exit(2);
+}
+if (MODE_REFUS && grilles.length < 1) {
+    console.error("ESSAI_SCHEMA doit porter au moins une grille.");
     process.exit(2);
 }
 const derniere = grilles[grilles.length - 1];
 
 // Saisie : deux cases d'une même ligne de la grille 1, un texte court de la grille 2.
 const grille1 = grilles[0], grille2 = grilles[1];
-const ligneDeCases = grille1.cellules.find(function (ligne) {
+const ligneDeCases = MODE_REFUS ? [] : grille1.cellules.find(function (ligne) {
     return ligne.filter(function (c) { return !c.neutre && c.nature === "case"; }).length >= 2;
 });
-const casesACocher = ligneDeCases.filter(function (c) { return !c.neutre && c.nature === "case"; }).slice(0, 2);
-const celluleTexte = [].concat.apply([], grille2.cellules)
+const casesACocher = MODE_REFUS ? [] : ligneDeCases.filter(function (c) { return !c.neutre && c.nature === "case"; }).slice(0, 2);
+const celluleTexte = MODE_REFUS ? null : [].concat.apply([], grille2.cellules)
     .filter(function (c) { return !c.neutre && c.nature === "texte-court"; })[0];
-if (casesACocher.length !== 2 || !celluleTexte) {
+if (!MODE_REFUS && (casesACocher.length !== 2 || !celluleTexte)) {
     console.error("Le schéma d'essai ne permet pas la saisie demandée (deux cases d'une ligne, un texte court).");
     process.exit(2);
 }
@@ -130,6 +148,86 @@ function pagesJpeg(cheminPdf) {
     return pages;
 }
 
+/** Nombre d'entrées dans la file de dépôts IndexedDB de la page (0 si le magasin n'existe pas). */
+const FILE_DEPOTS = `new Promise((ok) => {
+    const r = indexedDB.open("bilan-posturo");
+    r.onsuccess = () => {
+        const base = r.result;
+        if (!base.objectStoreNames.contains("file-depots")) { base.close(); ok(0); return; }
+        const c = base.transaction("file-depots").objectStore("file-depots").count();
+        c.onsuccess = () => { base.close(); ok(c.result); };
+        c.onerror = () => { base.close(); ok(-1); };
+    };
+    r.onerror = () => ok(-1);
+})`;
+
+/**
+ * Scénario de refus (critère 21) : une grille trop large pour être réduite
+ * lisiblement. L'export doit être refusé AVANT toute capture, avec un message,
+ * sans PDF sur le PC, sans entrée dans la file de dépôts, sans toucher au
+ * brouillon ni aux champs, et le bouton doit réapparaître.
+ */
+async function scenarioRefus(chrome, verdict, lignes) {
+    const premiere = grilles[0];
+    const cellule = premiere.cellules[0].find((c) => !c.neutre);
+
+    const mesure = await chrome.evaluer(`(() => {
+        const form = document.getElementById("form-bilan");
+        const t = document.getElementById(${JSON.stringify(premiere.bloc)});
+        const r = t.getBoundingClientRect();
+        return { largeur: Math.round(r.width), disponible: Math.round(form.getBoundingClientRect().right - r.left) };
+    })()`);
+    const source = await chrome.evaluer(`fetch("script.js").then((r) => r.text())`);
+    const reference = parseFloat((source.match(/const\s+LARGEUR_GRILLE_REFERENCE_PX\s*=\s*(\d+(?:\.\d+)?)/) || [])[1]);
+    lignes.push("  Mesure : grille de " + mesure.largeur + " px pour " + mesure.disponible
+        + " disponibles, référence " + reference + " px");
+    if (!(mesure.largeur > mesure.disponible && mesure.largeur > reference)) {
+        throw new Error("la donnée d'essai ne dépasse pas la largeur de référence : elle ne prouve rien");
+    }
+
+    // Une saisie dans le brouillon, qui doit survivre au refus.
+    await chrome.evaluer(`(() => {
+        const el = document.getElementById(${JSON.stringify(cellule.cle)});
+        el.scrollIntoView({ block: "center" });
+        el.value = "ABC";
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+    })()`);
+    await pause(2500);
+    const brouillonAvant = await chrome.evaluer(BROUILLON);
+    const cleBrouillon = cellule.cle;
+    const bilansAvant = bilansDeposes();
+    const fileAvant = await chrome.evaluer(FILE_DEPOTS);
+
+    await chrome.evaluer(`document.getElementById("btn-export").click()`);
+    await pause(6000);   // l'identité se recharge au besoin ; le refus vient juste après
+
+    const etat = await chrome.evaluer(`(() => {
+        const z = document.getElementById("zone-messages");
+        const b = document.getElementById("btn-export");
+        return {
+            message: z ? z.textContent.trim() : "",
+            visible: z ? !z.hidden : false,
+            bouton: getComputedStyle(b).display,
+            valeur: document.getElementById(${JSON.stringify(cellule.cle)}).value,
+            brouillon: ${BROUILLON}
+        };
+    })()`);
+    const fileApres = await chrome.evaluer(FILE_DEPOTS);
+    const nouveaux = bilansDeposes().filter((f) => bilansAvant.indexOf(f) === -1);
+
+    verdict(1, etat.visible && etat.message.indexOf("Votre saisie est conservée") !== -1,
+        "le message d'erreur s'affiche et contient « Votre saisie est conservée »", ["message : " + etat.message]);
+    verdict(2, nouveaux.length === 0, "aucun nouveau PDF dans bilans/ du bac", nouveaux);
+    verdict(3, fileAvant === 0 && fileApres === 0,
+        "le magasin IndexedDB file-depots reste vide (" + fileAvant + " puis " + fileApres + ")");
+    const sauf = brouillonAvant && etat.brouillon
+        && JSON.stringify(etat.brouillon.valeurs) === JSON.stringify(brouillonAvant.valeurs)
+        && JSON.stringify(etat.brouillon.coches) === JSON.stringify(brouillonAvant.coches)
+        && etat.brouillon.valeurs[cleBrouillon] === "ABC" && etat.valeur === "ABC";
+    verdict(4, !!sauf, "le brouillon localStorage et la saisie sont intacts (« ABC » toujours dans la cellule)");
+    verdict(5, etat.bouton !== "none", "le bouton d'export est de nouveau visible");
+}
+
 const BROUILLON = `(() => JSON.parse(localStorage.getItem("bilan-posturo-brouillon") || "null"))()`;
 
 (async function () {
@@ -145,18 +243,35 @@ const BROUILLON = `(() => JSON.parse(localStorage.getItem("bilan-posturo-brouill
 
     fs.mkdirSync(SORTIE, { recursive: true });
     try {
-        chrome = await ouvrirChrome({ port: PORT_CHROME });
+        chrome = await ouvrirChrome({ port: PORT_CHROME, largeur: LARGEUR });
         await chrome.cmd("Network.enable");
         await chrome.cmd("Network.setCacheDisabled", { cacheDisabled: true });
         await chrome.cmd("Network.setExtraHTTPHeaders", { headers: { Authorization: "Basic " + IDENTIFIANTS } });
         await chrome.cmd("Security.enable");
         await chrome.cmd("Security.setIgnoreCertificateErrors", { ignore: true });
 
+        // La largeur est IMPOSÉE, puis RELUE dans la page : cdp.js réutilise un Chrome
+        // déjà en écoute sans en changer la fenêtre, et une mesure faite à une autre
+        // largeur que celle annoncée n'aurait aucune valeur.
+        await chrome.cmd("Emulation.setDeviceMetricsOverride",
+            { width: LARGEUR, height: 900, deviceScaleFactor: 1, mobile: false });
+
         // Vide le brouillon d'un essai précédent : on part d'un formulaire neuf.
         await chrome.aller(BASE + "/index.html");
         await chrome.evaluer(`localStorage.clear()`);
         await chrome.aller(BASE + "/index.html");
         await pause(1500);
+        const largeurLue = await chrome.evaluer(`window.innerWidth`);
+        if (largeurLue !== LARGEUR) {
+            throw new Error("largeur de fenêtre " + largeurLue + " au lieu de " + LARGEUR
+                + " : Chrome déjà en écoute sur le port " + PORT_CHROME + " ? Mesure abandonnée.");
+        }
+        lignes.push("  Fenêtre : " + largeurLue + " px (imposée par Emulation.setDeviceMetricsOverride, relue dans la page)");
+
+        if (MODE_REFUS) {
+            await scenarioRefus(chrome, verdict, lignes);
+            await chrome.evaluer(`localStorage.clear()`);
+        } else {
 
         // ---------------- 1. Le moteur a rendu sans erreur ----------------
         const etat1 = await chrome.evaluer(`(() => {
@@ -245,9 +360,15 @@ const BROUILLON = `(() => JSON.parse(localStorage.getItem("bilan-posturo-brouill
             });
             return { scroll: form.scrollWidth, client: form.clientWidth, parGrille, decalages };
         })()`);
-        verdict(3, etat3.scroll <= etat3.client && etat3.parGrille.every((g) => !g.depasse) && etat3.decalages.length === 0,
-            "chaque grille tient dans #form-bilan (scrollWidth " + etat3.scroll + " <= clientWidth "
-            + etat3.client + ") et ses en-têtes surplombent leurs colonnes",
+        // À 1280 px la grille tient à l'écran. Sur une fenêtre plus étroite elle déborde
+        // à l'écran (la page défile horizontalement, sans perte de donnée : hors
+        // périmètre de l'amendement A1, qui ne traite que le PDF) ; c'est alors la
+        // vérification 8, sur la copie capturée, qui porte la preuve.
+        const tientALEcran = LARGEUR < 1280 || (etat3.scroll <= etat3.client && etat3.parGrille.every((g) => !g.depasse));
+        verdict(3, tientALEcran && etat3.decalages.length === 0,
+            (LARGEUR < 1280 ? "à " + LARGEUR + " px, débordement à l'écran admis (voir 8) ; " : "chaque grille tient dans #form-bilan (scrollWidth "
+                + etat3.scroll + " <= clientWidth " + etat3.client + ") et ")
+            + "les en-têtes surplombent leurs colonnes",
             etat3.parGrille.map((g) => g.id + " : " + g.largeur + " px" + (g.depasse ? " — DÉBORDE" : ""))
                 .concat(etat3.decalages.slice(0, 5)));
 
@@ -356,6 +477,23 @@ const BROUILLON = `(() => JSON.parse(localStorage.getItem("bilan-posturo-brouill
         await pause(1500);
 
         // ---------------- 7. Export, PDF, pages en JPEG ----------------
+        // La copie que html2canvas capture est interceptée : optionsCanvas() lit le nom
+        // `preparerClone` à chaque appel, donc l'envelopper suffit. On y mesure, APRÈS
+        // la réduction, le bord droit de chaque grille contre celui de #form-bilan.
+        await chrome.evaluer(`(() => {
+            const origine = preparerClone;
+            window.__copieGrilles = null;
+            preparerClone = function (docClone) {
+                const rendu = origine(docClone);
+                const form = docClone.querySelector("#form-bilan");
+                const bordForm = form.getBoundingClientRect().right;
+                window.__copieGrilles = Array.from(docClone.querySelectorAll("table.grille")).map((t) => {
+                    const r = t.getBoundingClientRect();
+                    return { droite: r.right, gauche: r.left, bordForm, transform: t.style.transform || "" };
+                });
+                return rendu;
+            };
+        })()`);
         const avant = bilansDeposes();
         await chrome.evaluer(`window.scrollTo(0, 0)`);
         await chrome.evaluer(`(() => {
@@ -387,7 +525,34 @@ const BROUILLON = `(() => JSON.parse(localStorage.getItem("bilan-posturo-brouill
                 + " pages extraites dans " + SORTIE);
         }
         verdict(7, ok7, "l'export dépose un PDF dans bilans/ du bac, et ses pages sont extraites en JPEG", detail7);
+
+        // ---------------- 8. Aucune grille rognée : la copie capturée ----------------
+        const copie = await chrome.evaluer(`window.__copieGrilles`);
+        const ok8 = Array.isArray(copie) && copie.length === grilles.length
+            && copie.every((g) => g.droite <= g.bordForm + 0.5);
+        verdict(8, ok8,
+            "chaque table.grille de la copie capturée a son bord droit dans #form-bilan (écart <= 0,5 px, mesuré après réduction)",
+            (copie || []).map((g, k) => "grille " + (k + 1) + " : bord droit à " + g.droite.toFixed(1) + " px pour "
+                + g.bordForm.toFixed(1) + " (" + (g.transform || "non réduite") + ")"));
+
+        // ---------------- 9. Largeur de référence (fenêtre de 1280 px seulement) ----------------
+        if (LARGEUR === 1280) {
+            const etat9 = await chrome.evaluer(`(async () => {
+                const form = document.getElementById("form-bilan");
+                const droite = form.getBoundingClientRect().right;
+                const disponibles = Array.from(document.querySelectorAll("table.grille"))
+                    .map((t) => droite - t.getBoundingClientRect().left);
+                const source = await fetch("script.js").then((r) => r.text());
+                const m = source.match(/const +LARGEUR_GRILLE_REFERENCE_PX *= *([0-9.]+) *;/);
+                return { disponibles, constante: m ? parseFloat(m[1]) : null };
+            })()`);
+            verdict(9, etat9.constante !== null && etat9.disponibles.length === grilles.length
+                && etat9.disponibles.every((d) => Math.abs(d - etat9.constante) <= 0.5),
+                "à 1280 px, la largeur disponible pour une grille égale LARGEUR_GRILLE_REFERENCE_PX lue dans le source servi",
+                ["disponible : " + etat9.disponibles.join(", ") + " px ; constante du source : " + etat9.constante]);
+        }
         await chrome.evaluer(`localStorage.clear()`);
+        }   // fin du scénario complet
     } catch (erreur) {
         rates += 1;
         lignes.push("  RATÉ  " + erreur.message);
@@ -397,6 +562,6 @@ const BROUILLON = `(() => JSON.parse(localStorage.getItem("bilan-posturo-brouill
 
     console.log("Essai C1-T6 — type grille en rendu réel\n");
     lignes.forEach((l) => console.log(l));
-    console.log("\n" + (rates === 0 ? "Les sept vérifications tiennent en rendu réel." : rates + " vérification(s) en échec."));
+    console.log("\n" + (rates === 0 ? "Toutes les vérifications tiennent en rendu réel." : rates + " vérification(s) en échec."));
     process.exitCode = rates === 0 ? 0 : 1;
 })();

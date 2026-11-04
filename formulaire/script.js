@@ -102,6 +102,54 @@ function optionsCanvas(fond) {
     };
 }
 
+/*
+ * Grilles (C1-T6, amendement A1). La capture prend `#form-bilan` tel quel, et
+ * l'échelle de tout le PDF est la largeur de ce conteneur : ce qui dépasse à
+ * droite n'est pas dans l'image. Une grille plus large que le conteneur serait
+ * donc rognée sans un mot. Elle est réduite dans la copie capturée, et l'export
+ * est refusé quand elle serait trop petite pour se lire.
+ *
+ * Largeur disponible pour une grille dans `#form-bilan` à la fenêtre de
+ * référence de 1 280 px (bord droit du conteneur moins bord gauche de la
+ * table), mesurée dans Chrome par outils/reference-visuelle/essai-grille.js
+ * (constat C1-T6). L'échelle du PDF étant proportionnelle à 1 / largeur du
+ * conteneur, refuser au-delà de cette largeur revient à ne jamais imprimer une
+ * grille plus petit qu'une grille qui tient sans réduction à 1 280 px.
+ */
+const LARGEUR_GRILLE_REFERENCE_PX = 1192;
+
+const MESSAGE_GRILLE_TROP_LARGE = "Une grille de ce formulaire est trop large pour être "
+    + "imprimée lisiblement : le PDF n'a pas été créé. Votre saisie est conservée. "
+    + "Prévenez le support.";
+
+/**
+ * Mesure chaque `table.grille` de `element`, dans l'ordre du document :
+ * `largeur` de la table, `disponible` (du bord gauche de la table au bord droit
+ * de `element`) et `facteur` de réduction (1 si elle tient). Pure : ne modifie
+ * rien. Sert au refus (exporterBilanPDF) et à la réduction (preparerClone).
+ * Sans grille, rend une liste vide : tout le reste du code est alors inerte.
+ */
+function mesurerGrilles(element) {
+    const bordDroit = element.getBoundingClientRect().right;
+    return Array.from(element.querySelectorAll("table.grille")).map(function (table) {
+        const boite = table.getBoundingClientRect();
+        const largeur = boite.width;
+        const disponible = bordDroit - boite.left;
+        return {
+            largeur: largeur,
+            disponible: disponible,
+            facteur: largeur <= disponible ? 1 : disponible / largeur
+        };
+    });
+}
+
+/** Vrai si une grille déborde de `element` ET dépasse la largeur de référence. */
+function grilleTropLarge(element) {
+    return mesurerGrilles(element).some(function (mesure) {
+        return mesure.facteur < 1 && mesure.largeur > LARGEUR_GRILLE_REFERENCE_PX;
+    });
+}
+
 // Styles à recopier de la textarea vers son remplaçant, pour un rendu identique
 const STYLES_REPRIS = [
     "fontFamily", "fontSize", "fontWeight", "lineHeight", "color",
@@ -161,6 +209,26 @@ function preparerClone(docClone) {
 
         zone.parentNode.replaceChild(remplacant, zone);
     });
+
+    // Une grille plus large que le conteneur est réduite dans la copie : la
+    // mise en page ne change pas (un transform n'y touche pas), donc les
+    // positions de blocs mesurées sur le document affiché restent valables.
+    // Les mesures sont relues sur les originaux, comme pour les textareas.
+    const formulaire = document.getElementById("form-bilan");
+    if (formulaire) {
+        const mesures = mesurerGrilles(formulaire);
+        // Aucune grille à réduire (cas de la V1 et de la fiche de secours) : la
+        // copie n'est même pas interrogée.
+        if (mesures.some(function (mesure) { return mesure.facteur < 1; })) {
+            const grillesClonees = docClone.querySelectorAll("#form-bilan table.grille");
+            mesures.forEach(function (mesure, i) {
+                const clone = grillesClonees[i];
+                if (!clone || mesure.facteur >= 1) return;
+                clone.style.transform = "scale(" + mesure.facteur + ")";
+                clone.style.transformOrigin = "top left";
+            });
+        }
+    }
 
     return docClone;
 }
@@ -256,6 +324,14 @@ async function exporterBilanPDF() {
                 + "serveur est démarré, puis réessayez. Votre saisie est "
                 + "conservée.";
             annoncer(message, "erreur", true);
+            return;
+        }
+        // Une grille trop large pour être réduite lisiblement : l'export est
+        // refusé, comme pour l'identité, AVANT toute capture et avant la mise
+        // en file — aucun PDF rogné n'entre dans la file ni sur le PC. Le
+        // brouillon et les champs ne sont pas touchés : la saisie continue.
+        if (grilleTropLarge(element)) {
+            annoncer(MESSAGE_GRILLE_TROP_LARGE, "erreur", true);
             return;
         }
         // La lecture des couleurs est dans le try : hors de lui, une

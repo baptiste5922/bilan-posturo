@@ -15,6 +15,11 @@
 //   ESSAI_IDENTIFIANTS  « utilisateur:mot-de-passe », envoyés en Basic
 //   ESSAI_SORTIE        dossier des PDF et captures (défaut ./sortie)
 //   ESSAI_PREFIXE       nom du PDF « moteur » et des captures (défaut C1-T3-moteur)
+//   ESSAI_PAGE          page où « moteur » rejoue le brouillon (défaut index.html ;
+//                       index-v1.html pour la fiche de secours, qui charge le même
+//                       script.js : amendement A1 de C1-T6, critère 19)
+//   ESSAI_LARGEUR       largeur de fenêtre imposée par
+//                       Emulation.setDeviceMetricsOverride (défaut : celle de Chrome)
 //
 // « moteur » relit `bilan-reference.json` dans ESSAI_SORTIE : y copier le jeu
 // de référence versionné avant de l'exécuter.
@@ -27,6 +32,8 @@ const BASE = process.env.ESSAI_BASE || "http://127.0.0.1:8777";
 const SORTIE = process.env.ESSAI_SORTIE || path.join(__dirname, "sortie");
 const PREFIXE = process.env.ESSAI_PREFIXE || "C1-T3-moteur";
 const IDENTIFIANTS = process.env.ESSAI_IDENTIFIANTS;
+const PAGE = process.env.ESSAI_PAGE || "index.html";
+const LARGEUR = process.env.ESSAI_LARGEUR ? parseInt(process.env.ESSAI_LARGEUR, 10) : null;
 const BROUILLON = path.join(SORTIE, "bilan-reference.json");
 
 const cible = process.argv[2];
@@ -240,6 +247,10 @@ async function capturer(chrome, prefixe) {
             await chrome.cmd("Security.enable");
             await chrome.cmd("Security.setIgnoreCertificateErrors", { ignore: true });
         }
+        if (LARGEUR) {
+            await chrome.cmd("Emulation.setDeviceMetricsOverride",
+                { width: LARGEUR, height: 900, deviceScaleFactor: 1, mobile: false });
+        }
 
         if (cible === "v1") {
             await chrome.aller(BASE + "/index-v1.html");
@@ -268,10 +279,10 @@ async function capturer(chrome, prefixe) {
                 throw new Error("bilan-reference.json manquant : produire « v1 » d'abord");
             }
             const brut = fs.readFileSync(BROUILLON, "utf-8");
-            await chrome.aller(BASE + "/index.html");
+            await chrome.aller(BASE + "/" + PAGE);
             await chrome.evaluer(
                 `localStorage.setItem("bilan-posturo-brouillon", ${JSON.stringify(brut)})`);
-            await chrome.aller(BASE + "/index.html");
+            await chrome.aller(BASE + "/" + PAGE);
             await pause(800);
 
             const restaure = await chrome.evaluer(`(() => {
