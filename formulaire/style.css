@@ -615,8 +615,25 @@ table.grille {
     max-width: none;             /* jusqu'à 12 colonnes : les 600 px des tableaux de la V1 ne suffisent pas */
 }
 
+/* La règle globale « .titre_section » rend ses éléments en inline-block : un th
+   ainsi rendu cesse d'être une cellule de tableau, et son rowspan est ignoré —
+   l'en-tête à deux rangées se décalerait d'une colonne. Constaté au rendu réel
+   (CONSTAT C1-T6), invisible de tout test sur double de DOM. */
 table.grille th.titre_section {
+    display: table-cell;
     width: auto;                 /* la colonne d'intitulés prend la largeur de son texte, pas 40 % */
+    margin: 0;
+    /* En haut, et non au milieu : html2canvas peint le fond de la seconde rangée
+       d'en-têtes APRÈS la cellule qui s'étend sur les deux, et en recouvrait le
+       texte — « Grille 1 : » coupé en deux, « Grille 3 : » absent du PDF. */
+    vertical-align: top;
+}
+
+/* Un intitulé de ligne ou de coin ne passe pas à la ligne : avec douze colonnes,
+   « Ligne 10 » se coupait en deux. */
+table.grille th.titre_section,
+table.grille tbody td:first-child {
+    white-space: nowrap;
 }
 
 table.grille th,
