@@ -454,16 +454,25 @@ moment de capturer le formulaire :
   l'export s'arrête avant toute capture, aucun PDF n'est créé, la saisie et le
   brouillon sont intacts, et un message le dit. Une grille réduite n'est ainsi
   jamais imprimée plus petit qu'une grille qui tient à 1 280 px. Ce refus est un
-  filet ; un schéma mesuré en atelier ne le déclenche pas.
+  filet, mais la mesure d'atelier ne suffit pas à l'écarter : une police de
+  remplacement, une taille de texte agrandie ou un autre moteur de rendu sur la
+  tablette peuvent élargir une grille qui tenait dans Chrome à 1 280 px. D'où la
+  condition 2 ci-dessous, jouée sur l'appareil du client.
 
 **Livrer une grille dans un schéma client.** Interdit tant que trois conditions
 ne sont pas réunies, client par client :
 
 1. la réduction et le refus décrits ci-dessus sont livrés (revue « À LIVRER ») ;
-2. le schéma du client passe la mesure d'atelier : `essai-grille.js`, joué à
-   1 280 px sur ce schéma, rend « OK » pour chaque grille (largeur au plus égale
-   à `LARGEUR_GRILLE_REFERENCE_PX`), et un export réussit à la largeur de la
-   tablette du client, relevée dans la feuille de route client ;
+2. le schéma du client passe deux épreuves :
+   - **en atelier** : `essai-grille.js`, joué à 1 280 px sur ce schéma, rend
+     « OK » pour chaque grille (largeur au plus égale à
+     `LARGEUR_GRILLE_REFERENCE_PX`) ;
+   - **sur la tablette du client elle-même**, avec son navigateur et ses
+     réglages d'affichage habituels (taille du texte, zoom) : chaque grille
+     remplie au maximum (toutes les cases cochées, chaque cellule `texte-court`
+     à 8 caractères larges) s'exporte sans refus, et le PDF montre la dernière
+     colonne entière. Un changement de tablette, de navigateur ou de taille de
+     texte chez ce client rejoue cette épreuve ;
 3. le favori de secours est posé chez ce client.
 
 Faute de pouvoir exprimer
