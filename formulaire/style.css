@@ -629,11 +629,18 @@ table.grille th.titre_section {
     vertical-align: top;
 }
 
-/* Un intitulé de ligne ou de coin ne passe pas à la ligne : avec douze colonnes,
-   « Ligne 10 » se coupait en deux. */
-table.grille th.titre_section,
-table.grille tbody td:first-child {
+/* Seul le coin ne passe pas à la ligne : sur plusieurs lignes, son texte
+   descendrait dans la seconde rangée d'en-têtes, dont le fond le recouvrirait
+   dans le PDF. Les intitulés de ligne, eux, passent à la ligne : un intitulé
+   long ne doit pas élargir la table au-delà de la page. */
+table.grille th.titre_section {
     white-space: nowrap;
+}
+
+/* Un plancher, pour qu'un intitulé court (« Ligne 10 ») ne soit pas coupé en
+   deux quand la table est serrée. */
+table.grille tbody td:first-child {
+    min-width: 5em;
 }
 
 table.grille th,

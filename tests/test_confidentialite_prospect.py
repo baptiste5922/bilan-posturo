@@ -42,6 +42,14 @@ MOTIF_CLE = re.compile(r"^(grille|groupe|colonne|ligne|texte|bloc)-[0-9]+$")
 MOTIF_STRUCTURE = re.compile(r"^[a-z0-9_-]+$")
 CLES_STRUCTURELLES = ("type", "nature", "titre_apparence", "disposition", "balise", "apparence")
 LONGUEUR_MARQUEUR = 8
+# Attributs HTML dont la valeur est un identifiant ou un texte propre à la fiche
+# (audit de C1-T6) : `id`, `class` (découpée en jetons), `name`, `for`, les textes
+# affichés ou lus par un lecteur d'écran, et tout `aria-*` / `data-*`. Le schéma
+# d'un prospect est fait de clés et de libellés : les identifiants comptent
+# autant que le texte visible.
+ATTRIBUTS_TEXTUELS = frozenset(
+    ["id", "class", "name", "for", "placeholder", "title", "alt", "value", "label"])
+PREFIXES_ATTRIBUTS = ("aria-", "data-")
 # Deux exemptions, écrites parce que le contrat se heurtait à lui-même au premier
 # essai (écart signalé dans le compte rendu de C1-T6) : D9 impose des clés
 # « grille-N » que la fiche emploie aussi, et la décision D12 nomme l'attribut
@@ -160,7 +168,8 @@ def litteraux_js(source):
 
 
 class _ExtracteurDeFiche(html.parser.HTMLParser):
-    """Récolte les nœuds texte et, dans les scripts, les littéraux entre guillemets."""
+    """Récolte les nœuds texte, les valeurs d'attributs textuels et, dans les
+    scripts, les littéraux entre guillemets."""
 
     def __init__(self):
         super().__init__(convert_charrefs=True)
@@ -169,6 +178,14 @@ class _ExtracteurDeFiche(html.parser.HTMLParser):
         self._dans_style = False
 
     def handle_starttag(self, balise, attributs):
+        for nom, valeur in attributs:
+            if not valeur:
+                continue
+            if nom in ATTRIBUTS_TEXTUELS or nom.startswith(PREFIXES_ATTRIBUTS):
+                if nom == "class":
+                    self.textes.extend(valeur.split())
+                else:
+                    self.textes.append(valeur)
         if balise == "script":
             self._dans_script = True
         elif balise == "style":
@@ -325,6 +342,28 @@ class VocabulaireFictif(unittest.TestCase):
                 fautes, [],
                 "docs/schema-formulaire.md, exemple de grille n°%d : valeur(s) hors du "
                 "vocabulaire fictif aux chemins %s" % (i + 1, ", ".join(fautes)))
+
+
+class ExtractionDeLaFiche(unittest.TestCase):
+    """Garde de la garde : l'extraction voit les attributs, sans fiche ni git."""
+
+    def test_valeurs_d_attributs_et_litteraux(self):
+        extracteur = _ExtracteurDeFiche()
+        extracteur.feed(
+            '<p id="un-identifiant" class="classe-a classe-b" name="un-nom" for="un-for" '
+            'placeholder="un-texte" title="un-titre" alt="un-alt" value="une-valeur" '
+            'label="une-etiquette" aria-label="une-aria" data-cle="une-donnee" '
+            'href="pas-recolte" style="pas-recolte-non-plus">Un texte</p>'
+            '<script>var a = "un-litteral"; // l\'apostrophe d\'un commentaire\n</script>')
+        extracteur.close()
+        attendus = ["un-identifiant", "classe-a", "classe-b", "un-nom", "un-for", "un-texte",
+                    "un-titre", "un-alt", "une-valeur", "une-etiquette", "une-aria",
+                    "une-donnee", "Un texte", "un-litteral"]
+        for attendu in attendus:
+            self.assertIn(attendu, extracteur.textes, "valeur non récoltée par l'extraction")
+        for refuse in ("pas-recolte", "pas-recolte-non-plus"):
+            self.assertNotIn(refuse, extracteur.textes)
+        self.assertFalse(any("apostrophe" in t for t in extracteur.textes))
 
 
 class AucunMarqueurDeLaFiche(unittest.TestCase):

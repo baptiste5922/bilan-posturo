@@ -437,10 +437,13 @@ sont cochables indépendamment. Une cellule `texte-court` accepte 8 caractères
 au plus : au-delà, l'impression ne montrerait qu'une valeur tronquée, sans le
 dire. Trop de colonnes déborderait de la page et trop de lignes la couperait
 au milieu d'une ligne ; l'atelier **scinde** une grille trop longue en
-plusieurs blocs plutôt que d'en forcer les bornes. Mesure du 4 novembre 2026
-(fenêtre de 1280 px) : à 12 colonnes, la grille tient avec quatre colonnes de
-texte court au plus ; à cinq, elle déborde de la page et serait rognée à
-l'impression, sans que la validation le sache. Faute de pouvoir exprimer
+plusieurs blocs plutôt que d'en forcer les bornes. La largeur
+d'une grille dépend de la fenêtre de la tablette, des intitulés (celui du coin
+ne passe pas à la ligne) et du nombre de colonnes de texte court : au-delà de la
+largeur de la page, elle serait rognée à l'impression, sans que la validation le
+sache. **Aucune grille ne doit être livrée dans un schéma client** tant que la
+largeur minimale supportée n'est pas fixée et qu'un contrôle à l'export ne
+refuse pas une grille trop large (sous-tâche « largeur des grilles »). Faute de pouvoir exprimer
 une cellule à trois états, l'atelier prend une colonne `texte-court` où l'on
 saisit « + » ou « − ».
 
