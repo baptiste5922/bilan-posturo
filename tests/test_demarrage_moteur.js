@@ -29,6 +29,20 @@ const assert = require("assert");
 
 const CHEMIN_MOTEUR = path.join(__dirname, "..", "formulaire", "moteur", "rendu.js");
 const CHEMIN_SCHEMA = path.join(__dirname, "..", "formulaire", "schema.json");
+const CHEMIN_SPEC = path.join(__dirname, "..", "docs", "schema-formulaire.md");
+
+/**
+ * Une version de schéma que le moteur ne peut pas connaître : la version
+ * maximale annoncée par l'en-tête de la spécification, plus un. Elle suit le
+ * format au lieu de rester figée à « 2 », qui devint une version connue avec
+ * C1-T6.
+ */
+function versionInconnue() {
+    const spec = fs.readFileSync(CHEMIN_SPEC, "utf-8");
+    const m = spec.split("\n").slice(0, 3).join("\n").match(/Version du format de schéma : (\d+)/);
+    assert.ok(m, "l'en-tête de la spécification n'annonce pas de version du format");
+    return parseInt(m[1], 10) + 1;
+}
 
 /* ============================ Double de DOM ============================ */
 
@@ -249,7 +263,7 @@ async function scenarioMessageNommeFavoriEtAdresse() {
     // STATIQUE du HTML l'était (tests/test_comparaison_dom.js). Schéma
     // refusé : script.js est bien présent (annoncer existe), mais le rendu
     // échoue quand même.
-    const schemaRefuse = { version_schema: 2, blocs: [{ cle: "x", champs: [] }] };
+    const schemaRefuse = { version_schema: versionInconnue(), blocs: [{ cle: "x", champs: [] }] };
     const etat = chargerMoteur(function () {
         return Promise.resolve({ ok: true, status: 200, json: function () { return Promise.resolve(schemaRefuse); } });
     }, true);

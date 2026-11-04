@@ -605,3 +605,47 @@ header.bloc {
     font-size: 12px;
     opacity: 0.55;
 }
+
+/* ===== Grille (C1-T6) =====
+   Toutes les règles ci-dessous passent par la classe .grille : le tableau
+   à choix exclusif de la V1 et la fiche de secours partagent cette feuille, et
+   rien de ce bloc ne doit pouvoir les atteindre. Aucune couleur écrite en dur :
+   les tokens de :root. */
+table.grille {
+    max-width: none;             /* jusqu'à 12 colonnes : les 600 px des tableaux de la V1 ne suffisent pas */
+}
+
+table.grille th.titre_section {
+    width: auto;                 /* la colonne d'intitulés prend la largeur de son texte, pas 40 % */
+}
+
+table.grille th,
+table.grille td {
+    padding: 8px 6px;
+}
+
+table.grille th {
+    font-size: 14px;
+}
+
+/* Les huit caractères les plus larges (WWWWWWWW) doivent tenir en entier : le
+   PDF n'imprime que la partie visible d'un champ, et une valeur coupée ne se
+   verrait pas. La largeur est donc en em, et se règle avec la police du champ. */
+.grille-texte {
+    box-sizing: content-box;
+    width: 9em;
+    padding: 4px 6px;
+    font-family: Arial, sans-serif;
+    font-size: 14px;
+    color: var(--texte);
+    background-color: #FFFFFF;
+    border: 1px solid var(--bordure);
+    border-radius: 4px;
+    text-align: center;
+}
+
+/* Cellule neutralisée : « sans objet », distincte d'une cellule « non
+   renseignée » par son fond et par l'absence de tout contrôle. */
+.grille-neutralisee {
+    background-color: var(--fond);
+}

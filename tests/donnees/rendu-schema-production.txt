@@ -1,0 +1,1818 @@
+{
+ "balise": "main",
+ "attributs": {},
+ "enfants": [
+  {
+   "balise": "section",
+   "attributs": {
+    "id": "patient_infos",
+    "class": "bloc"
+   },
+   "enfants": [
+    {
+     "balise": "h3",
+     "attributs": {
+      "id": "patient_info_title",
+      "class": "Title"
+     },
+     "enfants": [
+      {
+       "texte": "Informations Patient"
+      }
+     ]
+    },
+    {
+     "balise": "label",
+     "attributs": {
+      "for": "nom",
+      "class": "titre_section"
+     },
+     "enfants": [
+      {
+       "texte": "Nom:"
+      }
+     ]
+    },
+    {
+     "balise": "input",
+     "attributs": {
+      "id": "nom",
+      "type": "text"
+     },
+     "enfants": []
+    },
+    {
+     "balise": "br",
+     "attributs": {},
+     "enfants": []
+    },
+    {
+     "balise": "label",
+     "attributs": {
+      "for": "prenom",
+      "class": "titre_section"
+     },
+     "enfants": [
+      {
+       "texte": "Prénom:"
+      }
+     ]
+    },
+    {
+     "balise": "input",
+     "attributs": {
+      "id": "prenom",
+      "type": "text"
+     },
+     "enfants": []
+    },
+    {
+     "balise": "br",
+     "attributs": {},
+     "enfants": []
+    },
+    {
+     "balise": "label",
+     "attributs": {
+      "for": "date_naissance",
+      "class": "titre_section"
+     },
+     "enfants": [
+      {
+       "texte": "Date de naissance:"
+      }
+     ]
+    },
+    {
+     "balise": "input",
+     "attributs": {
+      "id": "date_naissance",
+      "type": "text"
+     },
+     "enfants": []
+    },
+    {
+     "balise": "br",
+     "attributs": {},
+     "enfants": []
+    },
+    {
+     "balise": "label",
+     "attributs": {
+      "for": "sport",
+      "class": "titre_section"
+     },
+     "enfants": [
+      {
+       "texte": "Sport:"
+      }
+     ]
+    },
+    {
+     "balise": "input",
+     "attributs": {
+      "id": "sport",
+      "type": "text"
+     },
+     "enfants": []
+    },
+    {
+     "balise": "br",
+     "attributs": {},
+     "enfants": []
+    },
+    {
+     "balise": "label",
+     "attributs": {
+      "for": "metier",
+      "class": "titre_section"
+     },
+     "enfants": [
+      {
+       "texte": "Métier:"
+      }
+     ]
+    },
+    {
+     "balise": "input",
+     "attributs": {
+      "id": "metier",
+      "type": "text"
+     },
+     "enfants": []
+    },
+    {
+     "balise": "br",
+     "attributs": {},
+     "enfants": []
+    },
+    {
+     "balise": "label",
+     "attributs": {
+      "for": "niveau_scolaire",
+      "class": "titre_section"
+     },
+     "enfants": [
+      {
+       "texte": "Niveau Scolaire:"
+      }
+     ]
+    },
+    {
+     "balise": "input",
+     "attributs": {
+      "id": "niveau_scolaire",
+      "type": "text"
+     },
+     "enfants": []
+    },
+    {
+     "balise": "br",
+     "attributs": {},
+     "enfants": []
+    }
+   ]
+  },
+  {
+   "balise": "div",
+   "attributs": {
+    "id": "consultation_bloc",
+    "class": "bloc"
+   },
+   "enfants": [
+    {
+     "balise": "h3",
+     "attributs": {
+      "id": "consultation_title",
+      "class": "Title"
+     },
+     "enfants": [
+      {
+       "texte": "Consultation"
+      }
+     ]
+    },
+    {
+     "balise": "label",
+     "attributs": {
+      "for": "MDC",
+      "class": "titre_section"
+     },
+     "enfants": [
+      {
+       "texte": "MDC:"
+      }
+     ]
+    },
+    {
+     "balise": "textarea",
+     "attributs": {
+      "id": "MDC",
+      "class": "input-auto-grow"
+     },
+     "enfants": []
+    },
+    {
+     "balise": "br",
+     "attributs": {},
+     "enfants": []
+    }
+   ]
+  },
+  {
+   "balise": "div",
+   "attributs": {
+    "id": "oriente_par_bloc",
+    "class": "bloc"
+   },
+   "enfants": [
+    {
+     "balise": "label",
+     "attributs": {
+      "for": "oriente_par",
+      "class": "titre_section"
+     },
+     "enfants": [
+      {
+       "texte": "Orienté par:"
+      }
+     ]
+    },
+    {
+     "balise": "textarea",
+     "attributs": {
+      "id": "oriente_par",
+      "class": "input-auto-grow"
+     },
+     "enfants": []
+    },
+    {
+     "balise": "br",
+     "attributs": {},
+     "enfants": []
+    }
+   ]
+  },
+  {
+   "balise": "div",
+   "attributs": {
+    "id": "semelle_orthopedique_bloc",
+    "class": "bloc form-group-inline"
+   },
+   "enfants": [
+    {
+     "balise": "label",
+     "attributs": {
+      "class": "titre_section"
+     },
+     "enfants": [
+      {
+       "texte": "Déjà SO:"
+      }
+     ]
+    },
+    {
+     "balise": "div",
+     "attributs": {
+      "class": "radio-group"
+     },
+     "enfants": [
+      {
+       "balise": "label",
+       "attributs": {
+        "class": "radio-label"
+       },
+       "enfants": [
+        {
+         "balise": "input",
+         "attributs": {
+          "id": "SO_oui",
+          "name": "groupe-SO_oui",
+          "type": "radio",
+          "value": "oui"
+         },
+         "enfants": []
+        },
+        {
+         "balise": "span",
+         "attributs": {
+          "class": "custom-radio"
+         },
+         "enfants": []
+        },
+        {
+         "texte": " Oui"
+        }
+       ]
+      },
+      {
+       "balise": "label",
+       "attributs": {
+        "class": "radio-label"
+       },
+       "enfants": [
+        {
+         "balise": "input",
+         "attributs": {
+          "id": "SO_non",
+          "name": "groupe-SO_oui",
+          "type": "radio",
+          "value": "non"
+         },
+         "enfants": []
+        },
+        {
+         "balise": "span",
+         "attributs": {
+          "class": "custom-radio"
+         },
+         "enfants": []
+        },
+        {
+         "texte": " Non"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "balise": "div",
+   "attributs": {
+    "id": "specialistes_bloc",
+    "class": "bloc"
+   },
+   "enfants": [
+    {
+     "balise": "label",
+     "attributs": {
+      "for": "spécialistes",
+      "class": "titre_section"
+     },
+     "enfants": [
+      {
+       "texte": "Spécialistes:"
+      }
+     ]
+    },
+    {
+     "balise": "textarea",
+     "attributs": {
+      "id": "spécialistes",
+      "class": "input-auto-grow"
+     },
+     "enfants": []
+    },
+    {
+     "balise": "br",
+     "attributs": {},
+     "enfants": []
+    }
+   ]
+  },
+  {
+   "balise": "div",
+   "attributs": {
+    "id": "atcd_bloc",
+    "class": "bloc form-group-atcd"
+   },
+   "enfants": [
+    {
+     "balise": "label",
+     "attributs": {
+      "class": "titre_section"
+     },
+     "enfants": [
+      {
+       "texte": "ATCD:"
+      }
+     ]
+    },
+    {
+     "balise": "div",
+     "attributs": {
+      "class": "atcd-inputs-container"
+     },
+     "enfants": [
+      {
+       "balise": "div",
+       "attributs": {
+        "class": "atcd-row"
+       },
+       "enfants": [
+        {
+         "balise": "label",
+         "attributs": {
+          "for": "perso",
+          "class": "atcd-sublabel"
+         },
+         "enfants": [
+          {
+           "texte": "Perso:"
+          }
+         ]
+        },
+        {
+         "balise": "textarea",
+         "attributs": {
+          "id": "perso",
+          "class": "input-auto-grow"
+         },
+         "enfants": []
+        }
+       ]
+      },
+      {
+       "balise": "div",
+       "attributs": {
+        "class": "atcd-row"
+       },
+       "enfants": [
+        {
+         "balise": "label",
+         "attributs": {
+          "for": "familliaux",
+          "class": "atcd-sublabel"
+         },
+         "enfants": [
+          {
+           "texte": "Familiaux:"
+          }
+         ]
+        },
+        {
+         "balise": "textarea",
+         "attributs": {
+          "id": "familliaux",
+          "class": "input-auto-grow"
+         },
+         "enfants": []
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "balise": "div",
+   "attributs": {
+    "id": "section_squelettes",
+    "class": "bloc"
+   },
+   "enfants": [
+    {
+     "balise": "label",
+     "attributs": {
+      "class": "titre_section"
+     },
+     "enfants": [
+      {
+       "texte": "Statique:"
+      }
+     ]
+    },
+    {
+     "balise": "img",
+     "attributs": {
+      "alt": "squelette gauche",
+      "id": "squelette_gauche",
+      "src": "images/squelette_gauche.png",
+      "class": "dessinable squelette"
+     },
+     "enfants": []
+    },
+    {
+     "balise": "img",
+     "attributs": {
+      "alt": "squelette droite",
+      "id": "squelette_droite",
+      "src": "images/squelette_droite.png",
+      "class": "dessinable squelette"
+     },
+     "enfants": []
+    },
+    {
+     "balise": "img",
+     "attributs": {
+      "alt": "squelette dos",
+      "id": "squelette_dos",
+      "src": "images/squelette_dos.png",
+      "class": "dessinable squelette"
+     },
+     "enfants": []
+    }
+   ]
+  },
+  {
+   "balise": "div",
+   "attributs": {
+    "id": "appui",
+    "class": "bloc form-group-inline"
+   },
+   "enfants": [
+    {
+     "balise": "label",
+     "attributs": {
+      "class": "titre_section"
+     },
+     "enfants": [
+      {
+       "texte": "Appui:"
+      }
+     ]
+    },
+    {
+     "balise": "div",
+     "attributs": {
+      "class": "radio-group"
+     },
+     "enfants": [
+      {
+       "balise": "label",
+       "attributs": {
+        "class": "radio-label"
+       },
+       "enfants": [
+        {
+         "balise": "input",
+         "attributs": {
+          "id": "anterieur",
+          "name": "groupe-anterieur",
+          "type": "radio",
+          "value": "anterieur"
+         },
+         "enfants": []
+        },
+        {
+         "balise": "span",
+         "attributs": {
+          "class": "custom-radio"
+         },
+         "enfants": []
+        },
+        {
+         "texte": " Antérieur"
+        }
+       ]
+      },
+      {
+       "balise": "label",
+       "attributs": {
+        "class": "radio-label"
+       },
+       "enfants": [
+        {
+         "balise": "input",
+         "attributs": {
+          "id": "posterieur",
+          "name": "groupe-anterieur",
+          "type": "radio",
+          "value": "posterieur"
+         },
+         "enfants": []
+        },
+        {
+         "balise": "span",
+         "attributs": {
+          "class": "custom-radio"
+         },
+         "enfants": []
+        },
+        {
+         "texte": " Postérieur"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "balise": "div",
+   "attributs": {
+    "id": "Podo",
+    "class": "bloc form-group-inline"
+   },
+   "enfants": [
+    {
+     "balise": "label",
+     "attributs": {
+      "class": "titre_section"
+     },
+     "enfants": [
+      {
+       "texte": "Podo:"
+      }
+     ]
+    },
+    {
+     "balise": "div",
+     "attributs": {
+      "class": "checkbox-group"
+     },
+     "enfants": [
+      {
+       "balise": "label",
+       "attributs": {
+        "class": "checkbox-label"
+       },
+       "enfants": [
+        {
+         "balise": "input",
+         "attributs": {
+          "id": "symétrique",
+          "type": "checkbox"
+         },
+         "enfants": []
+        },
+        {
+         "balise": "span",
+         "attributs": {
+          "class": "custom-checkbox"
+         },
+         "enfants": []
+        },
+        {
+         "texte": " Symétrique"
+        }
+       ]
+      },
+      {
+       "balise": "label",
+       "attributs": {
+        "class": "checkbox-label"
+       },
+       "enfants": [
+        {
+         "balise": "input",
+         "attributs": {
+          "id": "Isthme",
+          "type": "checkbox"
+         },
+         "enfants": []
+        },
+        {
+         "balise": "span",
+         "attributs": {
+          "class": "custom-checkbox"
+         },
+         "enfants": []
+        },
+        {
+         "texte": " Isthme"
+        }
+       ]
+      },
+      {
+       "balise": "label",
+       "attributs": {
+        "class": "radio-label"
+       },
+       "enfants": [
+        {
+         "balise": "input",
+         "attributs": {
+          "id": "isthme_g",
+          "name": "groupe-isthme_g",
+          "type": "radio",
+          "value": "isthme_g"
+         },
+         "enfants": []
+        },
+        {
+         "balise": "span",
+         "attributs": {
+          "class": "custom-radio"
+         },
+         "enfants": []
+        },
+        {
+         "texte": " Gauche"
+        }
+       ]
+      },
+      {
+       "balise": "label",
+       "attributs": {
+        "class": "radio-label"
+       },
+       "enfants": [
+        {
+         "balise": "input",
+         "attributs": {
+          "id": "isthme_d",
+          "name": "groupe-isthme_g",
+          "type": "radio",
+          "value": "isthme_d"
+         },
+         "enfants": []
+        },
+        {
+         "balise": "span",
+         "attributs": {
+          "class": "custom-radio"
+         },
+         "enfants": []
+        },
+        {
+         "texte": " Droit"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "balise": "table",
+   "attributs": {
+    "id": "rotation",
+    "class": "bloc"
+   },
+   "enfants": [
+    {
+     "balise": "thead",
+     "attributs": {},
+     "enfants": [
+      {
+       "balise": "tr",
+       "attributs": {},
+       "enfants": [
+        {
+         "balise": "th",
+         "attributs": {
+          "class": "titre_section"
+         },
+         "enfants": [
+          {
+           "texte": "Rotation tête:"
+          }
+         ]
+        },
+        {
+         "balise": "th",
+         "attributs": {},
+         "enfants": [
+          {
+           "texte": "Gauche(G)"
+          }
+         ]
+        },
+        {
+         "balise": "th",
+         "attributs": {},
+         "enfants": [
+          {
+           "texte": "Droite (D)"
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "balise": "tbody",
+     "attributs": {},
+     "enfants": [
+      {
+       "balise": "tr",
+       "attributs": {},
+       "enfants": [
+        {
+         "balise": "td",
+         "attributs": {},
+         "enfants": [
+          {
+           "texte": "Positif"
+          }
+         ]
+        },
+        {
+         "balise": "td",
+         "attributs": {},
+         "enfants": [
+          {
+           "balise": "input",
+           "attributs": {
+            "name": "test_positif",
+            "type": "radio",
+            "value": "G"
+           },
+           "enfants": []
+          }
+         ]
+        },
+        {
+         "balise": "td",
+         "attributs": {},
+         "enfants": [
+          {
+           "balise": "input",
+           "attributs": {
+            "name": "test_positif",
+            "type": "radio",
+            "value": "D"
+           },
+           "enfants": []
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "balise": "tr",
+       "attributs": {},
+       "enfants": [
+        {
+         "balise": "td",
+         "attributs": {},
+         "enfants": [
+          {
+           "texte": "Plus court"
+          }
+         ]
+        },
+        {
+         "balise": "td",
+         "attributs": {},
+         "enfants": [
+          {
+           "balise": "input",
+           "attributs": {
+            "name": "membre_court",
+            "type": "radio",
+            "value": "G"
+           },
+           "enfants": []
+          }
+         ]
+        },
+        {
+         "balise": "td",
+         "attributs": {},
+         "enfants": [
+          {
+           "balise": "input",
+           "attributs": {
+            "name": "membre_court",
+            "type": "radio",
+            "value": "D"
+           },
+           "enfants": []
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "balise": "table",
+   "attributs": {
+    "id": "Posturo",
+    "class": "bloc"
+   },
+   "enfants": [
+    {
+     "balise": "thead",
+     "attributs": {},
+     "enfants": [
+      {
+       "balise": "tr",
+       "attributs": {},
+       "enfants": [
+        {
+         "balise": "th",
+         "attributs": {
+          "class": "titre_section"
+         },
+         "enfants": [
+          {
+           "texte": "Posturo dynamique:"
+          }
+         ]
+        },
+        {
+         "balise": "th",
+         "attributs": {},
+         "enfants": [
+          {
+           "texte": "Gauche(G)"
+          }
+         ]
+        },
+        {
+         "balise": "th",
+         "attributs": {},
+         "enfants": [
+          {
+           "texte": "Droite (D)"
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "balise": "tbody",
+     "attributs": {},
+     "enfants": [
+      {
+       "balise": "tr",
+       "attributs": {},
+       "enfants": [
+        {
+         "balise": "td",
+         "attributs": {},
+         "enfants": [
+          {
+           "texte": "Dorsal"
+          }
+         ]
+        },
+        {
+         "balise": "td",
+         "attributs": {},
+         "enfants": [
+          {
+           "balise": "input",
+           "attributs": {
+            "name": "dorsal",
+            "type": "radio",
+            "value": "G"
+           },
+           "enfants": []
+          }
+         ]
+        },
+        {
+         "balise": "td",
+         "attributs": {},
+         "enfants": [
+          {
+           "balise": "input",
+           "attributs": {
+            "name": "dorsal",
+            "type": "radio",
+            "value": "D"
+           },
+           "enfants": []
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "balise": "tr",
+       "attributs": {},
+       "enfants": [
+        {
+         "balise": "td",
+         "attributs": {},
+         "enfants": [
+          {
+           "texte": "Lombaire"
+          }
+         ]
+        },
+        {
+         "balise": "td",
+         "attributs": {},
+         "enfants": [
+          {
+           "balise": "input",
+           "attributs": {
+            "name": "lombaire",
+            "type": "radio",
+            "value": "G"
+           },
+           "enfants": []
+          }
+         ]
+        },
+        {
+         "balise": "td",
+         "attributs": {},
+         "enfants": [
+          {
+           "balise": "input",
+           "attributs": {
+            "name": "lombaire",
+            "type": "radio",
+            "value": "D"
+           },
+           "enfants": []
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "balise": "div",
+   "attributs": {
+    "id": "spin",
+    "class": "bloc form-group-inline"
+   },
+   "enfants": [
+    {
+     "balise": "label",
+     "attributs": {
+      "class": "titre_section"
+     },
+     "enfants": [
+      {
+       "texte": "Spin test:"
+      }
+     ]
+    },
+    {
+     "balise": "div",
+     "attributs": {
+      "class": "radio-group"
+     },
+     "enfants": [
+      {
+       "balise": "label",
+       "attributs": {
+        "class": "radio-label"
+       },
+       "enfants": [
+        {
+         "balise": "input",
+         "attributs": {
+          "id": "gauche",
+          "name": "groupe-gauche",
+          "type": "radio",
+          "value": "gauche"
+         },
+         "enfants": []
+        },
+        {
+         "balise": "span",
+         "attributs": {
+          "class": "custom-radio"
+         },
+         "enfants": []
+        },
+        {
+         "texte": " Gauche"
+        }
+       ]
+      },
+      {
+       "balise": "label",
+       "attributs": {
+        "class": "radio-label"
+       },
+       "enfants": [
+        {
+         "balise": "input",
+         "attributs": {
+          "id": "droit",
+          "name": "groupe-gauche",
+          "type": "radio",
+          "value": "droit"
+         },
+         "enfants": []
+        },
+        {
+         "balise": "span",
+         "attributs": {
+          "class": "custom-radio"
+         },
+         "enfants": []
+        },
+        {
+         "texte": " Droit"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "balise": "div",
+   "attributs": {
+    "id": "section_elements_testes",
+    "class": "bloc"
+   },
+   "enfants": [
+    {
+     "balise": "label",
+     "attributs": {
+      "for": "elements_testes",
+      "class": "titre_section"
+     },
+     "enfants": [
+      {
+       "texte": "Elements testés:"
+      }
+     ]
+    },
+    {
+     "balise": "textarea",
+     "attributs": {
+      "id": "elements_testes",
+      "class": "input-auto-grow"
+     },
+     "enfants": []
+    },
+    {
+     "balise": "br",
+     "attributs": {},
+     "enfants": []
+    }
+   ]
+  },
+  {
+   "balise": "div",
+   "attributs": {
+    "id": "section_bilan_algique",
+    "class": "bloc"
+   },
+   "enfants": [
+    {
+     "balise": "label",
+     "attributs": {
+      "for": "bilan_algique",
+      "class": "titre_section"
+     },
+     "enfants": [
+      {
+       "texte": "Bilan algique:"
+      }
+     ]
+    },
+    {
+     "balise": "textarea",
+     "attributs": {
+      "id": "bilan_algique",
+      "class": "input-auto-grow"
+     },
+     "enfants": []
+    },
+    {
+     "balise": "br",
+     "attributs": {},
+     "enfants": []
+    }
+   ]
+  },
+  {
+   "balise": "div",
+   "attributs": {
+    "id": "section_bilan_morpho",
+    "class": "bloc"
+   },
+   "enfants": [
+    {
+     "balise": "label",
+     "attributs": {
+      "for": "bilan_morpho",
+      "class": "titre_section"
+     },
+     "enfants": [
+      {
+       "texte": "Bilan morpho:"
+      }
+     ]
+    },
+    {
+     "balise": "textarea",
+     "attributs": {
+      "id": "bilan_morpho",
+      "class": "input-auto-grow"
+     },
+     "enfants": []
+    },
+    {
+     "balise": "br",
+     "attributs": {},
+     "enfants": []
+    }
+   ]
+  },
+  {
+   "balise": "div",
+   "attributs": {
+    "id": "section_bilan_def",
+    "class": "bloc"
+   },
+   "enfants": [
+    {
+     "balise": "label",
+     "attributs": {
+      "for": "bilan_def",
+      "class": "titre_section"
+     },
+     "enfants": [
+      {
+       "texte": "Bilan def:"
+      }
+     ]
+    },
+    {
+     "balise": "textarea",
+     "attributs": {
+      "id": "bilan_def",
+      "class": "input-auto-grow"
+     },
+     "enfants": []
+    },
+    {
+     "balise": "br",
+     "attributs": {},
+     "enfants": []
+    }
+   ]
+  },
+  {
+   "balise": "div",
+   "attributs": {
+    "id": "Pouls",
+    "class": "bloc form-group-inline"
+   },
+   "enfants": [
+    {
+     "balise": "label",
+     "attributs": {
+      "class": "titre_section"
+     },
+     "enfants": [
+      {
+       "texte": "Pouls:"
+      }
+     ]
+    },
+    {
+     "balise": "div",
+     "attributs": {
+      "class": "checkbox-group"
+     },
+     "enfants": [
+      {
+       "balise": "label",
+       "attributs": {
+        "class": "checkbox-label"
+       },
+       "enfants": [
+        {
+         "balise": "input",
+         "attributs": {
+          "id": "pédieux",
+          "type": "checkbox"
+         },
+         "enfants": []
+        },
+        {
+         "balise": "span",
+         "attributs": {
+          "class": "custom-checkbox"
+         },
+         "enfants": []
+        },
+        {
+         "texte": " Pédieux"
+        }
+       ]
+      },
+      {
+       "balise": "label",
+       "attributs": {
+        "class": "checkbox-label"
+       },
+       "enfants": [
+        {
+         "balise": "input",
+         "attributs": {
+          "id": "tibial",
+          "type": "checkbox"
+         },
+         "enfants": []
+        },
+        {
+         "balise": "span",
+         "attributs": {
+          "class": "custom-checkbox"
+         },
+         "enfants": []
+        },
+        {
+         "texte": " Tibial"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "balise": "div",
+   "attributs": {
+    "id": "section_enregistrement_plateforme",
+    "class": "bloc"
+   },
+   "enfants": [
+    {
+     "balise": "label",
+     "attributs": {
+      "for": "enregistrement_plateforme",
+      "class": "titre_section"
+     },
+     "enfants": [
+      {
+       "texte": "Enregistrement Plateforme:"
+      }
+     ]
+    },
+    {
+     "balise": "textarea",
+     "attributs": {
+      "id": "enregistrement_plateforme",
+      "class": "input-auto-grow"
+     },
+     "enfants": []
+    },
+    {
+     "balise": "br",
+     "attributs": {},
+     "enfants": []
+    }
+   ]
+  },
+  {
+   "balise": "div",
+   "attributs": {
+    "id": "section_empreinte_encre",
+    "class": "bloc form-group-inline"
+   },
+   "enfants": [
+    {
+     "balise": "div",
+     "attributs": {
+      "class": "checkbox-group"
+     },
+     "enfants": [
+      {
+       "balise": "label",
+       "attributs": {
+        "class": "checkbox-group"
+       },
+       "enfants": [
+        {
+         "balise": "label",
+         "attributs": {
+          "for": "empreinte_encre",
+          "class": "titre_section"
+         },
+         "enfants": [
+          {
+           "texte": "Empreinte encre:"
+          }
+         ]
+        },
+        {
+         "balise": "input",
+         "attributs": {
+          "id": "empreinte_encre",
+          "type": "checkbox",
+          "class": "custom-checkbox"
+         },
+         "enfants": []
+        },
+        {
+         "balise": "br",
+         "attributs": {},
+         "enfants": []
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "balise": "div",
+   "attributs": {
+    "id": "section_chaussures_ville",
+    "class": "bloc chaussures-inline-group"
+   },
+   "enfants": [
+    {
+     "balise": "label",
+     "attributs": {
+      "for": "chaussures_ville"
+     },
+     "enfants": [
+      {
+       "texte": "Chaussures ville:"
+      }
+     ]
+    },
+    {
+     "balise": "input",
+     "attributs": {
+      "id": "chaussures_ville",
+      "type": "text"
+     },
+     "enfants": []
+    },
+    {
+     "balise": "label",
+     "attributs": {
+      "class": "checkbox-label-simple"
+     },
+     "enfants": []
+    },
+    {
+     "balise": "input",
+     "attributs": {
+      "id": "usee_ville",
+      "type": "checkbox"
+     },
+     "enfants": []
+    },
+    {
+     "texte": " Usées"
+    },
+    {
+     "balise": "label",
+     "attributs": {
+      "for": "marque_ville"
+     },
+     "enfants": [
+      {
+       "texte": "Marque :"
+      }
+     ]
+    },
+    {
+     "balise": "input",
+     "attributs": {
+      "id": "marque_ville",
+      "type": "text"
+     },
+     "enfants": []
+    },
+    {
+     "balise": "label",
+     "attributs": {
+      "for": "type_ville"
+     },
+     "enfants": [
+      {
+       "texte": "Type :"
+      }
+     ]
+    },
+    {
+     "balise": "input",
+     "attributs": {
+      "id": "type_ville",
+      "type": "text"
+     },
+     "enfants": []
+    }
+   ]
+  },
+  {
+   "balise": "div",
+   "attributs": {
+    "id": "section_chaussures_sport",
+    "class": "bloc chaussures-inline-group"
+   },
+   "enfants": [
+    {
+     "balise": "label",
+     "attributs": {
+      "for": "chaussures_sport"
+     },
+     "enfants": [
+      {
+       "texte": "Chaussures sport :"
+      }
+     ]
+    },
+    {
+     "balise": "input",
+     "attributs": {
+      "id": "chaussures_sport",
+      "type": "text"
+     },
+     "enfants": []
+    },
+    {
+     "balise": "label",
+     "attributs": {
+      "class": "checkbox-label-simple"
+     },
+     "enfants": []
+    },
+    {
+     "balise": "input",
+     "attributs": {
+      "id": "usee_sport",
+      "type": "checkbox"
+     },
+     "enfants": []
+    },
+    {
+     "texte": " Usées"
+    },
+    {
+     "balise": "label",
+     "attributs": {
+      "for": "marque_sport"
+     },
+     "enfants": [
+      {
+       "texte": "Marque :"
+      }
+     ]
+    },
+    {
+     "balise": "input",
+     "attributs": {
+      "id": "marque_sport",
+      "type": "text"
+     },
+     "enfants": []
+    },
+    {
+     "balise": "label",
+     "attributs": {
+      "for": "type_sport"
+     },
+     "enfants": [
+      {
+       "texte": "Type :"
+      }
+     ]
+    },
+    {
+     "balise": "input",
+     "attributs": {
+      "id": "type_sport",
+      "type": "text"
+     },
+     "enfants": []
+    }
+   ]
+  },
+  {
+   "balise": "div",
+   "attributs": {
+    "id": "section_plan_appareillage",
+    "class": "bloc"
+   },
+   "enfants": [
+    {
+     "balise": "label",
+     "attributs": {
+      "class": "titre_section_bloc"
+     },
+     "enfants": [
+      {
+       "texte": "Plan appareillage proposé :"
+      }
+     ]
+    },
+    {
+     "balise": "div",
+     "attributs": {
+      "class": "appareillage-container"
+     },
+     "enfants": [
+      {
+       "balise": "div",
+       "attributs": {
+        "class": "empreintes-box"
+       },
+       "enfants": [
+        {
+         "balise": "img",
+         "attributs": {
+          "alt": "Empreintes plantaires",
+          "id": "image_empreintes",
+          "src": "images/empreintes_pieds.png",
+          "class": "dessinable"
+         },
+         "enfants": []
+        }
+       ]
+      },
+      {
+       "balise": "textarea",
+       "attributs": {
+        "id": "plan_texte",
+        "placeholder": "Saisissez les éléments du plan d'appareillage...",
+        "class": "input-auto-grow"
+       },
+       "enfants": []
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "balise": "div",
+   "attributs": {
+    "id": "pointure_ville_bloc",
+    "class": "bloc form-group-inline-bottom"
+   },
+   "enfants": [
+    {
+     "balise": "label",
+     "attributs": {
+      "for": "pointure_ville",
+      "class": "titre_section"
+     },
+     "enfants": [
+      {
+       "texte": "Pointure ville:"
+      }
+     ]
+    },
+    {
+     "balise": "input",
+     "attributs": {
+      "id": "pointure_ville",
+      "type": "text"
+     },
+     "enfants": []
+    }
+   ]
+  },
+  {
+   "balise": "div",
+   "attributs": {
+    "id": "pointure_sport_bloc",
+    "class": "bloc form-group-inline-bottom"
+   },
+   "enfants": [
+    {
+     "balise": "label",
+     "attributs": {
+      "for": "pointure_sport",
+      "class": "titre_section"
+     },
+     "enfants": [
+      {
+       "texte": "Pointure sport:"
+      }
+     ]
+    },
+    {
+     "balise": "input",
+     "attributs": {
+      "id": "pointure_sport",
+      "type": "text"
+     },
+     "enfants": []
+    }
+   ]
+  },
+  {
+   "balise": "div",
+   "attributs": {
+    "id": "base_bloc",
+    "class": "bloc form-group-inline-bottom"
+   },
+   "enfants": [
+    {
+     "balise": "label",
+     "attributs": {
+      "for": "base",
+      "class": "titre_section"
+     },
+     "enfants": [
+      {
+       "texte": "Base :"
+      }
+     ]
+    },
+    {
+     "balise": "input",
+     "attributs": {
+      "id": "base",
+      "type": "text"
+     },
+     "enfants": []
+    }
+   ]
+  },
+  {
+   "balise": "div",
+   "attributs": {
+    "id": "section_recouvrement",
+    "class": "bloc"
+   },
+   "enfants": [
+    {
+     "balise": "label",
+     "attributs": {
+      "for": "recouvrement",
+      "class": "titre_section"
+     },
+     "enfants": [
+      {
+       "texte": "Recouvrement :"
+      }
+     ]
+    },
+    {
+     "balise": "textarea",
+     "attributs": {
+      "id": "recouvrement",
+      "class": "input-auto-grow"
+     },
+     "enfants": []
+    },
+    {
+     "balise": "br",
+     "attributs": {},
+     "enfants": []
+    }
+   ]
+  },
+  {
+   "balise": "div",
+   "attributs": {
+    "id": "section_conseils",
+    "class": "bloc"
+   },
+   "enfants": [
+    {
+     "balise": "label",
+     "attributs": {
+      "for": "conseils",
+      "class": "titre_section"
+     },
+     "enfants": [
+      {
+       "texte": "Conseils:"
+      }
+     ]
+    },
+    {
+     "balise": "textarea",
+     "attributs": {
+      "id": "conseils",
+      "class": "input-auto-grow"
+     },
+     "enfants": []
+    },
+    {
+     "balise": "br",
+     "attributs": {},
+     "enfants": []
+    }
+   ]
+  },
+  {
+   "balise": "div",
+   "attributs": {
+    "id": "section_orientation",
+    "class": "bloc"
+   },
+   "enfants": [
+    {
+     "balise": "label",
+     "attributs": {
+      "for": "orientation",
+      "class": "titre_section"
+     },
+     "enfants": [
+      {
+       "texte": "Orientation:"
+      }
+     ]
+    },
+    {
+     "balise": "textarea",
+     "attributs": {
+      "id": "orientation",
+      "class": "input-auto-grow"
+     },
+     "enfants": []
+    },
+    {
+     "balise": "br",
+     "attributs": {},
+     "enfants": []
+    }
+   ]
+  }
+ ]
+}

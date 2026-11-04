@@ -92,6 +92,25 @@
  *       </tbody>
  *     </table>
  *
+ *   Bloc dont l'unique champ est de type "grille" (version 2 du format ; la
+ *   table est le bloc, comme pour "tableau" ; voir `creerGrille()`)
+ *     <table id="CLE" class="bloc grille">
+ *       <thead>  avec groupes :
+ *         <tr><th class="titre_section" rowspan="2">LIBELLE</th>
+ *             <th colspan="ETENDUE">GROUPE.libelle</th>…</tr>
+ *         <tr><th>COLONNE.libelle</th>…</tr>
+ *                sans groupes :
+ *         <tr><th class="titre_section">LIBELLE</th><th>COLONNE.libelle</th>…</tr>
+ *       </thead>
+ *       <tbody>
+ *         <tr><td>LIGNE.libelle</td>
+ *             case        <td><input type="checkbox" id="CLE_CELLULE"></td>
+ *             texte-court <td><input type="text" id="CLE_CELLULE" class="grille-texte"
+ *                              maxlength="8" autocomplete="off"></td>
+ *             neutralisée <td class="grille-neutralisee"></td> …</tr>
+ *       </tbody>
+ *     </table>
+ *
  *   Bloc encadré (un champ "image-annotable" porte `apparence: "encadree"`,
  *   D9 ; un seul cas en production, bloc « Plan appareillage »)
  *     <div class="appareillage-container">
@@ -102,8 +121,16 @@
  * ──────────────────────────────────────────────────────────────────────
  */
 
-const VERSION_CONNUE = 1;
+// Versions du format de schéma que ce moteur sait lire (règle 2). La version 1
+// est celle du cabinet pilote et se rend exactement comme avant C1-T6 ; la
+// version 2 ajoute le type "grille". Ajouter une version, c'est une décision
+// de format (docs/schema-formulaire.md §5.1), jamais un détail de ce fichier.
+const VERSIONS_CONNUES = [1, 2];
+// Les sept types de la version 1 : la liste de référence de la version 1, que
+// le type de la version 2 n'allonge pas (un document de version 1 ne peut pas
+// contenir de grille, règle 16).
 const TYPES_RETENUS = ["texte", "zone-texte", "date", "case", "radio", "tableau", "image-annotable"];
+const TYPES_VERSION_2 = ["grille"];
 const DISPOSITIONS_FERMEES = ["empilee", "en-ligne", "en-ligne-bas", "atcd", "chaussures"];
 const TITRE_APPARENCES_FERMEES = ["h3", "label", "label_bloc"];
 const APPARENCES_IMAGE_FERMEES = ["squelette", "encadree"];
@@ -117,6 +144,25 @@ const TYPES_AVEC_CLE_OBLIGATOIRE = ["texte", "zone-texte", "date", "case", "imag
 const TYPES_AVEC_LIBELLE_OBLIGATOIRE = ["texte", "zone-texte", "date", "case", "tableau", "image-annotable"];
 const TYPES_AVEC_DEFAUT_AUTORISE = ["texte", "zone-texte", "date", "case"];
 const TYPES_AVEC_INDICATION_AUTORISEE = ["texte", "zone-texte"];
+
+// Grille (règles 17 à 20). Les bornes sont celles de la page : plus de 12
+// colonnes déborderait de #form-bilan, plus de 20 lignes ferait une grille plus
+// haute qu'une page, que `calculerPages()` couperait net au milieu d'une ligne
+// (script.js, avertissement « bloc plus haut qu'une page »). On les abaisse sur
+// mesure, on ne les relève jamais.
+const NATURES_CELLULE_FERMEES = ["case", "texte-court"];
+const GRILLE_COLONNES_MAX = 12;
+const GRILLE_LIGNES_MAX = 20;
+const GRILLE_CLE_LONGUEUR_MAX = 40;
+// Sans « _ » (séparateur des clés de cellule : la composition est injective),
+// sans « # » (clé d'un radio de tableau), sans espace ni accent (id sûr dans
+// un sélecteur).
+const MOTIF_CLE_GRILLE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+const ATTRIBUTS_GRILLE_INTERDITS = ["defaut", "indication", "apparence"];
+const ATTRIBUTS_BLOC_INTERDITS_AVEC_GRILLE = ["titre", "titre_cle", "titre_apparence", "disposition", "balise"];
+const ATTRIBUTS_COLONNE_CONNUS = new Set(["cle", "libelle", "nature"]);
+const ATTRIBUTS_LIGNE_CONNUS = new Set(["cle", "libelle", "neutralisees"]);
+const ATTRIBUTS_GROUPE_CONNUS = new Set(["libelle", "etendue"]);
 
 // Attributs facultatifs reconnus à chaque niveau — D8 : une clé absente de
 // l'un de ces deux ensembles est ignorée avec un avertissement, jamais un
@@ -138,7 +184,8 @@ const ATTRIBUTS_BLOC_CONNUS = new Set(
 const BALISES_BLOC_FERMEES = ["div", "section"];
 const ATTRIBUTS_CHAMP_CONNUS = new Set([
     "type", "cle", "libelle", "defaut", "indication",
-    "valeurs", "entetes", "lignes", "fichier", "texte_alternatif", "apparence"
+    "valeurs", "entetes", "lignes", "fichier", "texte_alternatif", "apparence",
+    "colonnes", "groupes"
 ]);
 
 /**
@@ -192,7 +239,7 @@ const IDS_RESERVES_COQUILLE = new Set([
 /* ========================= Validation (section 7) ========================= */
 
 /**
- * Applique les règles 1 à 14 de `docs/schema-formulaire.md` §7, plus les
+ * Applique les règles 1 à 20 de `docs/schema-formulaire.md` §7, plus les
  * vérifications internes du moteur qui ne portent pas de numéro (le type
  * `tableau` combiné à un autre champ, les clés réservées à la coquille…),
  * et retourne la liste complète des refus (jamais une exception, jamais un
@@ -227,10 +274,17 @@ function validerSchema(schema) {
     if ("version_schema" in schema) {
         if (!Number.isInteger(schema.version_schema)) {
             erreurs.push("règle 2 : « version_schema » doit être un entier.");
-        } else if (schema.version_schema !== VERSION_CONNUE) {
+        } else if (VERSIONS_CONNUES.indexOf(schema.version_schema) === -1) {
             erreurs.push("règle 2 : version de schéma inconnue du moteur : " + schema.version_schema);
         }
     }
+
+    // La version qui gouverne les types admis. Une version absente ou inconnue
+    // est déjà refusée (règles 1 et 2) : on ne la double pas d'un refus de
+    // type trompeur, et on valide alors au plus large.
+    const version = VERSIONS_CONNUES.indexOf(schema.version_schema) !== -1
+        ? schema.version_schema
+        : Math.max.apply(null, VERSIONS_CONNUES);
 
     if (!("blocs" in schema)) return erreurs;
 
@@ -241,6 +295,7 @@ function validerSchema(schema) {
 
     const clesBlocVues = new Set();
     const clesChampVues = new Set();
+    const cellulesDeGrille = [];
     let blocEnTeteVu = false;
 
     schema.blocs.forEach(function (bloc, indexBloc) {
@@ -298,10 +353,21 @@ function validerSchema(schema) {
         }
 
         bloc.champs.forEach(function (champ, indexChamp) {
-            validerChamp(champ, indexBloc, indexChamp, clesChampVues, erreurs);
+            validerChamp(champ, indexBloc, indexChamp, clesChampVues, erreurs, version, cellulesDeGrille);
         });
 
         verifierCompatibiliteBloc(bloc, indexBloc, erreurs);
+    });
+
+    // Règle 18 : une clé de cellule devient un `id`, comme la `cle` d'un bloc.
+    // Les deux ensembles sont tenus séparés ci-dessus, et une collision entre
+    // une `cle` de bloc et une `cle` de champ n'est pas vue en général (défaut
+    // préexistant, hors périmètre) : on ferme ici le seul cas des cellules,
+    // après la boucle pour que l'ordre des blocs n'y change rien.
+    cellulesDeGrille.forEach(function (cellule) {
+        if (clesBlocVues.has(cellule.cle)) {
+            erreurs.push("règle 18 : « cle » de cellule égale à la « cle » d'un bloc (" + cellule.position + ") : " + cellule.cle);
+        }
     });
 
     return erreurs;
@@ -320,7 +386,7 @@ function avertirAttributsInconnus(objet, connues, etiquette) {
     });
 }
 
-function validerChamp(champ, indexBloc, indexChamp, clesChampVues, erreurs) {
+function validerChamp(champ, indexBloc, indexChamp, clesChampVues, erreurs, version, cellulesDeGrille) {
     const position = "bloc " + indexBloc + ", champ " + indexChamp;
 
     if (champ === null || typeof champ !== "object" || Array.isArray(champ)) {
@@ -328,7 +394,13 @@ function validerChamp(champ, indexBloc, indexChamp, clesChampVues, erreurs) {
         return;
     }
 
-    if (typeof champ.type !== "string" || TYPES_RETENUS.indexOf(champ.type) === -1) {
+    if (champ.type === "grille" && version < 2) {
+        erreurs.push("règle 16 : le type « grille » n'existe qu'en version 2 du format, le document est en version " + version + " (" + position + ").");
+        return;
+    }
+
+    if (typeof champ.type !== "string" ||
+        (TYPES_RETENUS.indexOf(champ.type) === -1 && TYPES_VERSION_2.indexOf(champ.type) === -1)) {
         erreurs.push("règle 7 : type de champ inconnu au " + position + " : " + champ.type);
         return;
     }
@@ -379,15 +451,21 @@ function validerChamp(champ, indexBloc, indexChamp, clesChampVues, erreurs) {
         }
     }
 
-    if ("defaut" in champ && TYPES_AVEC_DEFAUT_AUTORISE.indexOf(champ.type) === -1) {
+    if (champ.type === "grille") {
+        validerGrille(champ, position, clesChampVues, erreurs, cellulesDeGrille);
+    }
+
+    // Sur une grille, les trois interdits portent le numéro de la règle 19
+    // (validerGrille) : on ne les double pas des règles 11 et 13.
+    if ("defaut" in champ && champ.type !== "grille" && TYPES_AVEC_DEFAUT_AUTORISE.indexOf(champ.type) === -1) {
         erreurs.push("règle 11 : « defaut » n'est pas autorisé sur le type « " + champ.type + " » au " + position + ".");
     }
 
-    if ("indication" in champ && TYPES_AVEC_INDICATION_AUTORISEE.indexOf(champ.type) === -1) {
+    if ("indication" in champ && champ.type !== "grille" && TYPES_AVEC_INDICATION_AUTORISEE.indexOf(champ.type) === -1) {
         erreurs.push("règle 11 : « indication » n'est pas autorisé sur le type « " + champ.type + " » au " + position + ".");
     }
 
-    if ("apparence" in champ) {
+    if ("apparence" in champ && champ.type !== "grille") {
         // Deux types seulement portent une apparence, chacun avec son jeu fermé.
         if (champ.type === "image-annotable") {
             if (APPARENCES_IMAGE_FERMEES.indexOf(champ.apparence) === -1) {
@@ -447,6 +525,195 @@ function validerChamp(champ, indexBloc, indexChamp, clesChampVues, erreurs) {
 }
 
 /**
+ * Clé de grille, de ligne ou de colonne (règle 17) : minuscules, chiffres et
+ * tirets simples, 40 caractères au plus. Voir `MOTIF_CLE_GRILLE`.
+ */
+function cleGrilleConforme(cle) {
+    return typeof cle === "string" && cle.length <= GRILLE_CLE_LONGUEUR_MAX && MOTIF_CLE_GRILLE.test(cle);
+}
+
+function estObjetSimple(valeur) {
+    return valeur !== null && typeof valeur === "object" && !Array.isArray(valeur);
+}
+
+/**
+ * Règles 17, 18 et 19 pour un champ de type « grille » (version 2). Tous les
+ * refus nomment la règle et la position — jamais la valeur d'une saisie, il n'y
+ * en a pas ici. Les clés de cellule ne sont calculées et enregistrées que si la
+ * structure a passé les contrôles qui les rendent calculables : sinon on
+ * empilerait des collisions fantômes sur un schéma déjà refusé.
+ */
+function validerGrille(champ, position, clesChampVues, erreurs, cellulesDeGrille) {
+    let structureSaine = true;
+    function refuser(message) {
+        structureSaine = false;
+        erreurs.push("règle 17 : " + message);
+    }
+
+    // Règle 19 : rien n'est prérempli, une grille n'a ni aide ni apparence.
+    ATTRIBUTS_GRILLE_INTERDITS.forEach(function (nom) {
+        if (nom in champ) {
+            erreurs.push("règle 19 : « " + nom + " » n'est pas autorisé sur une grille, au " + position + ".");
+        }
+    });
+
+    if (!cleGrilleConforme(champ.cle)) {
+        refuser("« cle » de la grille manquante ou non conforme au " + position
+            + " (minuscules, chiffres et tirets simples, " + GRILLE_CLE_LONGUEUR_MAX + " caractères au plus).");
+    } else {
+        // Unicité globale et clés réservées : la clé de la grille n'est l'id de
+        // rien, mais reste unique dans le document (D4).
+        verifierCleUnique(champ.cle, position, clesChampVues, erreurs);
+    }
+
+    if (typeof champ.libelle !== "string") {
+        refuser("« libelle » de la grille doit être une chaîne (vide permise) au " + position + ".");
+    }
+
+    // --- colonnes
+    let colonnesValides = false;
+    const clesColonnes = [];
+    if (!Array.isArray(champ.colonnes) || champ.colonnes.length < 1 || champ.colonnes.length > GRILLE_COLONNES_MAX) {
+        refuser("« colonnes » du " + position + " doit compter de 1 à " + GRILLE_COLONNES_MAX + " entrées.");
+    } else {
+        colonnesValides = true;
+        champ.colonnes.forEach(function (colonne, indexColonne) {
+            const positionColonne = position + ", colonne " + indexColonne;
+            if (!estObjetSimple(colonne)) {
+                refuser("la colonne du " + positionColonne + " n'est pas un objet.");
+                colonnesValides = false;
+                return;
+            }
+            if (!cleGrilleConforme(colonne.cle)) {
+                refuser("« cle » manquante ou non conforme au " + positionColonne + ".");
+                colonnesValides = false;
+            } else if (clesColonnes.indexOf(colonne.cle) !== -1) {
+                refuser("« cle » de colonne dupliquée dans la grille (" + positionColonne + ") : " + colonne.cle);
+                colonnesValides = false;
+            } else {
+                clesColonnes.push(colonne.cle);
+            }
+            if (typeof colonne.libelle !== "string" || colonne.libelle === "") {
+                refuser("« libelle » de la colonne du " + positionColonne + " doit être une chaîne non vide.");
+            }
+            if (NATURES_CELLULE_FERMEES.indexOf(colonne.nature) === -1) {
+                refuser("« nature » inconnue au " + positionColonne + " : " + colonne.nature
+                    + " (attendu : " + NATURES_CELLULE_FERMEES.join(", ") + ").");
+            }
+            avertirAttributsInconnus(colonne, ATTRIBUTS_COLONNE_CONNUS, positionColonne);
+        });
+    }
+
+    // --- lignes
+    let lignesValides = false;
+    const clesLignes = [];
+    if (!Array.isArray(champ.lignes) || champ.lignes.length < 1 || champ.lignes.length > GRILLE_LIGNES_MAX) {
+        refuser("« lignes » du " + position + " doit compter de 1 à " + GRILLE_LIGNES_MAX + " entrées.");
+    } else {
+        lignesValides = true;
+        champ.lignes.forEach(function (ligne, indexLigne) {
+            const positionLigne = position + ", ligne " + indexLigne;
+            if (!estObjetSimple(ligne)) {
+                refuser("la ligne du " + positionLigne + " n'est pas un objet.");
+                lignesValides = false;
+                return;
+            }
+            if (!cleGrilleConforme(ligne.cle)) {
+                refuser("« cle » manquante ou non conforme au " + positionLigne + ".");
+                lignesValides = false;
+            } else if (clesLignes.indexOf(ligne.cle) !== -1) {
+                refuser("« cle » de ligne dupliquée dans la grille (" + positionLigne + ") : " + ligne.cle);
+                lignesValides = false;
+            } else {
+                clesLignes.push(ligne.cle);
+            }
+            if (typeof ligne.libelle !== "string" || ligne.libelle === "") {
+                refuser("« libelle » de la ligne du " + positionLigne + " doit être une chaîne non vide.");
+            }
+            if ("neutralisees" in ligne) {
+                if (!Array.isArray(ligne.neutralisees)) {
+                    refuser("« neutralisees » du " + positionLigne + " doit être une liste de clés de colonnes.");
+                    lignesValides = false;
+                } else {
+                    const vues = [];
+                    ligne.neutralisees.forEach(function (cleColonne) {
+                        if (vues.indexOf(cleColonne) !== -1) {
+                            refuser("« neutralisees » du " + positionLigne + " cite deux fois la colonne : " + cleColonne);
+                            lignesValides = false;
+                        } else if (colonnesValides && clesColonnes.indexOf(cleColonne) === -1) {
+                            refuser("« neutralisees » du " + positionLigne + " cite une colonne inexistante : " + cleColonne);
+                            lignesValides = false;
+                        }
+                        vues.push(cleColonne);
+                    });
+                    if (colonnesValides && lignesValides && vues.length >= clesColonnes.length) {
+                        refuser("« neutralisees » du " + positionLigne + " retire toutes les cellules : au moins une doit rester active.");
+                        lignesValides = false;
+                    }
+                }
+            }
+            avertirAttributsInconnus(ligne, ATTRIBUTS_LIGNE_CONNUS, positionLigne);
+        });
+    }
+
+    // --- groupes
+    if ("groupes" in champ) {
+        if (!Array.isArray(champ.groupes) || champ.groupes.length === 0) {
+            refuser("« groupes » du " + position + " doit être une liste non vide.");
+        } else {
+            let somme = 0;
+            let etenduesSaines = true;
+            champ.groupes.forEach(function (groupe, indexGroupe) {
+                const positionGroupe = position + ", groupe " + indexGroupe;
+                if (!estObjetSimple(groupe)) {
+                    refuser("le groupe du " + positionGroupe + " n'est pas un objet.");
+                    etenduesSaines = false;
+                    return;
+                }
+                if (typeof groupe.libelle !== "string") {
+                    refuser("« libelle » du " + positionGroupe + " doit être une chaîne (vide permise).");
+                }
+                if (!Number.isInteger(groupe.etendue) || groupe.etendue < 1) {
+                    refuser("« etendue » du " + positionGroupe + " doit être un entier supérieur ou égal à 1.");
+                    etenduesSaines = false;
+                } else {
+                    somme += groupe.etendue;
+                }
+                avertirAttributsInconnus(groupe, ATTRIBUTS_GROUPE_CONNUS, positionGroupe);
+            });
+            if (etenduesSaines && Array.isArray(champ.colonnes) && somme !== champ.colonnes.length) {
+                refuser("la somme des « etendue » des groupes du " + position + " (" + somme
+                    + ") doit égaler le nombre de colonnes (" + champ.colonnes.length + ").");
+            }
+        }
+    }
+
+    // --- règle 18 : clés de cellule
+    if (structureSaine && colonnesValides && lignesValides && cleGrilleConforme(champ.cle)) {
+        champ.lignes.forEach(function (ligne) {
+            const neutres = ligne.neutralisees || [];
+            champ.colonnes.forEach(function (colonne) {
+                if (neutres.indexOf(colonne.cle) !== -1) return;
+                const cle = cleCellule(champ, ligne, colonne);
+                const positionCellule = position + ", ligne " + ligne.cle + ", colonne " + colonne.cle;
+                verifierCleUnique(cle, positionCellule, clesChampVues, erreurs, 18, "de cellule");
+                cellulesDeGrille.push({ cle: cle, position: positionCellule });
+            });
+        });
+    }
+}
+
+/**
+ * Clé de brouillon (et `id`) d'une cellule de grille : la grille, la ligne et
+ * la colonne séparées par « __ ». Ne dépend d'aucune position — réordonner
+ * lignes ou colonnes ne déplace aucune valeur du brouillon — et, sans « _ »
+ * dans les trois composantes, elle est injective (spécification §6).
+ */
+function cleCellule(grille, ligne, colonne) {
+    return grille.cle + "__" + ligne.cle + "__" + colonne.cle;
+}
+
+/**
  * Chemin d'image autorisé (constat n°8, audit C1-T3) : relatif, sous
  * `images/`, sans traversée de répertoire ni schéma d'URL — la même
  * discipline qu'`assainir_nom()` côté serveur (`serveur/serveur.py`), et
@@ -463,9 +730,13 @@ function cheminImageAutorise(chemin) {
     return /^images\/[A-Za-z0-9._-]+\.(?:png|jpe?g|svg)$/i.test(chemin);
 }
 
-function verifierCleUnique(cle, position, clesChampVues, erreurs) {
+function verifierCleUnique(cle, position, clesChampVues, erreurs, regle, genre) {
+    // Par défaut la règle 8 et une clé « de champ » ; les cellules de grille
+    // passent par la même vérification sous la règle 18 (D5, C1-T6).
+    regle = regle || 8;
+    genre = genre || "de champ";
     if (typeof cle !== "string" || cle === "") {
-        erreurs.push("règle 8 : « cle » manquante ou vide au " + position + ".");
+        erreurs.push("règle " + regle + " : « cle » manquante ou vide au " + position + ".");
         return;
     }
     if (IDS_RESERVES_COQUILLE.has(cle)) {
@@ -473,7 +744,7 @@ function verifierCleUnique(cle, position, clesChampVues, erreurs) {
         return;
     }
     if (clesChampVues.has(cle)) {
-        erreurs.push("règle 8 : « cle » de champ dupliquée (" + position + ") : " + cle);
+        erreurs.push("règle " + regle + " : « cle » " + genre + " dupliquée (" + position + ") : " + cle);
     } else {
         clesChampVues.add(cle);
     }
@@ -507,6 +778,18 @@ function verifierCompatibiliteBloc(bloc, indexBloc, erreurs) {
         return;
     }
 
+    // Même exemption pour une grille (la table est le bloc), à une condition
+    // en plus : le bloc ne doit porter aucun attribut que la table ignorerait en
+    // silence (règle 20).
+    if (bloc.champs.length === 1 && bloc.champs[0] && bloc.champs[0].type === "grille") {
+        ATTRIBUTS_BLOC_INTERDITS_AVEC_GRILLE.forEach(function (nom) {
+            if (nom in bloc) {
+                erreurs.push("règle 20 : « " + nom + " » n'est pas autorisé sur le bloc d'une grille (bloc " + indexBloc + ") : la table est le bloc.");
+            }
+        });
+        return;
+    }
+
     const encadree = bloc.champs.some(function (c) {
         return c && c.type === "image-annotable" && c.apparence === "encadree";
     });
@@ -520,6 +803,11 @@ function verifierCompatibiliteBloc(bloc, indexBloc, erreurs) {
 
         if (champ.type === "tableau") {
             erreurs.push("sécurité du moteur : le type « tableau » n'est valide que comme unique champ de son bloc (" + position + ").");
+            return;
+        }
+
+        if (champ.type === "grille") {
+            erreurs.push("règle 20 : le type « grille » n'est valide que comme unique champ de son bloc (" + position + ").");
             return;
         }
 
@@ -635,6 +923,13 @@ function nomsEnCollision(schema) {
 }
 
 function rendreBloc(document, fragment, bloc) {
+    // Un bloc dont l'unique champ est une "grille" (version 2) devient, comme
+    // le tableau, la <table> elle-même.
+    if (bloc.champs.length === 1 && bloc.champs[0].type === "grille") {
+        fragment.appendChild(creerGrille(document, bloc));
+        return;
+    }
+
     // Un bloc dont l'unique champ est de type "tableau" devient lui-même un
     // <table> : la disposition ne s'y applique pas (docs/schema-formulaire.md
     // §2, note des blocs 11 et 12 — « bloc et champ se confondent »).
@@ -943,6 +1238,96 @@ function creerTable(document, bloc) {
             entree.setAttribute("name", ligne.cle);
             entree.setAttribute("value", colonne.valeur);
             td.appendChild(entree);
+            tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+
+    return table;
+}
+
+/**
+ * Bloc dont l'unique champ est "grille" : le bloc devient la <table>. Le moteur
+ * n'ajoute ni ponctuation, ni texte d'accessibilité composé, ni attribut `name`
+ * (voir `docs/schema-formulaire.md` §5.3) : le schéma porte le texte exact, et
+ * `cleChamp()` (script.js) prend l'`id` — c'est lui qui fait de chaque cellule
+ * un champ du brouillon, sans que script.js n'ait rien à savoir des grilles.
+ *
+ * L'intitulé de ligne est un <td>, pas un <th> : la règle globale `th` du
+ * thème est blanche et seul `thead tr` a un fond, un <th> de corps serait donc
+ * illisible. Tout nombre écrit en attribut (rowspan, colspan, maxlength) sort
+ * d'un entier déjà validé ou d'une constante, jamais d'une chaîne du schéma.
+ */
+function creerGrille(document, bloc) {
+    const champ = bloc.champs[0];
+    const table = document.createElement("table");
+    table.setAttribute("id", bloc.cle);
+    table.classList.add("bloc");
+    table.classList.add("grille");
+
+    const thead = document.createElement("thead");
+    const trHaut = document.createElement("tr");
+    const thCoin = document.createElement("th");
+    thCoin.classList.add("titre_section");
+    thCoin.textContent = champ.libelle;
+    trHaut.appendChild(thCoin);
+
+    if (champ.groupes) {
+        thCoin.setAttribute("rowspan", String(2));
+        champ.groupes.forEach(function (groupe) {
+            const th = document.createElement("th");
+            th.setAttribute("colspan", String(groupe.etendue));
+            th.textContent = groupe.libelle;
+            trHaut.appendChild(th);
+        });
+        thead.appendChild(trHaut);
+        const trColonnes = document.createElement("tr");
+        champ.colonnes.forEach(function (colonne) {
+            const th = document.createElement("th");
+            th.textContent = colonne.libelle;
+            trColonnes.appendChild(th);
+        });
+        thead.appendChild(trColonnes);
+    } else {
+        champ.colonnes.forEach(function (colonne) {
+            const th = document.createElement("th");
+            th.textContent = colonne.libelle;
+            trHaut.appendChild(th);
+        });
+        thead.appendChild(trHaut);
+    }
+    table.appendChild(thead);
+
+    const tbody = document.createElement("tbody");
+    champ.lignes.forEach(function (ligne) {
+        const tr = document.createElement("tr");
+        const tdLibelle = document.createElement("td");
+        tdLibelle.textContent = ligne.libelle;
+        tr.appendChild(tdLibelle);
+        const neutres = ligne.neutralisees || [];
+        champ.colonnes.forEach(function (colonne) {
+            const td = document.createElement("td");
+            if (neutres.indexOf(colonne.cle) !== -1) {
+                // « Non applicable » se distingue de « non renseigné » par
+                // l'absence de contrôle : le fond est dans la feuille de style.
+                td.classList.add("grille-neutralisee");
+            } else {
+                const entree = document.createElement("input");
+                entree.setAttribute("id", cleCellule(champ, ligne, colonne));
+                if (colonne.nature === "texte-court") {
+                    entree.setAttribute("type", "text");
+                    entree.classList.add("grille-texte");
+                    // 8 caractères : au-delà, le PDF n'imprimerait que la partie
+                    // visible de la case, sans le dire. `autocomplete="off"` : la
+                    // tablette ne doit pas proposer la saisie du patient précédent.
+                    entree.setAttribute("maxlength", String(8));
+                    entree.setAttribute("autocomplete", "off");
+                } else {
+                    entree.setAttribute("type", "checkbox");
+                }
+                td.appendChild(entree);
+            }
             tr.appendChild(td);
         });
         tbody.appendChild(tr);

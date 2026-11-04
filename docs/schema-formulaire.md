@@ -1,6 +1,10 @@
 # Spécification du schéma de formulaire — bilan-posturo
 
-**Version du format de schéma : 1**
+**Version du format de schéma : 2**
+
+La version 1 reste acceptée et se rend à l'identique, octet pour octet : la
+version 2 ne fait qu'ajouter un huitième type, `grille` (section 4.1, tâche
+C1-T6). Un document de version 1 ne peut pas en contenir.
 
 Ce document fige le vocabulaire qui permettra de décrire un bilan
 posturologique par un fichier `schema.json` plutôt que par du HTML écrit à la
@@ -278,7 +282,8 @@ Légende des anomalies, détaillées en section 8 :
 
 ### 4.1 Types retenus
 
-Sept types, et pas un de plus (D1) :
+Sept types en version 1, et pas un de plus (D1) ; la version 2 en ajoute un
+huitième, `grille`, présenté en dernier :
 
 1. **`texte`** — une ligne de saisie libre. 15 occurrences dans le formulaire
    actuel.
@@ -295,8 +300,17 @@ Sept types, et pas un de plus (D1) :
    `Posturo`), 4 lignes au total.
 7. **`image-annotable`** — une image sur laquelle le praticien trace des
    traits au stylet. 4 occurrences.
+8. **`grille`** — *introduit par la version 2.* Un tableau dont les en-têtes de
+   colonnes peuvent être groupés, et dont chaque cellule est une **case à
+   cocher indépendante** (`case`) ou un **court texte** saisi (`texte-court`),
+   certaines cellules pouvant être neutralisées. À la différence de `tableau`,
+   qui n'admet qu'un choix exclusif par ligne, une ligne de grille peut porter
+   plusieurs cases cochées. Aucune occurrence dans le formulaire du cabinet
+   pilote, qui reste en version 1. Les cellules à trois états (vide, « + »,
+   « − ») ne sont pas retenues : les ajouter serait un changement incompatible,
+   donc une version 3 du format.
 
-Ces sept types couvrent 100 % des 53 contrôles de saisie et des 4 images du
+Les sept premiers types couvrent 100 % des 53 contrôles de saisie et des 4 images du
 formulaire actuel ; aucun élément n'est « non exprimable ».
 
 ### 4.2 Types écartés
@@ -318,9 +332,9 @@ formulaire actuel ; aucun élément n'est « non exprimable ».
   déjà portés par le type `tableau`. Aucun champ actuel n'a besoin d'un texte
   statique propre.
 
-Ajouter un huitième type — que ce soit l'un de ces trois ou un autre — relève
-d'une révision de la version du format de schéma (section 5.1), jamais d'un
-ajout silencieux au jeu existant.
+Ajouter un type — que ce soit l'un de ces trois ou un autre — relève d'une
+révision de la version du format de schéma (section 5.1), jamais d'un ajout
+silencieux au jeu existant : `grille` est ainsi entré avec la version 2.
 
 ## 5. Structure du fichier de schéma
 
@@ -333,15 +347,16 @@ ajout silencieux au jeu existant.
 }
 ```
 
-`version_schema` (entier, obligatoire, première clé du fichier) est la
-version du **format de schéma**, distincte du `version: 1` porté par
+`version_schema` (entier, obligatoire, première clé du fichier) vaut `1` ou `2`,
+les deux versions que le moteur sait lire ; `grille` est refusé dans un
+document de version 1 (règle 16). C'est la version du **format de schéma**, distincte du `version: 1` porté par
 l'enveloppe du brouillon `localStorage` (`script.js:892`) : les deux ne
 décrivent pas la même chose et ne doivent jamais être alignées par
 convention.
 
 Règle d'évolution : on n'incrémente `version_schema` que pour un changement
 incompatible (un type retiré, un attribut obligatoire ajouté à un type
-existant) ; le moteur refuse de rendre une version qu'il ne connaît pas,
+existant, un type ajouté — un moteur plus ancien ne saurait pas le rendre) ; le moteur refuse de rendre une version qu'il ne connaît pas,
 plutôt que de rendre au mieux.
 
 **Amendement D8 — le jeu des clés racine est fermé, sans exception.** La
@@ -392,7 +407,7 @@ bloc reste une donnée du **schéma**, jamais du thème (revue de C1-T1).
 
 | Attribut | Obligatoire | Description |
 |---|---|---|
-| `type` | oui | Une des sept valeurs de la section 4.1. |
+| `type` | oui | Une des valeurs de la section 4.1 : sept en version 1, huit en version 2 (`grille`). |
 | `cle` | selon le type (voir ci-dessous) | Clé de brouillon, identique à l'`id` actuel (D2). |
 | `libelle` | oui, sauf exception documentée | Texte visible, relevé dans le HTML. |
 | `defaut` | non | Valeur préremplie. **Aucun champ de la V1 n'en porte** (D4) : un champ clinique prérempli est un risque de bilan faux. Le moteur ne préremplit rien en son absence. Interdit sur `radio`, `tableau` et `image-annotable`. |
@@ -402,11 +417,29 @@ bloc reste une donnée du **schéma**, jamais du thème (revue de C1-T1).
 | `lignes` | oui pour `tableau` uniquement | Liste de `{ "nom": "...", "cle": "...", "colonnes": [{ "valeur": "...", "libelle": "..." }, ...] }`. |
 | `fichier` | oui pour `image-annotable` uniquement | Chemin de l'image à annoter. |
 | `texte_alternatif` | oui pour `image-annotable` uniquement | Texte alternatif de l'image. |
-| `apparence` | non | Amendement D9. Autorisé sur `image-annotable` uniquement, une des deux valeurs fermées `squelette` (défaut) ou `encadree`. |
+| `apparence` | non | Amendement D9. Autorisé sur `image-annotable` (`squelette` par défaut, ou `encadree`) et sur `case` (`titre_avant` : le libellé précède la case, dans son propre label). Interdit sur tout autre type. |
+| `colonnes` | oui pour `grille` uniquement | Version 2. De 1 à 12 colonnes, chacune `{ "cle": "...", "libelle": "...", "nature": "case" ou "texte-court" }`. La nature est fixée par colonne. |
+| `lignes` | oui pour `grille` aussi | De 1 à 20 lignes, chacune `{ "cle": "...", "libelle": "...", "neutralisees": ["cle de colonne", ...] }` ; `neutralisees`, facultatif, désigne les cellules de cette ligne qui n'existent pas (aucun contrôle, fond neutre), et en laisse au moins une active. |
+| `groupes` | non, `grille` uniquement | Version 2. Liste non vide de `{ "libelle": "...", "etendue": N }` : un en-tête qui coiffe `N` colonnes consécutives. La somme des étendues égale le nombre de colonnes. Le libellé d'un groupe peut être vide. |
 
 `type`, `cle` (ou `valeurs`/`lignes` selon le type) et `libelle` forment
 l'ensemble fermé des attributs structurants ; `disposition` ne vit qu'au
 niveau du bloc (section 5.2), jamais au niveau du champ.
+
+**`grille` (version 2).** Une grille est l'**unique champ de son bloc**, et la
+table est le bloc (comme pour `tableau`) : le bloc ne porte alors ni `titre`,
+ni `titre_cle`, ni `titre_apparence`, ni `disposition`, ni `balise` — ils
+seraient ignorés en silence, donc ils sont refusés (règle 20). Son `libelle`
+s'affiche dans le coin de l'en-tête, il peut être vide ; le moteur n'y ajoute
+aucune ponctuation. Chaque cellule est un contrôle sans attribut `name`, dont
+l'`id` est la clé dérivée de la section 6 : plusieurs cases d'une même ligne
+sont cochables indépendamment. Une cellule `texte-court` accepte 8 caractères
+au plus : au-delà, l'impression ne montrerait qu'une valeur tronquée, sans le
+dire. Trop de colonnes déborderait de la page et trop de lignes la couperait
+au milieu d'une ligne ; l'atelier **scinde** une grille trop longue en
+plusieurs blocs plutôt que d'en forcer les bornes. Faute de pouvoir exprimer
+une cellule à trois états, l'atelier prend une colonne `texte-court` où l'on
+saisit « + » ou « − ».
 
 **Amendement D9 (`apparence` sur `image-annotable`, facultatif, valeurs
 fermées).** `"squelette"` (défaut) → `class="squelette dessinable"`, image
@@ -541,6 +574,35 @@ Chaque exemple est tiré d'un champ réel du formulaire actuel.
 }
 ```
 
+**`grille`** — grille fictive de deux lignes et quatre colonnes, deux groupes,
+une cellule neutralisée (version 2 seulement) :
+
+```json
+{
+  "type": "grille",
+  "cle": "grille-1",
+  "libelle": "Grille 1 :",
+  "groupes": [
+    { "libelle": "Groupe 1", "etendue": 2 },
+    { "libelle": "Groupe 2", "etendue": 2 }
+  ],
+  "colonnes": [
+    { "cle": "colonne-1", "libelle": "Colonne 1", "nature": "case" },
+    { "cle": "colonne-2", "libelle": "Colonne 2", "nature": "case" },
+    { "cle": "colonne-3", "libelle": "Colonne 3", "nature": "texte-court" },
+    { "cle": "colonne-4", "libelle": "Colonne 4", "nature": "texte-court" }
+  ],
+  "lignes": [
+    { "cle": "ligne-1", "libelle": "Ligne 1" },
+    { "cle": "ligne-2", "libelle": "Ligne 2", "neutralisees": ["colonne-3"] }
+  ]
+}
+```
+
+Ce champ est l'unique champ de son bloc ; les cellules reçoivent les clés
+`grille-1__ligne-1__colonne-1` à `grille-1__ligne-2__colonne-4`, sauf
+`grille-1__ligne-2__colonne-3`, neutralisée (section 6).
+
 ## 6. Règle de stabilité des clés
 
 **Les clés reprennent à l'identique les `id` actuels. Aucune table de
@@ -564,6 +626,35 @@ pas d'`id` ; leur clé de brouillon est `name + "#" + value`, par exemple
 au moteur de leur ajouter un `id` : la clé changerait de forme et le
 brouillon serait perdu.
 
+**Cellules d'une `grille` (version 2).** Elles ont un `id`, donc une clé de
+brouillon, dérivée de la grille, de la ligne et de la colonne :
+
+    grille.cle + "__" + ligne.cle + "__" + colonne.cle
+
+par exemple `grille-1__ligne-2__colonne-4`. Les trois composantes suivent
+`^[a-z0-9]+(-[a-z0-9]+)*$` et comptent 40 caractères au plus. Sans `_`, la
+composition est **injective** (deux triplets distincts ne donnent jamais la même
+clé) ; sans `#`, une clé de cellule ne peut jamais égaler la clé d'un bouton
+radio de tableau (`name#value`) ; sans espace ni accent, l'`id` est sûr dans un
+sélecteur. La clé ne dépend **jamais d'une position** : réordonner les lignes
+ou les colonnes ne déplace aucune valeur. La `cle` de la grille elle-même n'est
+l'`id` de rien (la table porte celui de son bloc), mais elle reste unique dans
+le document. Les cellules neutralisées n'ont ni contrôle, ni clé.
+
+Quand le schéma d'un client évolue entre deux versions, le brouillon réagit
+ainsi (le brouillon se lit en parcourant le DOM, jamais l'inverse) :
+
+- ligne ou colonne **ajoutée** : nouvelles clés, vides ; le reste est intact ;
+- ligne ou colonne **retirée**, ou cellule **neutralisée** après coup : la
+  valeur reste dans `localStorage` jusqu'à la prochaine sauvegarde, n'est
+  jamais affichée, puis disparaît ;
+- ligne ou colonne **réordonnée**, ou `libelle` changé : aucun effet ;
+- `cle` **renommée** : la valeur est perdue, exactement comme pour un `id`
+  renommé. Les `cle` d'une grille sont donc **gelées** dès qu'un client s'en
+  sert ;
+- `nature` **changée** : l'ancienne entrée (`coches` ou `valeurs`) est ignorée,
+  sans erreur.
+
 ## 7. Règles de validation
 
 Liste fermée et numérotée. Chaque règle est formulée pour qu'un test puisse
@@ -585,7 +676,8 @@ la mettre en échec (C7-T2).
 6. `en_tete`, quand il vaut `true`, ne peut être porté que par un seul bloc
    du document, qui doit être le premier de la liste ; toute autre
    configuration est refusée.
-7. Chaque champ porte un `type` parmi les sept retenus en section 4.1. Un
+7. Chaque champ porte un `type` parmi ceux retenus en section 4.1 pour la
+   version du document (sept en version 1, huit en version 2). Un
    type absent du jeu fermé — y compris `nombre`, `liste` ou `paragraphe` —
    est refusé en nommant le type et le bloc où il apparaît.
 8. Pour les types `texte`, `zone-texte`, `date`, `case` et `image-annotable` :
@@ -603,7 +695,8 @@ la mettre en échec (C7-T2).
     même si elle produit un document JSON valide.
 11. L'attribut facultatif `defaut` n'est autorisé que sur `texte`,
     `zone-texte`, `date` et `case`. Présent sur `radio`, `tableau` ou
-    `image-annotable`, il est refusé en nommant le champ. De même,
+    `image-annotable`, il est refusé en nommant le champ (sur `grille`, c'est
+    la règle 19). De même,
     l'attribut facultatif `indication` (D11) n'est autorisé que sur `texte`
     et `zone-texte` ; présent sur tout autre type, il est refusé en nommant
     le champ.
@@ -614,9 +707,9 @@ la mettre en échec (C7-T2).
     libellé propre quand le HTML actuel n'en porte pas (cas de
     `isthme_cote`, regroupé visuellement sous le libellé du bloc « Podo »).
 13. L'attribut facultatif `apparence` (D9) n'est autorisé que sur
-    `image-annotable`, et doit valoir `squelette` ou `encadree` quand il est
-    présent. Une autre valeur, ou sa présence sur un type différent, est
-    refusée en nommant le champ et la valeur fautive.
+    `image-annotable` (`squelette` ou `encadree`) et sur `case` (`titre_avant`,
+    qui place le libellé avant la case). Une autre valeur, ou sa présence sur un
+    type différent, est refusée en nommant le champ et la valeur fautive.
 14. Les attributs facultatifs `titre_apparence` et `titre_cle` (D10) ne
     vivent qu'au niveau du **bloc**, jamais du champ. `titre_apparence`, quand
     il est présent, doit valoir `h3`, `label` ou `label_bloc` ; toute autre
@@ -625,6 +718,33 @@ la mettre en échec (C7-T2).
     erreur — un bloc peut vouloir fixer un `id` de titre avant d'avoir un
     texte — mais `titre_cle` n'est jamais émis comme `id` du bloc lui-même
     (c'est l'attribut `cle` du bloc qui en fait office, section 5.2).
+15. L'attribut facultatif `balise` du **bloc** doit valoir `div` (défaut) ou
+    `section`. Il existe parce que la V1 emploie un `<section>` pour le bloc
+    d'informations patient ; toute autre valeur est refusée en la citant.
+    (Règle déjà appliquée par le moteur, consignée ici par la version 2.)
+16. `grille` n'existe qu'en **version 2**. Dans un document de version 1, c'est
+    un refus nommé « règle 16 », et non un type inconnu.
+17. Structure d'une `grille` : sa `cle` suit `^[a-z0-9]+(-[a-z0-9]+)*$`
+    (40 caractères au plus) ; son `libelle` est une chaîne, vide permise (coin
+    vide) ; `colonnes` compte de 1 à 12 entrées, chacune avec une `cle` conforme
+    et unique dans la grille, un `libelle` non vide et une `nature` égale à
+    `case` ou `texte-court` ; `lignes` compte de 1 à 20 entrées, chacune avec une
+    `cle` conforme et unique dans la grille et un `libelle` non vide ;
+    `neutralisees`, si présent, est une liste sans doublon de `cle` de colonnes
+    existantes qui laisse au moins une cellule active ; `groupes`, si présent,
+    est une liste non vide de `{ libelle, etendue }` — `libelle` est une
+    chaîne (vide permise), `etendue` un entier supérieur ou égal à 1 — dont la
+    somme des `etendue` égale le nombre de colonnes. Un attribut inconnu à
+    l'intérieur d'une colonne, d'une ligne ou d'un groupe est **averti** en
+    console, pas refusé (amendement D8, niveaux sous la racine).
+18. Clés de cellule (section 6) : chacune est unique dans tout le document,
+    tous champs confondus, ne reprend aucun des `id` réservés à la coquille et
+    ne reprend la `cle` d'aucun bloc. Les cellules neutralisées n'en ont pas.
+19. `defaut`, `indication` et `apparence` sont interdits sur une `grille` : rien
+    n'y est prérempli (D4), et une grille n'a ni texte d'aide ni apparence.
+20. Le bloc d'une `grille` ne porte qu'elle, et ni `titre`, `titre_cle`,
+    `titre_apparence`, `disposition` ni `balise` : la table *est* le bloc, ils
+    seraient ignorés en silence.
 
 ## 8. Anomalies du HTML consignées, non corrigées
 

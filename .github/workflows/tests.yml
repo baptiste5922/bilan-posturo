@@ -59,6 +59,9 @@ jobs:
       - name: Run rendering engine comparison tests
         run: node tests/test_comparaison_dom.js
 
+      - name: Run grid type tests
+        run: node tests/test_grille.js
+
       - name: Run engine start-up safety-net tests
         run: node tests/test_demarrage_moteur.js
 

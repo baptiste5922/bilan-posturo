@@ -1,0 +1,304 @@
+{
+  "version_schema": 2,
+  "blocs": [
+    {
+      "cle": "bloc-1",
+      "champs": [
+        {
+          "cle": "texte-1",
+          "type": "zone-texte",
+          "libelle": "Texte 1 :"
+        }
+      ]
+    },
+    {
+      "cle": "bloc-2",
+      "champs": [
+        {
+          "type": "grille",
+          "cle": "grille-1",
+          "libelle": "Grille 1 :",
+          "groupes": [
+            {
+              "libelle": "Groupe 1",
+              "etendue": 2
+            },
+            {
+              "libelle": "Groupe 2",
+              "etendue": 2
+            }
+          ],
+          "colonnes": [
+            {
+              "cle": "colonne-1",
+              "libelle": "Colonne 1",
+              "nature": "case"
+            },
+            {
+              "cle": "colonne-2",
+              "libelle": "Colonne 2",
+              "nature": "case"
+            },
+            {
+              "cle": "colonne-3",
+              "libelle": "Colonne 3",
+              "nature": "case"
+            },
+            {
+              "cle": "colonne-4",
+              "libelle": "Colonne 4",
+              "nature": "case"
+            }
+          ],
+          "lignes": [
+            {
+              "cle": "ligne-1",
+              "libelle": "Ligne 1",
+              "neutralisees": [
+                "colonne-2"
+              ]
+            },
+            {
+              "cle": "ligne-2",
+              "libelle": "Ligne 2"
+            },
+            {
+              "cle": "ligne-3",
+              "libelle": "Ligne 3",
+              "neutralisees": [
+                "colonne-3"
+              ]
+            },
+            {
+              "cle": "ligne-4",
+              "libelle": "Ligne 4"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "cle": "bloc-3",
+      "champs": [
+        {
+          "type": "grille",
+          "cle": "grille-2",
+          "libelle": "Grille 2 :",
+          "colonnes": [
+            {
+              "cle": "colonne-1",
+              "libelle": "Colonne 1",
+              "nature": "texte-court"
+            },
+            {
+              "cle": "colonne-2",
+              "libelle": "Colonne 2",
+              "nature": "texte-court"
+            },
+            {
+              "cle": "colonne-3",
+              "libelle": "Colonne 3",
+              "nature": "case"
+            }
+          ],
+          "lignes": [
+            {
+              "cle": "ligne-1",
+              "libelle": "Ligne 1"
+            },
+            {
+              "cle": "ligne-2",
+              "libelle": "Ligne 2",
+              "neutralisees": [
+                "colonne-1"
+              ]
+            },
+            {
+              "cle": "ligne-3",
+              "libelle": "Ligne 3"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "cle": "bloc-4",
+      "champs": [
+        {
+          "type": "grille",
+          "cle": "grille-3",
+          "libelle": "Grille 3 :",
+          "groupes": [
+            {
+              "libelle": "Groupe 1",
+              "etendue": 3
+            },
+            {
+              "libelle": "",
+              "etendue": 3
+            },
+            {
+              "libelle": "Groupe 3",
+              "etendue": 4
+            },
+            {
+              "libelle": "Groupe 4",
+              "etendue": 2
+            }
+          ],
+          "colonnes": [
+            {
+              "cle": "colonne-1",
+              "libelle": "Colonne 1",
+              "nature": "case"
+            },
+            {
+              "cle": "colonne-2",
+              "libelle": "Colonne 2",
+              "nature": "case"
+            },
+            {
+              "cle": "colonne-3",
+              "libelle": "Colonne 3",
+              "nature": "texte-court"
+            },
+            {
+              "cle": "colonne-4",
+              "libelle": "Colonne 4",
+              "nature": "case"
+            },
+            {
+              "cle": "colonne-5",
+              "libelle": "Colonne 5",
+              "nature": "case"
+            },
+            {
+              "cle": "colonne-6",
+              "libelle": "Colonne 6",
+              "nature": "case"
+            },
+            {
+              "cle": "colonne-7",
+              "libelle": "Colonne 7",
+              "nature": "texte-court"
+            },
+            {
+              "cle": "colonne-8",
+              "libelle": "Colonne 8",
+              "nature": "case"
+            },
+            {
+              "cle": "colonne-9",
+              "libelle": "Colonne 9",
+              "nature": "case"
+            },
+            {
+              "cle": "colonne-10",
+              "libelle": "Colonne 10",
+              "nature": "case"
+            },
+            {
+              "cle": "colonne-11",
+              "libelle": "Colonne 11",
+              "nature": "case"
+            },
+            {
+              "cle": "colonne-12",
+              "libelle": "Colonne 12",
+              "nature": "texte-court"
+            }
+          ],
+          "lignes": [
+            {
+              "cle": "ligne-1",
+              "libelle": "Ligne 1"
+            },
+            {
+              "cle": "ligne-2",
+              "libelle": "Ligne 2"
+            },
+            {
+              "cle": "ligne-3",
+              "libelle": "Ligne 3"
+            },
+            {
+              "cle": "ligne-4",
+              "libelle": "Ligne 4"
+            },
+            {
+              "cle": "ligne-5",
+              "libelle": "Ligne 5",
+              "neutralisees": [
+                "colonne-3",
+                "colonne-7"
+              ]
+            },
+            {
+              "cle": "ligne-6",
+              "libelle": "Ligne 6"
+            },
+            {
+              "cle": "ligne-7",
+              "libelle": "Ligne 7"
+            },
+            {
+              "cle": "ligne-8",
+              "libelle": "Ligne 8"
+            },
+            {
+              "cle": "ligne-9",
+              "libelle": "Ligne 9"
+            },
+            {
+              "cle": "ligne-10",
+              "libelle": "Ligne 10"
+            },
+            {
+              "cle": "ligne-11",
+              "libelle": "Ligne 11"
+            },
+            {
+              "cle": "ligne-12",
+              "libelle": "Ligne 12",
+              "neutralisees": [
+                "colonne-12"
+              ]
+            },
+            {
+              "cle": "ligne-13",
+              "libelle": "Ligne 13"
+            },
+            {
+              "cle": "ligne-14",
+              "libelle": "Ligne 14"
+            },
+            {
+              "cle": "ligne-15",
+              "libelle": "Ligne 15"
+            },
+            {
+              "cle": "ligne-16",
+              "libelle": "Ligne 16"
+            },
+            {
+              "cle": "ligne-17",
+              "libelle": "Ligne 17"
+            },
+            {
+              "cle": "ligne-18",
+              "libelle": "Ligne 18"
+            },
+            {
+              "cle": "ligne-19",
+              "libelle": "Ligne 19"
+            },
+            {
+              "cle": "ligne-20",
+              "libelle": "Ligne 20"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

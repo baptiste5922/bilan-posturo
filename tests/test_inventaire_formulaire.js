@@ -33,6 +33,7 @@
 
 const fs = require("fs");
 const path = require("path");
+const vm = require("vm");
 
 const CHEMIN_V1 = path.join(__dirname, "..", "formulaire", "index-v1.html");
 const CHEMIN_COQUILLE = path.join(__dirname, "..", "formulaire", "index.html");
@@ -395,6 +396,21 @@ function blocsSansIdAnnonces() {
     return { compte, numeros };
 }
 
+/**
+ * Les types que connaît le moteur : ceux de la version 1 (`TYPES_RETENUS`) et
+ * ceux que les versions suivantes y ajoutent (`TYPES_VERSION_2`…). Lus dans
+ * `formulaire/moteur/rendu.js` chargé par `vm`, jamais recopiés ici.
+ */
+function typesDuMoteur() {
+    const contexte = { console: { warn() {}, error() {} }, document: { addEventListener() {} } };
+    vm.createContext(contexte);
+    vm.runInContext(
+        fs.readFileSync(path.join(__dirname, "..", "formulaire", "moteur", "rendu.js"), "utf-8"),
+        contexte, { filename: "rendu.js" }
+    );
+    return Array.from(vm.runInContext("TYPES_RETENUS.concat(TYPES_VERSION_2)", contexte));
+}
+
 /** Isole chaque bloc ```json de la spécification et le fait analyser par JSON.parse. */
 function exemplesJson() {
     const motif = /```json\n([\s\S]*?)```/g;
@@ -531,7 +547,9 @@ try {
     // 3. Chaque type retenu a au moins un exemple JSON valide.
     const exemples = exemplesJson();
     const types = typesCites(exemples);
-    const typesRetenus = ["texte", "zone-texte", "date", "case", "radio", "tableau", "image-annotable"];
+    // Lus dans le moteur (jamais recopiés) : une liste transcrite à la main
+    // manquerait le premier type ajouté par une version du format.
+    const typesRetenus = typesDuMoteur();
     const typesSansExemple = typesRetenus.filter(function (t) { return !types.has(t); });
     if (typesSansExemple.length > 0) {
         throw new Error(`type(s) sans exemple JSON valide : ${typesSansExemple.join(", ")}`);
