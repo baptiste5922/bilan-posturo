@@ -437,13 +437,36 @@ sont cochables indépendamment. Une cellule `texte-court` accepte 8 caractères
 au plus : au-delà, l'impression ne montrerait qu'une valeur tronquée, sans le
 dire. Trop de colonnes déborderait de la page et trop de lignes la couperait
 au milieu d'une ligne ; l'atelier **scinde** une grille trop longue en
-plusieurs blocs plutôt que d'en forcer les bornes. La largeur
-d'une grille dépend de la fenêtre de la tablette, des intitulés (celui du coin
-ne passe pas à la ligne) et du nombre de colonnes de texte court : au-delà de la
-largeur de la page, elle serait rognée à l'impression, sans que la validation le
-sache. **Aucune grille ne doit être livrée dans un schéma client** tant que la
-largeur minimale supportée n'est pas fixée et qu'un contrôle à l'export ne
-refuse pas une grille trop large (sous-tâche « largeur des grilles »). Faute de pouvoir exprimer
+plusieurs blocs plutôt que d'en forcer les bornes. **Largeur d'une grille.** Elle dépend de la fenêtre de la tablette, des
+intitulés (celui du coin ne passe pas à la ligne) et du nombre de colonnes de
+texte court ; la validation ne peut pas la connaître. L'export la mesure donc au
+moment de capturer le formulaire :
+
+- une grille qui **tient** dans `#form-bilan` s'imprime telle quelle ;
+- une grille qui **déborde** est réduite, **elle seule**, dans la copie qui sert
+  à la capture (`transform: scale(f)`, origine en haut à gauche, `f` = largeur
+  disponible / largeur de la grille) : elle n'est plus rognée à droite, et le
+  reste du bilan n'est pas modifié ;
+- une grille qui déborde **et** dont la largeur dépasse
+  `LARGEUR_GRILLE_REFERENCE_PX` (la largeur disponible pour une grille à la
+  fenêtre de référence de 1 280 px, 1 192 px, définie dans `formulaire/script.js`
+  et mesurée par `outils/reference-visuelle/essai-grille.js`) est **refusée** :
+  l'export s'arrête avant toute capture, aucun PDF n'est créé, la saisie et le
+  brouillon sont intacts, et un message le dit. Une grille réduite n'est ainsi
+  jamais imprimée plus petit qu'une grille qui tient à 1 280 px. Ce refus est un
+  filet ; un schéma mesuré en atelier ne le déclenche pas.
+
+**Livrer une grille dans un schéma client.** Interdit tant que trois conditions
+ne sont pas réunies, client par client :
+
+1. la réduction et le refus décrits ci-dessus sont livrés (revue « À LIVRER ») ;
+2. le schéma du client passe la mesure d'atelier : `essai-grille.js`, joué à
+   1 280 px sur ce schéma, rend « OK » pour chaque grille (largeur au plus égale
+   à `LARGEUR_GRILLE_REFERENCE_PX`), et un export réussit à la largeur de la
+   tablette du client, relevée dans la feuille de route client ;
+3. le favori de secours est posé chez ce client.
+
+Faute de pouvoir exprimer
 une cellule à trois états, l'atelier prend une colonne `texte-court` où l'on
 saisit « + » ou « − ».
 

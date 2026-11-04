@@ -383,6 +383,28 @@ async function exporter(c) {
         assert.deepStrictEqual(c._compteurs.annonces.filter((a) => a.message === MESSAGE_ATTENDU), []);
     });
 
+    // ---------------------------------------- aucun accès au DOM au chargement
+    await cas("A1-D6 : script.js se charge sans toucher au DOM (seul addEventListener est permis)", () => {
+        const accessInterdit = (nom) => new Proxy({ addEventListener() {} }, {
+            get(cible, propriete) {
+                if (propriete in cible) return cible[propriete];
+                throw new Error("accès à " + nom + "." + String(propriete) + " au niveau module");
+            }
+        });
+        const contexte = {
+            console: { log() {}, warn() {}, error() {} },
+            setTimeout, clearTimeout, setInterval: () => 0, Promise, Date, JSON, Math,
+            document: accessInterdit("document"),
+            window: accessInterdit("window"),
+            navigator: { onLine: true },
+            localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
+            indexedDB: {}
+        };
+        vm.createContext(contexte);
+        vm.runInContext(fs.readFileSync(SCRIPT, "utf8"), contexte, { filename: path.basename(SCRIPT) });
+        assert.strictEqual(typeof contexte.mesurerGrilles, "function", "le script s'est bien chargé en entier");
+    });
+
     // ------------------------------------------------- inertie sans grille
     let scriptReference = null;
     try {

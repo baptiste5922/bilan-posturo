@@ -26,6 +26,7 @@ Le contrat et `CLAUDE.md` parlent de « dix suites Node » : la CI et
 | `python3 -m unittest discover -s tests` | **226** tests, OK (2 sautés) — 219 + 7 de `test_confidentialite_prospect` |
 | `python3 -O -m unittest discover -s tests` | **226** tests, OK (2 sautés) |
 | 10 suites Node, dont `test_grille.js` (88 cas) ; `npm test` | code 0 chacune ; `npm test` à 0 |
+| **Après A1** : 11 suites Node, dont `test_export_grille.js` (14 cas) ; Python inchangé à 226 (aussi sous `-O`) | code 0 chacune ; `npm test` à 0 |
 | `python3 -m pyflakes serveur/ tests/` | code 0 |
 
 ## Mutations de `formulaire/moteur/rendu.js` et de la spécification
@@ -183,3 +184,52 @@ Exécution `workflow_dispatch` sur la branche, au commit « Écarte la prose des
 commentaires de la garde de marqueurs » : identifiant
 **41809865962**, succès sur les sept tâches — `test` (ubuntu 3.9 et 3.13,
 windows 3.9 et 3.13, macos 3.13), `scripts-windows` et `lint`.
+
+## Amendement A1 — mutations (m) à (s), sur une copie passée par `SCRIPT_A_TESTER`
+
+`formulaire/script.js` n'est jamais muté en place : le mutant vit dans un fichier
+hors du dépôt, passé par `SCRIPT_A_TESTER` aux suites qui l'acceptent
+(`export_grille`, `concurrence_export`, `pagination`, `version`) ; pour celles qui
+lisent un chemin fixe (`file_depots`, `palette`, `nommage`), une copie du dépôt
+par `git ls-files -z --cached --others --exclude-standard` dont `script.js` est
+le mutant. Chaque mutation est précédée du **témoin sans mutation** (les sept
+suites à 0) ; le code de retour est celui du test lui-même, lu en Python. A1 ne
+pose aucune garde Python : rien à rejouer sous `-O`.
+
+Témoin sans mutation : `export_grille 0, concurrence_export 0, pagination 0,
+version 0, file_depots 0, palette 0, nommage 0` — en tête et en fin de série ;
+`git diff --quiet HEAD -- formulaire/script.js` à 0 après la série.
+
+| # | Mutation | Suite rouge (code 1) | Premier cas rouge |
+|---|---|---|---|
+| m | `table.grille` devient `table` dans la réduction (`preparerClone`) | `export_grille` | preparerClone : une grille qui dépasse (sous la référence) est réduite, elle seule |
+| n | refus supprimé (`if (false)`) | `export_grille` | export : une grille qui dépasse avec une largeur de référence + 1 est refusée |
+| o | refus déplacé après `mettreEnFile()` | `export_grille` | idem (html2canvas appelé) |
+| p | `>` devient `>=` | `export_grille` | export : une grille qui dépasse mais dont la largeur égale la référence est acceptée |
+| q1 | `transformOrigin` retiré | `export_grille` | preparerClone : une grille qui dépasse … est réduite, elle seule, origine en haut à gauche |
+| q2 | facteur forcé à 1 (`scale(1)`) | `export_grille` | idem |
+| r | constante portée de 1192 à 1100 | **aucune suite unitaire** (elles lisent la constante dans le source) ; **essai réel : vérification 9 « RATÉ »** (disponible 1192, constante 1100), code 1 ; témoin : « OK », code 0 | — |
+| s | `document.querySelectorAll(".sans-pdf")` au niveau module | `export_grille` | A1-D6 : script.js se charge sans toucher au DOM |
+
+Précisions honnêtes :
+
+- **(m)** : le cas rouge est celui de la table de la V1, touchée à la place de la
+  grille de même rang. Rejouée au pixel (critère 19), la mutation resterait
+  **invisible** sur `index-v1.html` et sur le schéma pilote : sans grille à
+  réduire, `preparerClone()` n'interroge pas la copie (A1-D3). Seul un schéma qui
+  mêle un tableau de la V1 et une grille réduite la révélerait, et c'est ce que
+  couvre `test_export_grille.js`.
+- **(s)** : `test_file_depots.js` et `test_concurrence_export.js` restent verts,
+  car leurs doubles fournissent un `document.querySelectorAll` qui ne lève rien. La
+  garde est donc le cas A1-D6 de `test_export_grille.js`, dont le `document` lève
+  à tout accès sauf `addEventListener`.
+- **(r)** : la constante est lue dans le source par les tests unitaires, qui
+  suivent donc toute valeur ; seule la mesure au rendu réel (critère 22) détecte
+  une constante fausse, c'est sa raison d'être.
+
+Mutations de l'essai réel, en plus (copie du bac, jamais le dépôt) :
+
+| Mutation du bac | Scénario | Vérifications « RATÉ » | Code |
+|---|---|---|---|
+| refus supprimé | refus, 1280 px | 1 (message) et 2 (un PDF est déposé) | 1 |
+| réduction neutralisée (`transform = ""`) | complet, 1024 px | 8 (grille 3 : bord droit à 1159,2 px pour 996,0) | 1 |
