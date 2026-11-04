@@ -5,6 +5,10 @@
 // puis en réduisant à 64×94, le bruit de compression se moyenne et seules les
 // différences structurelles — un bloc déplacé, une couleur changée, un trait
 // manquant — subsistent.
+//
+//   node comparer-pixels.js [pages [préfixe-référence préfixe-candidat]]
+//
+// Défauts inchangés : 6 pages, vignettes/v1-N.tiff contre vignettes/mo-N.tiff.
 const fs = require("fs");
 
 // TIFF non compressé produit par sips : on cherche l'offset des données brutes
@@ -17,12 +21,15 @@ function pixels(chemin, largeur, hauteur) {
 }
 
 const L = 64, H = 94;
+const NB_PAGES = parseInt(process.argv[2] || "6", 10);
+const PREFIXE_A = process.argv[3] || "vignettes/v1-";
+const PREFIXE_B = process.argv[4] || "vignettes/mo-";
 let pireEcart = 0, pirePage = 0;
 const lignes = [];
 
-for (let i = 1; i <= 6; i += 1) {
-    const a = pixels(`vignettes/v1-${i}.tiff`, L, H);
-    const b = pixels(`vignettes/mo-${i}.tiff`, L, H);
+for (let i = 1; i <= NB_PAGES; i += 1) {
+    const a = pixels(`${PREFIXE_A}${i}.tiff`, L, H);
+    const b = pixels(`${PREFIXE_B}${i}.tiff`, L, H);
     let somme = 0, max = 0, differents = 0;
     for (let k = 0; k < a.length; k += 1) {
         const e = Math.abs(a[k] - b[k]);
@@ -41,7 +48,7 @@ console.log("Comparaison des pixels, vignettes " + L + "×" + H + " :");
 lignes.forEach((l) => console.log(l));
 console.log("");
 if (pireEcart < 3) {
-    console.log("Verdict : les six pages sont visuellement identiques.");
+    console.log("Verdict : les " + (NB_PAGES === 6 ? "six" : NB_PAGES) + " pages sont visuellement identiques.");
     console.log("L'écart résiduel est du niveau du bruit de compression JPEG.");
 } else {
     console.log("Verdict : écart visuel réel, le plus marqué page " + pirePage + ".");

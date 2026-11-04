@@ -5,13 +5,28 @@
 //
 // Dans les deux cas : PDF, deux captures d'écran, et pour « v1 » le brouillon
 // lui-même, qui est ce qui permet de rejouer à l'identique.
+//
+// Variables d'environnement facultatives (C1-T6) ; sans elles, le comportement
+// d'origine est inchangé (serveur statique local, sans authentification) :
+//
+//   ESSAI_BASE          adresse du formulaire (défaut http://127.0.0.1:8777) ;
+//                       depuis C2-T1 l'export exige l'identité du cabinet, donc
+//                       un vrai serveur.py en bac à sable, en HTTPS
+//   ESSAI_IDENTIFIANTS  « utilisateur:mot-de-passe », envoyés en Basic
+//   ESSAI_SORTIE        dossier des PDF et captures (défaut ./sortie)
+//   ESSAI_PREFIXE       nom du PDF « moteur » et des captures (défaut C1-T3-moteur)
+//
+// « moteur » relit `bilan-reference.json` dans ESSAI_SORTIE : y copier le jeu
+// de référence versionné avant de l'exécuter.
 
 const fs = require("fs");
 const path = require("path");
 const { ouvrirChrome, pause } = require("./cdp.js");
 
-const BASE = "http://127.0.0.1:8777";
-const SORTIE = path.join(__dirname, "sortie");
+const BASE = process.env.ESSAI_BASE || "http://127.0.0.1:8777";
+const SORTIE = process.env.ESSAI_SORTIE || path.join(__dirname, "sortie");
+const PREFIXE = process.env.ESSAI_PREFIXE || "C1-T3-moteur";
+const IDENTIFIANTS = process.env.ESSAI_IDENTIFIANTS;
 const BROUILLON = path.join(SORTIE, "bilan-reference.json");
 
 const cible = process.argv[2];
@@ -216,6 +231,15 @@ async function capturer(chrome, prefixe) {
     let chrome;
     try {
         chrome = await ouvrirChrome({ dossierTelechargement: SORTIE });
+        if (IDENTIFIANTS) {
+            await chrome.cmd("Network.enable");
+            await chrome.cmd("Network.setCacheDisabled", { cacheDisabled: true });
+            await chrome.cmd("Network.setExtraHTTPHeaders", {
+                headers: { Authorization: "Basic " + Buffer.from(IDENTIFIANTS).toString("base64") }
+            });
+            await chrome.cmd("Security.enable");
+            await chrome.cmd("Security.setIgnoreCertificateErrors", { ignore: true });
+        }
 
         if (cible === "v1") {
             await chrome.aller(BASE + "/index-v1.html");
@@ -268,8 +292,8 @@ async function capturer(chrome, prefixe) {
             }))()`);
             console.log("restauration : " + JSON.stringify(etat));
 
-            const captures = await capturer(chrome, "C1-T3-moteur");
-            const pdf = await exporterPdf(chrome, "C1-T3-moteur.pdf");
+            const captures = await capturer(chrome, PREFIXE);
+            const pdf = await exporterPdf(chrome, PREFIXE + ".pdf");
             console.log("PDF : " + pdf.fichier + " (" + pdf.octets + " octets)");
             console.log("captures : " + captures.join(", "));
         }
