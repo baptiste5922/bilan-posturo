@@ -5,10 +5,13 @@ formulaire et annote les schémas au stylet, le PDF est fabriqué dans le
 navigateur et déposé sur le PC du cabinet. Utilisée quotidiennement depuis
 août 2026 par une pédicure-podologue à Morlaix, pour la totalité de ses bilans.
 
-**Dernière mise à jour :** 20 octobre 2026, par `/cloture-projet`
-**Version :** V1 en production, sous **BUSL 1.1** depuis le 14 octobre 2026
-**Jalon en cours :** V2 — 6 tâches livrées ; le formulaire tourne sur le moteur
-à schéma dans le dépôt, pas encore au cabinet (voir `docs/ROADMAP.md`)
+**Dernière mise à jour :** 4 novembre 2026, par `/cloture-projet`
+**Version :** V1 en production au cabinet ; `main` porte la 1.1.0
+(`formulaire/version.json`), sous **BUSL 1.1** depuis le 14 octobre 2026
+**Jalon en cours :** V2 — 14 tâches livrées ; rien de la V2 n'est encore au
+cabinet. **`main` local n'est pas poussé** (voir les pièges).
+**Premier prospect hors pilote :** un formateur en posturologie, à installer à
+distance. Fiche de démonstration hors dépôt ; sa fiche exige C1-T6 (`grille`).
 
 ## Architecture en bref
 
@@ -25,14 +28,16 @@ août 2026 par une pédicure-podologue à Morlaix, pour la totalité de ses bila
 
 | Composant | Rôle |
 |---|---|
-| `serveur/serveur.py` (~870 l.) | HTTPS, dépôt des PDF, authentification, `/sante`, deux journaux |
+| `serveur/serveur.py` (~1 300 l.) | HTTPS, dépôt, authentification, `/sante`, `/cabinet`, deux journaux purgés à six mois |
 | `serveur/generer_autorite.py` | Autorité de certification locale + certificat serveur |
 | `formulaire/script.js` | PDF, stylet, brouillon, dépôt, file d'attente, tokens de couleur |
 | `formulaire/index.html` | Coquille de 118 l. que le moteur remplit ; V1 gelée dans `index-v1.html` |
 | `formulaire/moteur/rendu.js` | Valide un schéma et construit le DOM du formulaire |
 | `formulaire/schema.json` | Les 28 blocs du corps du bilan, en données |
 | `formulaire/style.css` | La palette du cabinet : cinq tokens sur `:root`, **source unique** |
-| `tests/` | 134 tests (99 Python, 35 Node) |
+| `formulaire/version.json` | Numéro de version, **source unique** (serveur, pied de page, `technique.log`) |
+| `installer-demarrage.ps1` | Tâche planifiée SYSTEM + pare-feu ; `-Verifier` contrôle sans rien modifier |
+| `tests/` | 219 tests Python + 10 suites Node |
 
 Le PDF est produit **côté navigateur** : le serveur ne reçoit qu'un fichier déjà
 assemblé, et n'a aucune dépendance Python.
@@ -42,6 +47,10 @@ fichiers et adresses — et **ne quitte jamais le cabinet**. `technique.log` ne
 contient ni adresse, ni nom de fichier, ni rien d'un patient : c'est le fichier
 conçu pour **circuler**, celui que le support peut lire. L'interrupteur
 `journal_technique` du `config.json` le désactive sans rien casser (C4-T1).
+**Aucune ligne n'est conservée plus de six mois**, serveur en marche (C4-T2 :
+rotation mensuelle, purge à l'écriture et toutes les 6 h, clé
+`conservation_journaux_mois`). L'identité du cabinet vit dans `config.json`,
+jamais dans le dépôt, servie par `GET /cabinet` ; sans elle, l'export est refusé.
 
 ## Contraintes non négociables
 
@@ -68,16 +77,20 @@ une image et non une donnée.
 
 | Chantier | Intitulé | État |
 |---|---|---|
-| C0 | Cadre juridique et licence | C0-T1 **livré** (BUSL 1.1) ; C0-T2 à faire |
-| C1 | Moteur de formulaire à schéma | C1-T1, T2, T3, T3b **livrés** ; reste C1-T4 (schéma client) et C1-T5 (blocs) |
-| C2 | Identité du cabinet en configuration | à faire |
-| C3 | Adressage, certificat et installateur | C3-T1 **livré** (voie tranchée) ; reste C3-T2 à T4 |
-| C4 | Observabilité et support à distance | C4-T1 **livré** (journal technique) ; reste C4-T2 à T6 |
-| C5 | Mises à jour signées | à faire |
-| C6 | Durcissement de sécurité (CSP, tentatives) | à faire |
-| C7 | Filet de tests (pagination, moteur) | à faire |
-| C8 | Mécanisme de licence d'abonnement | à faire |
-| C9 | Atelier de fabrication d'un client | à faire |
+| C0 | Cadre juridique et licence | T1 **livré** ; T2 (contrat RGPD, modèles génériques) à faire |
+| C1 | Moteur de formulaire à schéma | T1, T2, T3, T3b **livrés** ; T4 bloqué par le favori ; **T6 (`grille`) ajouté** ; T5 |
+| C2 | Identité du cabinet en configuration | T1 **livré** ; T2 (logo) à faire |
+| C3 | Adressage, certificat et installateur | T1, **T3a livrés** (T3a : VM Windows à faire) ; T2, T3, T4 |
+| C4 | Observabilité et support | T1, **T2, T4 livrés** ; T5 **sortie de la V2** ; T3, T6 |
+| C5 | Mises à jour signées | à faire (tirées par le PC, signées : décidé) |
+| C6 | Durcissement de sécurité | **T4 livré** ; T1, T2, T3, T5 |
+| C7 | Filet de tests | **T1, T5 livrés** ; T2, T3, T4 |
+| C8 | Mécanisme de licence d'abonnement | à faire (grâce de 30 j puis export bloqué : décidé) |
+| C9 | Atelier de fabrication d'un client | **T1 livré** ; T3 décidé (révision annuelle) ; T2 |
+
+**Décisions métier du 3 novembre**, dans `docs/ROADMAP.md` en tête : pas de
+tunnel de support, mises à jour tirées et signées, grâce puis export bloqué,
+révision annuelle incluse, journaux conservés six mois.
 
 Détail par tâche, critères d'acceptation et ordre d'exécution :
 `docs/ROADMAP.md`. Analyse produit, prix et cadre juridique :
@@ -129,13 +142,18 @@ emprunte est éprouvé. **Tant qu'il n'est pas fait, rien ne part au cabinet et
 C1-T4 ne peut pas commencer** — son critère d'acceptation est une semaine de
 bilans réels sans régression.
 
-**Tests :** 134 au total, tous verts au 20 octobre 2026, en intégration continue
-sur Linux, Windows et macOS : 99 Python, 35 Node (file, palette, inventaire,
-comparaison de DOM, démarrage du moteur). La suite passe aussi sous
-`python3 -O`, et ce n'est pas un détail : voir les pièges.
+**Tests :** 219 Python (2 sautés hors Windows) et 10 suites Node, tous verts
+au 4 novembre 2026, aussi sous `python3 -O`, et en CI sur Linux, Windows et
+macOS, Python 3.9 et 3.13 — CI jouée sur les branches de tâche, pas sur `main`.
+
+**Avant d'envoyer le paquet au prospect** : essai de C3-T3a sur une VM Windows
+propre, fiche `docs/essais/C3-T3a-windows.md`. Et annoncer à la praticienne
+pilote que l'historique de `journal.log` partira en bloc vers février 2027.
 
 ## Dernières sessions
 
+- [2026-11-04 — Un premier prospect, et huit tâches livrées](docs/resumes/2026-11-04-premier-prospect-et-huit-taches.md) :
+  C2-T1, C6-T4, C9-T1, C7-T1, C4-T4, C7-T5, C3-T3a, C4-T2. Décisions métier.
 - [2026-10-20 — L'adressage tranché, et un journal que l'éditeur peut lire](docs/resumes/2026-10-20-adressage-et-journal-technique.md) :
   C3-T1 et C4-T1 livrées. Le garde-fou qui ne garde rien, quatre fois.
 - [2026-10-19 — La bascule, et ce que le rendu réel a révélé](docs/resumes/2026-10-19-bascule-et-fidelite.md) :
@@ -144,8 +162,6 @@ comparaison de DOM, démarrage du moteur). La suite passe aussi sous
   C1-T3 étapes 1 à 8. Moteur, schéma, comparateur V1 ↔ moteur.
 - [2026-10-15 — Le vocabulaire du schéma de formulaire](docs/resumes/2026-10-15-vocabulaire-de-schema.md) :
   C1-T1 livrée. 29 blocs et 45 champs inventoriés, sept types fermés.
-- [2026-10-14 — Licence BUSL et palette unifiée](docs/resumes/2026-10-14-licence-et-tokens.md) :
-  V1 enfin versionnée, C0-T1 et C1-T2 livrées.
 
 ## Comment on travaille ici
 
@@ -241,16 +257,25 @@ Ils ont déjà coûté du temps ; ils le recoûteront.
   rend 123 aussi bien pour « rien trouvé » que pour une erreur réelle : il faut
   une boucle. Un contrôle qui lit l'index Git doit être éprouvé sur des fichiers
   **indexés** — validé sur des fichiers non suivis, il ne voit rien.
-- **`.gitattributes` et les deux `.ps1`** — `*.ps1 text eol=crlf` est exigé,
-  mais leurs blobs ont été commités **en CRLF** avant son ajout (`daf60aa`).
-  `git diff` affiche donc 310 lignes modifiées sur deux fichiers que personne n'a
-  touchés. Ne pas les commiter avec une tâche : correction isolée, en C6-T4.
-- **Deux flakes de harnais, de mécanismes différents.** `ServeurEnMarche` expire
-  en lecture TLS sous Windows et Python 3.9 (C7-T5). `ServeurArret` échoue environ
-  une fois sur soixante parce que le tube `stdout=PIPE` de `Popen` se remplit —
-  mesuré, risque en production nul, diagnostic dans `docs/audits/C4-T1.md`.
-  **Ne pas prendre l'habitude de relancer** : le jour où l'échec sera réel, on
-  relancera aussi. Un échec intermittent se capture au moment où il tombe.
+- **Un tube `stdout=PIPE` jamais lu fige le serveur de test sous Windows**
+  (tampon minuscule) : toute requête qui journalise se bloque, `/sante` seule
+  répond. C'était le « délai TLS » de C7-T5 ; un fil lecteur le règle.
+  `demarrer_sandbox_court` garde un `PIPE` relu par `communicate()` : même
+  mécanisme, à traiter de même s'il revient. Ne jamais relancer un échec
+  intermittent : le capturer.
+- **La CI ne part que sur `main`, une pull request ou à la main.** Une branche
+  poussée ne lance rien : `env -u GITHUB_TOKEN gh workflow run tests.yml --ref
+  <branche>`. Un `GITHUB_TOKEN` invalide dans l'environnement masque le
+  trousseau de `gh`. Des commits jamais passés en CI ont caché deux semaines une
+  régression Windows : ne pas laisser `main` local longtemps sans CI.
+- **Un harnais de mutation peut mentir** : `$?` lu après un `printf`, une
+  commande rangée dans une variable sous zsh, une mutation placée là où elle ne
+  change rien. Toujours un témoin sans mutation, et le code de retour du test
+  lui-même. Les mutations se font sur une copie `git ls-files -z --cached
+  --others --exclude-standard` : le classificateur refuse de muter `serveur.py`
+  en place, et une poussée forcée (pousser sous un nouveau nom de branche).
+- **Une mutation qui provoque un interblocage fige la suite** au lieu d'échouer :
+  préférer une garde statique dérivée de l'arbre syntaxique (C4-T2).
 - **Piloter Chrome ne demande rien à installer** (Node 24 expose `WebSocket`),
   mais les coordonnées de `Input.dispatchMouseEvent` sont relatives à la zone
   affichée — il faut défiler jusqu'à l'élément — et sans
