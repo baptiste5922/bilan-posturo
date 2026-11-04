@@ -23,9 +23,9 @@ Le contrat et `CLAUDE.md` parlent de « dix suites Node » : la CI et
 
 | Suite | Résultat |
 |---|---|
-| `python3 -m unittest discover -s tests` | **225** tests, OK (2 sautés) — 219 + 6 de `test_confidentialite_prospect` |
-| `python3 -O -m unittest discover -s tests` | **225** tests, OK (2 sautés) |
-| 10 suites Node, dont `test_grille.js` (88 cas) | code 0 chacune |
+| `python3 -m unittest discover -s tests` | **226** tests, OK (2 sautés) — 219 + 7 de `test_confidentialite_prospect` |
+| `python3 -O -m unittest discover -s tests` | **226** tests, OK (2 sautés) |
+| 10 suites Node, dont `test_grille.js` (88 cas) ; `npm test` | code 0 chacune ; `npm test` à 0 |
 | `python3 -m pyflakes serveur/ tests/` | code 0 |
 
 ## Mutations de `formulaire/moteur/rendu.js` et de la spécification
@@ -100,6 +100,43 @@ fois **sur du texte écrit par cette tâche** :
 Son extraction des littéraux de script confondait aussi la prose des
 commentaires français (apostrophes) avec des chaînes : remplacée par un petit
 parcours qui saute `//` et `/* */` (`litteraux_js`).
+
+## Reprise après l'audit de sécurité
+
+### La garde lit désormais les valeurs d'attributs
+
+`AucunMarqueurDeLaFiche` ignorait les valeurs d'attributs HTML (`id`, `name`,
+`aria-*`, `data-*`…), où vivent les identifiants. L'extraction recueille
+maintenant `id`, `class` (découpée en jetons), `name`, `for`, `placeholder`,
+`title`, `alt`, `value`, `label` et tout `aria-*` / `data-*`, avec les mêmes
+règles : normalisation, seuil de huit caractères, retrait de ce qui est déjà
+public à `1ec796c`, exemptions D9 et d'un attribut standard, échecs qui ne
+nomment que fichier et ligne. Aucune exemption nouvelle ; les fichiers de la
+tâche n'ont déclenché aucun faux positif. Un test sans fiche ni git
+(`ExtractionDeLaFiche`) éprouve l'extraction sur un HTML synthétique.
+
+Mutation : un fichier non suivi `tests/donnees/_mutation.txt` portant **une valeur
+d'attribut propre à la fiche** (choisie par le script parmi les marqueurs que
+l'extension a ajoutés, ni écrite à la main ni affichée). Hygiène de l'étape 9 :
+arbre commité au préalable, rien d'indexé pendant la mutation, fichier supprimé
+ensuite.
+
+| Contrôle | Résultat |
+|---|---|
+| Marqueurs avant / après l'extension | 294 / 352, dont 58 propres aux attributs |
+| Témoin sans mutation, `AucunMarqueurDeLaFiche` | code 0 ; sous `-O` code 0 |
+| Garde d'**avant** l'extension, sur le fichier de mutation | ne trouve rien (aveugle : c'est ce que l'extension corrige) |
+| Mutation, garde étendue | code 1 (`tests/donnees/_mutation.txt:1`, jamais la valeur) |
+| Mutation rejouée sous `python3 -O` | code 1 |
+| Après nettoyage | fichier absent ; `git status --short` ne montre que `docs/audits/C1-T6.md`, non suivi, rapport de l'auditeur |
+| Témoin final | code 0 ; sous `-O` code 0 |
+
+### Intitulés de ligne
+
+Le `white-space: nowrap` des intitulés de ligne est retiré (le coin le garde). Un
+intitulé de 200 caractères ne dépasse plus la page (1182 px au lieu de 1590) ;
+le correctif d'en-tête a été rejoué : essai réel à sept « OK » et PDF contrôlé à
+l'œil. Détail et mesures de largeur : `CONSTAT-2026-11-04-C1-T6.md`.
 
 ## Mutations de l'essai de rendu réel (en plus de ce que le contrat demandait)
 
