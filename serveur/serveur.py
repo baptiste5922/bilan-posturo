@@ -31,6 +31,7 @@ import secrets
 import socket
 import socketserver
 import ssl
+import stat
 import sys
 import tempfile
 import threading
@@ -82,6 +83,29 @@ ITERATIONS = 240_000               # coût du hachage PBKDF2
 # journal croîtrait indéfiniment. 5 Mo représentent environ 40 000 requêtes.
 JOURNAL_TAILLE_MAX = 5 * 1024 * 1024
 JOURNAL_ARCHIVES = 3
+
+# Durée de conservation des deux journaux (C4-T2). Un cabinet qui fait une
+# cinquantaine de requêtes par jour met plus de deux ans à remplir 5 Mo : la
+# taille seule ne borne donc pas la durée. Un mois vaut 30 jours, écrit ici
+# une seule fois : la rotation mensuelle et la purge s'en dérivent toutes
+# deux, jamais d'un calendrier (un mois de calendrier varie de 28 à 31 jours).
+JOURS_PAR_MOIS = 30
+CONSERVATION_MOIS_DEFAUT = 6
+CONSERVATION_MOIS_MAX = 120
+# Une archive est purgée quand sa première ligne a plus de N mois MOINS ce
+# délai, et la purge est revérifiée à l'écriture au plus à cet intervalle
+# (D3 bis). Les deux sont liés : la première ligne était, à la vérification
+# précédente, plus jeune que le seuil ; elle ne peut donc pas avoir dépassé N
+# mois à la suivante. Une constante, pour ne pas les désaccorder.
+PURGE_INTERVALLE = datetime.timedelta(days=1)
+# Fil de purge périodique (voir boucle_purge_periodique) : il tient la promesse
+# « au plus N mois » même quand plus rien ne s'écrit. Son intervalle doit rester
+# inférieur à PURGE_INTERVALLE, sans quoi l'avance d'un jour ne couvre plus
+# l'attente entre deux tours (un test le vérifie).
+PURGE_PERIODIQUE_SECONDES = 6 * 3600
+# Positionné depuis la configuration dans demarrer(). Toujours relu via
+# conservation_mois(), qui le revalide : une valeur absurde ne lève jamais.
+CONSERVATION_JOURNAUX_MOIS = CONSERVATION_MOIS_DEFAUT
 
 # Vocabulaire fermé du journal technique : la source dont les tests se
 # dérivent, jamais recopiée. Un nom d'événement hors de cet ensemble devient
@@ -137,6 +161,8 @@ CONFIG_DEFAUT = {
     "certificat": "certificat.pem",
     "cle_privee": "cle.pem",
     "journal_technique": True,
+    # Durée de conservation des deux journaux, en mois de 30 jours (C4-T2).
+    "conservation_journaux_mois": CONSERVATION_MOIS_DEFAUT,
     # Identité du cabinet (C2-T1) : chaînes vides par défaut, jamais un
     # exemple générique — un exemple finit tôt ou tard imprimé sur un bilan
     # réel (décision D3 du contrat). Sert à remplir l'en-tête du formulaire
@@ -162,6 +188,21 @@ CLES_CABINET = tuple(CONFIG_DEFAUT["cabinet"])
 # Configuration et mots de passe
 # --------------------------------------------------------------------------
 
+def normaliser_conservation_mois(valeur):
+    """Rend la durée de conservation si c'est un entier de 1 à
+    CONSERVATION_MOIS_MAX, sinon la valeur par défaut, sans jamais lever.
+
+    Un booléen est écarté explicitement : en Python, True est un entier, et
+    `"conservation_journaux_mois": true` donnerait un mois de conservation.
+    Des `if` plutôt que des `assert`, qui s'évaporeraient sous python -O.
+    """
+    if isinstance(valeur, bool) or not isinstance(valeur, int):
+        return CONSERVATION_MOIS_DEFAUT
+    if valeur < 1 or valeur > CONSERVATION_MOIS_MAX:
+        return CONSERVATION_MOIS_DEFAUT
+    return valeur
+
+
 def charger_config():
     if not os.path.exists(CONFIG):
         return None
@@ -185,6 +226,12 @@ def charger_config():
             if isinstance(brut.get(cle), str):
                 cabinet[cle] = brut[cle]
     complet["cabinet"] = cabinet
+
+    # Même tolérance que pour « cabinet » : une valeur écrite à la main qui
+    # n'est pas un entier de 1 à 120 retombe sur 6 au lieu d'empêcher le
+    # démarrage.
+    complet["conservation_journaux_mois"] = normaliser_conservation_mois(
+        complet.get("conservation_journaux_mois"))
 
     return complet
 
@@ -354,41 +401,356 @@ def ecrire_stderr(ligne):
         pass
 
 
-def faire_tourner_journal(chemin=None):
-    """Archive le journal au-delà de JOURNAL_TAILLE_MAX.
+def conservation_mois():
+    """Durée de conservation en vigueur, toujours valide."""
+    return normaliser_conservation_mois(CONSERVATION_JOURNAUX_MOIS)
+
+
+def seuil_purge():
+    """Âge au-delà duquel la première ligne d'une archive la condamne :
+    N mois moins PURGE_INTERVALLE (D3 bis). L'avance garantit qu'aucune ligne
+    ne dépasse N mois entre deux vérifications ; elle coûte au plus un jour
+    de conservation."""
+    return (datetime.timedelta(days=JOURS_PAR_MOIS * conservation_mois())
+            - PURGE_INTERVALLE)
+
+
+def generations_maximales():
+    """Nombre maximal d'archives d'un journal (décision D4).
+
+    Avec une rotation mensuelle, JOURNAL_ARCHIVES = 3 couperait la
+    conservation à trois mois : le compte ne doit jamais être la borne de
+    durée. N + 1 générations laissent l'âge, et lui seul, décider ; la borne
+    disque reste finie (au plus JOURNAL_TAILLE_MAX par génération).
+    """
+    return max(JOURNAL_ARCHIVES, conservation_mois() + 1)
+
+
+def _horodatage_de_tete(chemin):
+    """Date de la première ligne du fichier, ou None si elle est illisible.
+
+    Les deux journaux commencent chaque ligne par
+    datetime.now().isoformat(timespec="seconds"), naïf et sans espace. Le
+    motif est strict à dessein : fromisoformat() accepte plus de formes
+    depuis Python 3.11 qu'en 3.9 (« 20261019 », fuseaux), et un même fichier
+    ne doit pas être daté différemment selon l'interpréteur.
+    """
+    try:
+        with open(chemin, "rb") as f:
+            tete = f.readline(64)
+    except OSError:
+        return None
+    mots = tete.decode("utf-8", errors="replace").split()
+    if not mots or not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}", mots[0]):
+        return None
+    try:
+        return datetime.datetime.fromisoformat(mots[0])
+    except ValueError:
+        return None
+
+
+def _age_premiere_ligne(chemin, maintenant):
+    """Âge de la première ligne du fichier, ou None si rien ne permet de le
+    dire.
+
+    Horodatage illisible, ou postérieur à l'horloge (corrompu, ou horloge
+    reculée : sinon il rendrait le fichier immortel) : repli sur la date de
+    modification, plus prudente. La décision D1 n'est pas tenue sur un
+    fichier corrompu, mais rien ne lève.
+    """
+    horodatage = _horodatage_de_tete(chemin)
+    if horodatage is not None and horodatage <= maintenant:
+        return maintenant - horodatage
+    try:
+        modification = datetime.datetime.fromtimestamp(os.lstat(chemin).st_mtime)
+    except (OSError, OverflowError, ValueError):
+        return None
+    return maintenant - modification
+
+
+# Instant de la dernière purge de chaque journal, pour la limiter à une par
+# intervalle. Lu et écrit sous _verrou_journal (ou hors de tout fil concurrent,
+# au démarrage et dans les tests).
+_derniere_purge = {}
+
+
+def _est_fichier_ordinaire(chemin):
+    """Vrai pour un fichier ordinaire, faux pour un lien symbolique, un
+    dossier, un chemin absent ou illisible. lstat, jamais stat : un lien n'est
+    pas suivi."""
+    try:
+        return stat.S_ISREG(os.lstat(chemin).st_mode)
+    except OSError:
+        return False
+
+
+def purger_archives(chemin=None, maintenant=None):
+    """Supprime les archives dont la première ligne a plus de N mois.
+
+    Point nommé de l'audit (décision D6) : ne supprime que des chemins de la
+    forme exacte « <journal>.<entier> », entier de 1 à CONSERVATION_MOIS_MAX + 1
+    (D6 bis : baisser N ne laisse pas d'archives orphelines hors d'atteinte),
+    construits un à un — jamais de recherche par motif (glob) : un
+    « journal.log.bak », un « journal.log.1.x » ou un autre fichier du
+    dossier ne peuvent pas être désignés. Un lien symbolique ou un dossier de
+    ce nom est laissé tel quel (lstat, jamais stat). Ne lève pas, et ne
+    journalise rien : elle est appelée sous _verrou_journal, non réentrant,
+    et journaliser_technique() le reprendrait (interblocage).
+
+    Mémorise l'instant de la purge (_derniere_purge) pour que l'écriture ne la
+    refasse pas plus d'une fois par PURGE_INTERVALLE.
+
+    Rend le nombre d'archives supprimées. Le défaut de chemin et d'horloge se
+    résout dans le corps, comme dans faire_tourner_journal().
+    """
+    if chemin is None:
+        chemin = JOURNAL
+    if maintenant is None:
+        maintenant = datetime.datetime.now()
+
+    _derniere_purge[chemin] = maintenant
+    limite = seuil_purge()
+    supprimees = 0
+    for rang in range(1, CONSERVATION_MOIS_MAX + 2):
+        archive = "{}.{}".format(chemin, rang)
+        try:
+            if not _est_fichier_ordinaire(archive):
+                continue
+            age = _age_premiere_ligne(archive, maintenant)
+            if age is not None and age > limite:
+                os.remove(archive)
+                supprimees += 1
+        except OSError:
+            continue
+    return supprimees
+
+
+def purger_au_demarrage():
+    """Purge les archives des deux journaux avant la première écriture.
+
+    Un serveur arrêté plusieurs mois ne tourne pas et ne purge donc rien :
+    sans ce passage, les archives périmées survivraient jusqu'à la prochaine
+    rotation. Les deux journaux, même si journal_technique est désactivé : la
+    promesse vaut pour les fichiers déjà là.
+    """
+    with _verrou_journal:
+        for chemin in (JOURNAL, TECHNIQUE):
+            purger_archives(chemin)
+
+
+def entretenir_journaux(maintenant=None):
+    """Passe d'entretien des deux journaux, hors de toute écriture : rotation
+    si le courant a plus d'un mois ou dépasse la taille, puis purge
+    inconditionnelle des archives (le plafond d'un jour de purge_due ne
+    s'applique pas ici : le fil appelle déjà à intervalle fixe).
+
+    Sans écriture, le journal courant vieillirait seul et ses lignes
+    passeraient N mois. La rotation d'un technique.log par ce chemin
+    n'inscrit pas de ligne ROTATION : l'écrire créerait le fichier même
+    quand journal_technique est désactivé.
+
+    Prend _verrou_journal et ne journalise rien dessous (interblocage).
+    """
+    if maintenant is None:
+        maintenant = datetime.datetime.now()
+    with _verrou_journal:
+        for chemin in (JOURNAL, TECHNIQUE):
+            faire_tourner_journal(chemin, maintenant)
+            purger_archives(chemin, maintenant)
+
+
+def boucle_purge_periodique(arret, attente=PURGE_PERIODIQUE_SECONDES,
+                            horloge=None):
+    """Corps du fil de purge : toutes les `attente` secondes, entretient les
+    deux journaux, jusqu'à ce que `arret` (un threading.Event) soit levé.
+
+    Attente et événement d'arrêt s'injectent : un test passe un événement
+    simulé et n'attend jamais. `arret.wait()` rend True quand l'événement est
+    levé, ce qui arrête la boucle sans attendre le délai. Aucune exception
+    n'arrête la boucle (un journal ne doit jamais coûter autre chose que
+    lui-même), et rien n'est journalisé : une erreur de purge se retrouvera
+    à l'écriture suivante, qui repasse par les mêmes fonctions.
+    """
+    while not arret.wait(attente):
+        try:
+            entretenir_journaux(horloge() if horloge is not None else None)
+        except Exception:
+            pass
+
+
+def demarrer_purge_periodique():
+    """Lance le fil de purge, en démon : il meurt avec le processus. Rend le
+    fil et son événement d'arrêt."""
+    arret = threading.Event()
+    fil = threading.Thread(target=boucle_purge_periodique, args=(arret,),
+                           name="purge-journaux", daemon=True)
+    fil.start()
+    return fil, arret
+
+
+# Nom provisoire du journal courant pendant une rotation. Hors de la forme
+# « <journal>.<entier> » : la purge ne le voit pas, et il ne se confond avec
+# aucune archive.
+SUFFIXE_ROTATION = ".rotation"
+
+# Dernier échec de rotation de chaque journal : on ne retente pas à chaque
+# écriture un renommage qui échoue (journal tenu ouvert sous Windows), une
+# fois par PURGE_INTERVALLE suffit. Même verrou que _derniere_purge.
+_rotation_ratee = {}
+
+
+def _rang(chemin, rang):
+    return "{}.{}".format(chemin, rang)
+
+
+def _liberer_le_rang_un(chemin):
+    """Décale les archives pour que « <journal>.1 » soit libre. Lève OSError.
+
+    Chaque archive monte d'un rang seulement jusqu'au premier trou : une
+    archive n'est supprimée par le compte que si la chaîne est pleine. Un
+    décalage interrompu à mi-chemin, relancé, ne perd donc rien (la boucle
+    d'origine supprimait « la plus ancienne » avant de savoir si le courant
+    pourrait être archivé : audit C4-T2).
+
+    Une entrée qui n'est pas un fichier ordinaire (dossier, lien) à un rang
+    est une barrière : on ne la touche jamais, et le décalage s'arrête sous
+    elle. Une archive part alors un peu plus tôt, ce que D1 tolère ; le
+    journal courant, lui, continue de tourner. Seule une barrière au rang 1
+    interdit toute rotation.
+    """
+    borne = generations_maximales()
+    plafond = borne
+    for rang in range(1, borne + 1):
+        nom = _rang(chemin, rang)
+        if os.path.lexists(nom) and not _est_fichier_ordinaire(nom):
+            plafond = rang - 1
+            break
+    if plafond < 1:
+        raise OSError("le rang 1 des archives est occupé par autre chose "
+                      "qu'un fichier")
+
+    libre = None
+    for rang in range(1, plafond + 1):
+        if not os.path.lexists(_rang(chemin, rang)):
+            libre = rang
+            break
+    if libre is None:
+        # Chaîne pleine : la plus ancienne part par le compte.
+        os.remove(_rang(chemin, plafond))
+        libre = plafond
+    for rang in range(libre - 1, 0, -1):
+        os.replace(_rang(chemin, rang), _rang(chemin, rang + 1))
+
+
+def _replacer_le_temporaire(chemin):
+    """Place en « .1 » le journal laissé sous son nom provisoire par une
+    rotation interrompue. Sans effet s'il n'y en a pas. Ne lève pas."""
+    temporaire = chemin + SUFFIXE_ROTATION
+    if not _est_fichier_ordinaire(temporaire):
+        return
+    try:
+        _liberer_le_rang_un(chemin)
+        os.replace(temporaire, _rang(chemin, 1))
+    except OSError:
+        pass
+
+
+def purge_due(chemin, maintenant):
+    """Vrai si la dernière purge de ce journal remonte à PURGE_INTERVALLE ou
+    plus, ou n'a jamais eu lieu. Une horloge reculée (écart négatif) compte
+    comme due : mieux vaut purger trop que laisser vieillir."""
+    derniere = _derniere_purge.get(chemin)
+    if derniere is None:
+        return True
+    ecart = maintenant - derniere
+    return ecart < datetime.timedelta(0) or ecart >= PURGE_INTERVALLE
+
+
+def faire_tourner_journal(chemin=None, maintenant=None):
+    """Archive le journal au-delà de JOURNAL_TAILLE_MAX, ou dès que sa
+    première ligne a plus d'un mois (décision D2), puis purge les archives
+    périmées (D3). Sans rotation, la purge est quand même revérifiée, au plus
+    une fois par jour (D3 bis) : sans cela, une archive devenue éligible
+    attendrait la rotation suivante et ses lignes dépasseraient N mois.
 
     Partagée par les deux journaux : le défaut se résout ici, dans le corps,
     et non dans la signature — sinon il serait figé à l'import, et les tests
     qui remplacent le global JOURNAL (RotationDuJournal) cesseraient d'agir
-    sur cette fonction.
+    sur cette fonction. L'horloge (`maintenant`, un datetime naïf local) suit
+    la même règle et s'injecte dans les tests : jamais de sleep.
 
-    Conserve JOURNAL_ARCHIVES générations. Toute erreur est ignorée : un
-    journal qu'on ne peut pas faire tourner ne doit pas empêcher le serveur
-    de répondre. Rend True si une rotation a eu lieu, pour que l'appelant
-    (déjà sous verrou dans journaliser_technique) puisse noter l'événement
-    sans ré-acquérir ce verrou.
+    Conserve generations_maximales() générations. Toute erreur est ignorée :
+    un journal qu'on ne peut pas faire tourner ne doit pas empêcher le
+    serveur de répondre. Rend True si une rotation a eu lieu, pour que
+    l'appelant (déjà sous verrou dans journaliser_technique) puisse noter
+    l'événement sans ré-acquérir ce verrou.
     """
     if chemin is None:
         chemin = JOURNAL
+    if maintenant is None:
+        maintenant = datetime.datetime.now()
+
+    # D'abord, une rotation interrompue : ses lignes ne sont dans aucune
+    # archive reconnue tant qu'elles restent sous le nom provisoire.
+    _replacer_le_temporaire(chemin)
 
     try:
-        if os.path.getsize(chemin) < JOURNAL_TAILLE_MAX:
-            return False
+        taille = os.path.getsize(chemin)
+        a_tourner = taille >= JOURNAL_TAILLE_MAX
+        # Un fichier vide n'a rien à archiver, quelle que soit sa date.
+        if not a_tourner and taille > 0:
+            age = _age_premiere_ligne(chemin, maintenant)
+            a_tourner = (age is not None
+                         and age > datetime.timedelta(days=JOURS_PAR_MOIS))
     except OSError:
+        # Journal absent : pas de rotation, mais des archives peuvent
+        # attendre leur purge.
+        a_tourner = False
+    if a_tourner:
+        derniere = _rotation_ratee.get(chemin)
+        if (derniere is not None
+                and datetime.timedelta(0) <= maintenant - derniere
+                < PURGE_INTERVALLE):
+            a_tourner = False
+    # Un nom provisoire encore là écraserait des lignes non archivées.
+    if a_tourner and os.path.lexists(chemin + SUFFIXE_ROTATION):
+        a_tourner = False
+    # Un non-fichier au rang 1 interdit toute rotation : on ne déplace pas le
+    # courant sous son nom provisoire pour ne pas pouvoir le replacer.
+    rang_un = _rang(chemin, 1)
+    if a_tourner and os.path.lexists(rang_un) and not _est_fichier_ordinaire(rang_un):
+        a_tourner = False
+    if not a_tourner:
+        if purge_due(chemin, maintenant):
+            purger_archives(chemin, maintenant)
         return False
 
+    # Le courant passe d'abord sous son nom provisoire : si ce renommage
+    # échoue (journal tenu ouvert sous Windows), aucune archive n'a bougé ni
+    # disparu. Le décalage ne vient qu'ensuite (audit C4-T2).
+    temporaire = chemin + SUFFIXE_ROTATION
     try:
-        plus_ancienne = "{}.{}".format(chemin, JOURNAL_ARCHIVES)
-        if os.path.exists(plus_ancienne):
-            os.remove(plus_ancienne)
-        for rang in range(JOURNAL_ARCHIVES - 1, 0, -1):
-            source = "{}.{}".format(chemin, rang)
-            if os.path.exists(source):
-                os.replace(source, "{}.{}".format(chemin, rang + 1))
-        os.replace(chemin, chemin + ".1")
-        return True
+        os.replace(chemin, temporaire)
     except OSError:
+        _rotation_ratee[chemin] = maintenant
+        if purge_due(chemin, maintenant):
+            purger_archives(chemin, maintenant)
         return False
+    try:
+        _liberer_le_rang_un(chemin)
+        os.replace(temporaire, _rang(chemin, 1))
+    except OSError:
+        # Le courant reste sous son nom provisoire ; _replacer_le_temporaire
+        # le placera à l'écriture suivante (et tant qu'il est là, aucune
+        # nouvelle rotation ne part : pas besoin de la limite quotidienne).
+        return False
+    _rotation_ratee.pop(chemin, None)
+
+    # Après le décalage, pour que l'archive qui vient d'être créée soit jugée
+    # elle aussi : un journal courant resté plus de N mois sans écriture
+    # s'archive puis disparaît dans le même passage.
+    purger_archives(chemin, maintenant)
+    return True
 
 
 def journaliser(ligne):
@@ -935,6 +1297,8 @@ def demarrer():
 
     global JOURNAL_TECHNIQUE_ACTIF
     JOURNAL_TECHNIQUE_ACTIF = config["journal_technique"]
+    global CONSERVATION_JOURNAUX_MOIS
+    CONSERVATION_JOURNAUX_MOIS = config["conservation_journaux_mois"]
 
     certificat = os.path.join(RACINE, config["certificat"])
     cle = os.path.join(RACINE, config["cle_privee"])
@@ -986,6 +1350,9 @@ def demarrer():
         print("Lancez :  python3 serveur/serveur.py --config")
     print("\nCtrl+C pour arrêter.\n")
 
+    purger_au_demarrage()
+    _, arret_purge = demarrer_purge_periodique()
+
     empreinte = empreinte_certificat(certificat)
     journaliser_technique("DEMARRAGE", "version={} port={} certificat={} {}".format(
         lire_version(), config["port"], empreinte, verdict_certificat(empreinte)))
@@ -1002,6 +1369,7 @@ def demarrer():
         # lui-même (§10 du contrat), et surtout pas la disponibilité du
         # port pour une relance.
         serveur.server_close()
+        arret_purge.set()
         journaliser_technique("ARRET", "motif={}".format(motif_arret))
     return 0
 

@@ -208,9 +208,28 @@ The authority itself is valid for 10 years.
 `C:\BilanPosturo\journal.log` keeps every request and every error. Search it
 for `TLS refusé` or `Traceback` when something is unexplained.
 
-Past 5 MB it is archived as `journal.log.1` and a new log starts; three
-generations are kept. Calls to `/sante`, which arrive continuously from every
-tablet that is switched on, are not recorded.
+It is archived as `journal.log.1` and a new log starts as soon as it passes
+5 MB, **or** as soon as its first line is more than one month (30 days) old.
+Older archives shift up (`.2`, `.3`, ...) and **no line is kept for more than
+six months**: an archive is deleted as soon as its first line is more than six
+months (180 days) minus one day old. The check runs when the server starts,
+each time a new archive is made, when the log is written (at most once a day)
+and, while the server runs, every six hours even if nothing is written any
+more. A stopped server purges nothing until it next starts. At most seven
+generations of archives exist at once in normal operation. Deletion is
+permanent, and it happens archive by archive: a recent line can therefore
+disappear up to a month before its six months, if it shares its archive with an
+older line. **Exception, the first time:** at the first start after the update,
+the whole earlier history becomes a single archive, which goes in one piece
+when its first line reaches the limit. The most recent lines of that archive
+can then go up to several months before their six months. Calls to `/sante`,
+which arrive continuously from every tablet that is switched on, are not
+recorded.
+
+The duration is set in `config.json` with the `"conservation_journaux_mois"`
+line (an integer from 1 to 120, **6 by default**); an invalid value is ignored
+and replaced by 6. It applies to both logs. Restart the server after changing
+it.
 
 ### The second log, the one that can be sent
 
@@ -221,9 +240,9 @@ anything that belongs to a patient**. That is the difference between the two:
 `journal.log` must never leave the practice; `technique.log` can, by email, to
 support, for a remote diagnosis without any health data leaving the PC.
 
-It grows and is capped the same way as the other log (5 MB, three archived
-generations) — not by age: it is not purged automatically after a delay, only
-once it exceeds that size.
+It rotates and is purged exactly like the other log: archived past 5 MB or one
+month, and no line kept beyond six months (`"conservation_journaux_mois"`, see
+above). A single duration applies to both files.
 
 To switch it off (there should be no reason to, but the fallback exists): open
 `config.json` at the root, add or set the `"journal_technique"` line to

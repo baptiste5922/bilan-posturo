@@ -212,9 +212,29 @@ L'autorité, elle, est valable 10 ans.
 `C:\BilanPosturo\journal.log` conserve chaque requête et chaque erreur.
 Y chercher `TLS refusé` ou `Traceback` en cas de problème inexpliqué.
 
-Au-delà de 5 Mo, il est archivé en `journal.log.1` et un nouveau journal
-commence ; trois générations sont conservées. Les appels à `/sante`, qui
-arrivent en continu depuis chaque tablette allumée, n'y figurent pas.
+Il est archivé en `journal.log.1` et un nouveau journal commence dès qu'il
+dépasse 5 Mo, **ou** dès que sa première ligne a plus d'un mois (30 jours).
+Les archives plus anciennes sont décalées (`.2`, `.3`, …) et **aucune ligne
+n'est conservée plus de six mois** : une archive est supprimée dès que sa
+première ligne a plus de six mois (180 jours) moins un jour. La vérification
+a lieu au démarrage du serveur, à chaque nouvelle archive, à l'écriture du
+journal (au plus une fois par jour) et, serveur en marche, toutes les six
+heures même si plus rien ne s'écrit. Un serveur arrêté ne purge rien avant son
+prochain démarrage. Au plus sept générations d'archives
+coexistent en régime normal. La suppression est définitive, et elle se fait
+archive par archive : une ligne récente peut donc disparaître jusqu'à un mois
+avant ses six mois, si elle partage son archive avec une ligne plus ancienne.
+**Exception, la première fois :** au premier démarrage après la mise à jour,
+tout l'historique d'avant devient une seule archive, qui part en bloc quand sa
+première ligne atteint la limite. Les lignes les plus récentes de cette
+archive peuvent alors partir jusqu'à plusieurs mois avant leurs six mois.
+Les appels à `/sante`, qui arrivent en continu depuis chaque
+tablette allumée, n'y figurent pas.
+
+La durée se règle dans `config.json`, par la ligne
+`"conservation_journaux_mois"` (entier de 1 à 120, **6 par défaut**) ; une
+valeur invalide est ignorée et remplacée par 6. Elle vaut pour les deux
+journaux. Relancer le serveur après modification.
 
 ### Quelle version est installée ?
 
@@ -233,9 +253,10 @@ différence entre les deux : `journal.log` ne doit jamais quitter le cabinet ;
 `technique.log` le peut, par courriel, à l'assistance, pour un diagnostic à
 distance sans qu'aucune donnée de santé ne sorte du PC.
 
-Il grossit et se limite en taille de la même façon que l'autre journal (5 Mo,
-trois générations archivées) — pas en durée : il n'est pas purgé
-automatiquement après un délai, seulement quand il dépasse la taille.
+Il tourne et se purge exactement comme l'autre journal : archivé au-delà de
+5 Mo ou d'un mois, et plus aucune ligne conservée au-delà de six mois
+(`"conservation_journaux_mois"`, voir plus haut). Une seule durée vaut pour
+les deux fichiers.
 
 Pour le désactiver (il ne devrait pas y avoir de raison, mais le retour en
 arrière existe) : ouvrir `config.json` à la racine, ajouter ou mettre à

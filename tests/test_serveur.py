@@ -307,12 +307,14 @@ class RotationDuJournal(unittest.TestCase):
         self.assertTrue(os.path.exists(self.journal + ".1"))
 
     def test_generations_limitees(self):
-        for _ in range(serveur.JOURNAL_ARCHIVES + 2):
+        # La borne n'est plus JOURNAL_ARCHIVES seul (C4-T2, D4) : elle se
+        # dérive de generations_maximales(), jamais d'un chiffre transcrit.
+        borne = serveur.generations_maximales()
+        for _ in range(borne + 2):
             self.ecrire(serveur.JOURNAL_TAILLE_MAX + 1)
             serveur.faire_tourner_journal()
-        surnumeraire = "{}.{}".format(self.journal, serveur.JOURNAL_ARCHIVES + 1)
-        self.assertTrue(os.path.exists(
-            "{}.{}".format(self.journal, serveur.JOURNAL_ARCHIVES)))
+        surnumeraire = "{}.{}".format(self.journal, borne + 1)
+        self.assertTrue(os.path.exists("{}.{}".format(self.journal, borne)))
         self.assertFalse(os.path.exists(surnumeraire))
 
     def test_journal_absent_ne_leve_pas(self):

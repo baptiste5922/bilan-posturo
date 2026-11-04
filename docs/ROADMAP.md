@@ -779,6 +779,25 @@ d'une installation à distance. L'éditeur est à Lille, le cabinet en Bretagne.
 
 ### C4-T2 — Durée de conservation des journaux
 
+> **État : livrée le 4 novembre 2026** (contrat court `docs/contrats/C4-T2.md`,
+> amendé ; audit `docs/audits/C4-T2.md`, conforme après suites).
+> - **La promesse :** aucune ligne de `journal.log` ni de `technique.log`
+>   n'est conservée plus de six mois, serveur en marche.
+> - **Ce qui la tient :**
+>   - une rotation mensuelle, en plus de celle par taille ;
+>   - une purge des archives par horodatage de première ligne (seuil :
+>     N×30 j − 1 j), faite au démarrage, à chaque rotation, à l'écriture au
+>     plus une fois par jour, et par un fil toutes les 6 h ;
+>   - une rotation « tout ou rien » : un journal ouvert par un autre
+>     programme ne fait plus disparaître d'archives.
+> - **Mesure :** sur une simulation de 900 jours, l'âge maximal d'une ligne
+>   est de 179 j 6 h à tout instant, quel que soit le rythme d'écriture.
+> - **Réglage :** clé `conservation_journaux_mois` (1 à 120, défaut 6).
+> - **À annoncer au cabinet pilote avant la mise à jour :** l'historique
+>   antérieur forme une seule archive, supprimée en bloc vers février 2027.
+> - **Pour C0-T2 :** reprendre « six mois de 30 jours, moins un jour, serveur
+>   en marche », et la limite de la barrière au rang 1.
+
 > **À chiffrer avant de dimensionner la purge, relevé par l'audit de C4-T1 le
 > 20 octobre :** chaque réponse d'erreur produit **deux** lignes `REPONSE` dans
 > `technique.log`, dont une à `code=0` issue de `log_error`. Le volume réel n'est

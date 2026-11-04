@@ -9,6 +9,7 @@ dossier du projet.
 """
 
 import base64
+import datetime
 import http.client
 import importlib.util
 import json
@@ -107,7 +108,8 @@ def attendre_ligne_technique(dossier, sous_chaine, limite=10):
             sous_chaine, limite))
 
 
-def demarrer_sandbox_court(config_extra=None, attendre_demarrage_technique=False):
+def demarrer_sandbox_court(config_extra=None, attendre_demarrage_technique=False,
+                           avant_demarrage=None):
     """Construit et démarre un serveur complet dans son propre bac à sable.
 
     Pour un test qui a besoin d'arrêter lui-même son serveur (ARRET,
@@ -119,6 +121,10 @@ def demarrer_sandbox_court(config_extra=None, attendre_demarrage_technique=False
     signal au processus (voir attendre_ligne_technique) — False par défaut,
     car certains appelants désactivent le journal technique
     (journal_technique=False), où DEMARRAGE ne s'écrirait jamais.
+
+    avant_demarrage : fonction appelée avec le dossier du bac à sable juste
+    avant le lancement du serveur, pour y poser des fichiers que le
+    démarrage doit trouver (archives de journal, C4-T2).
     """
     dossier = tempfile.mkdtemp(prefix="bilan-test-sandbox-")
     os.mkdir(os.path.join(dossier, "serveur"))
@@ -145,6 +151,9 @@ def demarrer_sandbox_court(config_extra=None, attendre_demarrage_technique=False
     config.update(config_extra or {})
     with open(os.path.join(dossier, "config.json"), "w") as f:
         json.dump(config, f)
+
+    if avant_demarrage is not None:
+        avant_demarrage(dossier)
 
     processus = subprocess.Popen(
         # -u : sortie non bufferisée. Sans cela, le bloc d'informations
@@ -862,6 +871,47 @@ class InterrupteurJournalTechnique(unittest.TestCase):
         self.assertFalse(
             os.path.exists(os.path.join(dossier, "technique.log")))
         self.assertTrue(os.path.exists(os.path.join(dossier, "journal.log")))
+
+
+class PurgeAuDemarrage(unittest.TestCase):
+    """C4-T2 : un serveur arrêté des mois ne purge rien tout seul. Le
+    démarrage doit donc le faire, pour les deux journaux, avec la durée
+    lue dans config.json (et non la valeur par défaut)."""
+
+    @unittest.skipIf(cryptography_absente(),
+                     "cryptography requis pour fabriquer les certificats")
+    def test_archives_perimees_supprimees_au_demarrage(self):
+        maintenant = datetime.datetime.now()
+
+        def poser(dossier):
+            def ecrire(nom, jours):
+                date = (maintenant - datetime.timedelta(days=jours)).isoformat(
+                    timespec="seconds")
+                with open(os.path.join(dossier, nom), "w",
+                          encoding="utf-8") as f:
+                    f.write(date + " REPONSE methode=GET route=sante code=200\n")
+            ecrire("journal.log.1", 40)
+            ecrire("journal.log.2", 10)
+            ecrire("technique.log.1", 40)
+            ecrire("technique.log.2", 10)
+
+        # Un mois : 40 jours dépassent 30 jours, 10 jours non. Avec la durée
+        # par défaut (6 mois), rien ne serait supprimé : le test échoue donc
+        # si le serveur ignore le paramètre de configuration.
+        dossier, port, processus = demarrer_sandbox_court(
+            {"conservation_journaux_mois": 1},
+            attendre_demarrage_technique=True, avant_demarrage=poser)
+        try:
+            processus.terminate()
+            processus.communicate(timeout=10)
+        finally:
+            presents = set(os.listdir(dossier))
+            shutil.rmtree(dossier, ignore_errors=True)
+
+        self.assertNotIn("journal.log.1", presents)
+        self.assertNotIn("technique.log.1", presents)
+        self.assertIn("journal.log.2", presents)
+        self.assertIn("technique.log.2", presents)
 
 
 class AvertissementIdentiteCabinet(unittest.TestCase):

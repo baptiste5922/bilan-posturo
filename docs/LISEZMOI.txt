@@ -135,7 +135,10 @@ EN CAS DE PROBLÈME
    La réponse {"etat":"ok"} signifie que le serveur répond.
 
    Consulter journal.log : il indique si un bilan a été reçu
-   et à quelle heure. Au-delà de 5 Mo, il est archivé en
-   journal.log.1, et ainsi de suite jusqu'à journal.log.3.
+   et à quelle heure. Au-delà de 5 Mo, ou d'un mois, il est
+   archivé en journal.log.1, et ainsi de suite. Aucune ligne
+   n'est conservée plus de six mois (réglable : voir le mode
+   d'emploi, « Consulter le journal »). Serveur arrêté, rien
+   n'est purgé : le rattrapage a lieu au démarrage suivant.
 
 

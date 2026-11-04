@@ -134,5 +134,8 @@ IF SOMETHING GOES WRONG
    https://<pc-ip>:8000/sante — {"etat":"ok"} means it answers.
 
    Check journal.log: it shows whether an assessment was
-   received, and at what time. Past 5 MB it is archived as
-   journal.log.1, and so on up to journal.log.3.
+   received, and at what time. Past 5 MB, or one month, it is
+   archived as journal.log.1, and so on. No line is kept for
+   more than six months (adjustable: see the user guide,
+   "Read the log"). While the server is stopped nothing is
+   purged: it catches up at the next start.
