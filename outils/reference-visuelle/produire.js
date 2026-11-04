@@ -193,6 +193,23 @@ async function dessiner(chrome) {
     return nombre;
 }
 
+/**
+ * Relit la largeur réelle de la fenêtre et l'imprime, à chaque production : la
+ * largeur change la pagination (3 pages à 1280 px, 6 vers 760 px pour le bilan
+ * témoin), et cdp.js réutilise sans rien dire un Chrome déjà en écoute avec sa
+ * propre taille. Si ESSAI_LARGEUR est posé et que la valeur relue diffère, la
+ * production s'arrête : un PDF de référence fait à une autre largeur que celle
+ * annoncée ne prouve rien.
+ */
+async function relireLargeur(chrome) {
+    const lue = await chrome.evaluer(`window.innerWidth`);
+    console.log("fenêtre : " + lue + " px" + (LARGEUR ? " (demandé : " + LARGEUR + ")" : ""));
+    if (LARGEUR && lue !== LARGEUR) {
+        throw new Error("largeur de fenêtre " + lue + " au lieu de " + LARGEUR
+            + " : un Chrome déjà en écoute sur le port a-t-il été réutilisé ?");
+    }
+}
+
 async function exporterPdf(chrome, nomAttendu) {
     const avant = new Set(fs.readdirSync(SORTIE));
     await chrome.evaluer(`document.getElementById("btn-export").click()`);
@@ -254,6 +271,7 @@ async function capturer(chrome, prefixe) {
 
         if (cible === "v1") {
             await chrome.aller(BASE + "/index-v1.html");
+            await relireLargeur(chrome);
             await remplir(chrome);
             const zones = await dessiner(chrome);
             console.log("rempli, " + zones + " planches annotées");
@@ -280,6 +298,7 @@ async function capturer(chrome, prefixe) {
             }
             const brut = fs.readFileSync(BROUILLON, "utf-8");
             await chrome.aller(BASE + "/" + PAGE);
+            await relireLargeur(chrome);
             await chrome.evaluer(
                 `localStorage.setItem("bilan-posturo-brouillon", ${JSON.stringify(brut)})`);
             await chrome.aller(BASE + "/" + PAGE);

@@ -41,6 +41,12 @@
 //                        déjà en écoute est réutilisé par cdp.js avec sa propre taille).
 //                        Défaut : 1280, la fenêtre de référence.
 //   ESSAI_MODE=refus     scénario de refus (ESSAI_SCHEMA = schema-v2-grille-trop-large.json).
+//   ESSAI_MODE=mesure    épreuve d'atelier d'un schéma client (spécification, « Livrer une
+//                        grille dans un schéma client », condition 2) : accepte n'importe
+//                        quel schéma v2, ne saisit RIEN, et imprime une ligne OK/RATÉ par
+//                        grille — sa largeur est au plus égale à LARGEUR_GRILLE_REFERENCE_PX,
+//                        lue dans le source servi — puis, à 1280 px, la vérification 9.
+//                        Code 0 si toutes les grilles passent, 1 sinon.
 //   (sans)               scénario complet : sept vérifications d'origine, plus
 //                        8. la copie capturée n'a aucune grille hors de #form-bilan,
 //                        9. (à 1280 seulement) la largeur disponible pour une grille égale
@@ -60,6 +66,10 @@ const SCHEMA = process.env.ESSAI_SCHEMA;
 const PORT_CHROME = parseInt(process.env.ESSAI_PORT_CHROME || "9335", 10);
 const LARGEUR = parseInt(process.env.ESSAI_LARGEUR || "1280", 10);
 const MODE_REFUS = process.env.ESSAI_MODE === "refus";
+const MODE_MESURE = process.env.ESSAI_MODE === "mesure";
+// Ces deux modes ne saisissent rien dans le formulaire : ils n'exigent ni zone de
+// texte de tête, ni trois grilles, ni cases à cocher à choisir.
+const MODE_SANS_SAISIE = MODE_REFUS || MODE_MESURE;
 
 if (!BILANS || !IDENTIFIANTS_BRUTS || !SORTIE || !SCHEMA) {
     console.error("ESSAI_BILANS, ESSAI_IDENTIFIANTS, ESSAI_SORTIE et ESSAI_SCHEMA sont obligatoires "
@@ -102,11 +112,11 @@ schema.blocs.forEach(function (bloc) {
         });
     });
 });
-if (!MODE_REFUS && (grilles.length < 3 || !zoneDeTete)) {
+if (!MODE_SANS_SAISIE && (grilles.length < 3 || !zoneDeTete)) {
     console.error("ESSAI_SCHEMA doit porter une zone de texte de tête puis au moins trois grilles.");
     process.exit(2);
 }
-if (MODE_REFUS && grilles.length < 1) {
+if (MODE_SANS_SAISIE && grilles.length < 1) {
     console.error("ESSAI_SCHEMA doit porter au moins une grille.");
     process.exit(2);
 }
@@ -114,13 +124,13 @@ const derniere = grilles[grilles.length - 1];
 
 // Saisie : deux cases d'une même ligne de la grille 1, un texte court de la grille 2.
 const grille1 = grilles[0], grille2 = grilles[1];
-const ligneDeCases = MODE_REFUS ? [] : grille1.cellules.find(function (ligne) {
+const ligneDeCases = MODE_SANS_SAISIE ? [] : grille1.cellules.find(function (ligne) {
     return ligne.filter(function (c) { return !c.neutre && c.nature === "case"; }).length >= 2;
 });
-const casesACocher = MODE_REFUS ? [] : ligneDeCases.filter(function (c) { return !c.neutre && c.nature === "case"; }).slice(0, 2);
-const celluleTexte = MODE_REFUS ? null : [].concat.apply([], grille2.cellules)
+const casesACocher = MODE_SANS_SAISIE ? [] : ligneDeCases.filter(function (c) { return !c.neutre && c.nature === "case"; }).slice(0, 2);
+const celluleTexte = MODE_SANS_SAISIE ? null : [].concat.apply([], grille2.cellules)
     .filter(function (c) { return !c.neutre && c.nature === "texte-court"; })[0];
-if (!MODE_REFUS && (casesACocher.length !== 2 || !celluleTexte)) {
+if (!MODE_SANS_SAISIE && (casesACocher.length !== 2 || !celluleTexte)) {
     console.error("Le schéma d'essai ne permet pas la saisie demandée (deux cases d'une ligne, un texte court).");
     process.exit(2);
 }
@@ -160,6 +170,62 @@ const FILE_DEPOTS = `new Promise((ok) => {
     };
     r.onerror = () => ok(-1);
 })`;
+
+/**
+ * Vérification 9 (critère 22) : à 1280 px, la largeur disponible pour une grille
+ * (bord droit de #form-bilan moins bord gauche de la table) ÉGALE la constante
+ * LARGEUR_GRILLE_REFERENCE_PX, lue dans le script.js servi. Égalité stricte :
+ * les mesures de Chrome à cette fenêtre sont des entiers, et une tolérance
+ * laisserait passer une constante fausse de quelques pixels.
+ */
+async function verification9(chrome, verdict, numero) {
+    const etat = await chrome.evaluer(`(async () => {
+        const form = document.getElementById("form-bilan");
+        const droite = form.getBoundingClientRect().right;
+        const disponibles = Array.from(document.querySelectorAll("table.grille"))
+            .map((t) => droite - t.getBoundingClientRect().left);
+        const source = await fetch("script.js").then((r) => r.text());
+        const m = source.match(/const +LARGEUR_GRILLE_REFERENCE_PX *= *([0-9.]+) *;/);
+        return { disponibles, constante: m ? parseFloat(m[1]) : null };
+    })()`);
+    verdict(numero, etat.constante !== null && etat.disponibles.length === grilles.length
+        && etat.disponibles.every((d) => d === etat.constante),
+        "à 1280 px, la largeur disponible pour une grille égale LARGEUR_GRILLE_REFERENCE_PX lue dans le source servi",
+        ["disponible : " + etat.disponibles.join(", ") + " px ; constante du source : " + etat.constante]);
+}
+
+/**
+ * Épreuve d'atelier (ESSAI_MODE=mesure) : sur un schéma v2 quelconque, chaque
+ * grille doit tenir dans la largeur de référence. Rien n'est saisi, rien n'est
+ * exporté : seules les mesures de la page rendue comptent.
+ */
+async function scenarioMesure(chrome, verdict) {
+    const etat = await chrome.evaluer(`(async () => {
+        const zone = document.getElementById("zone-messages");
+        const source = await fetch("script.js").then((r) => r.text());
+        const m = source.match(/const +LARGEUR_GRILLE_REFERENCE_PX *= *([0-9.]+) *;/);
+        return {
+            attente: document.getElementById("attente-moteur") !== null,
+            message: zone && !zone.hidden ? zone.textContent.trim() : "",
+            reference: m ? parseFloat(m[1]) : null,
+            largeurs: ${JSON.stringify(grilles.map((g) => g.bloc))}.map((id) => {
+                const t = document.getElementById(id);
+                return t ? t.getBoundingClientRect().width : null;
+            })
+        };
+    })()`);
+    const rendu = !etat.attente && etat.message === "" && etat.largeurs.every((l) => l !== null);
+    verdict(1, rendu, "le moteur a rendu le schéma : " + grilles.length + " grille(s), aucun message d'erreur",
+        etat.message ? ["message affiché : " + etat.message] : []);
+    grilles.forEach((g, k) => {
+        const largeur = etat.largeurs[k];
+        verdict(2 + k, etat.reference !== null && largeur !== null && largeur <= etat.reference,
+            "grille " + (k + 1) + " (" + g.cle + ", " + g.colonnes.length + " colonnes) : largeur "
+            + (largeur === null ? "introuvable" : Math.round(largeur * 100) / 100 + " px")
+            + " au plus égale à LARGEUR_GRILLE_REFERENCE_PX (" + etat.reference + " px)");
+    });
+    if (LARGEUR === 1280) await verification9(chrome, verdict, 2 + grilles.length);
+}
 
 /**
  * Scénario de refus (critère 21) : une grille trop large pour être réduite
@@ -268,7 +334,9 @@ const BROUILLON = `(() => JSON.parse(localStorage.getItem("bilan-posturo-brouill
         }
         lignes.push("  Fenêtre : " + largeurLue + " px (imposée par Emulation.setDeviceMetricsOverride, relue dans la page)");
 
-        if (MODE_REFUS) {
+        if (MODE_MESURE) {
+            await scenarioMesure(chrome, verdict);
+        } else if (MODE_REFUS) {
             await scenarioRefus(chrome, verdict, lignes);
             await chrome.evaluer(`localStorage.clear()`);
         } else {
@@ -536,21 +604,7 @@ const BROUILLON = `(() => JSON.parse(localStorage.getItem("bilan-posturo-brouill
                 + g.bordForm.toFixed(1) + " (" + (g.transform || "non réduite") + ")"));
 
         // ---------------- 9. Largeur de référence (fenêtre de 1280 px seulement) ----------------
-        if (LARGEUR === 1280) {
-            const etat9 = await chrome.evaluer(`(async () => {
-                const form = document.getElementById("form-bilan");
-                const droite = form.getBoundingClientRect().right;
-                const disponibles = Array.from(document.querySelectorAll("table.grille"))
-                    .map((t) => droite - t.getBoundingClientRect().left);
-                const source = await fetch("script.js").then((r) => r.text());
-                const m = source.match(/const +LARGEUR_GRILLE_REFERENCE_PX *= *([0-9.]+) *;/);
-                return { disponibles, constante: m ? parseFloat(m[1]) : null };
-            })()`);
-            verdict(9, etat9.constante !== null && etat9.disponibles.length === grilles.length
-                && etat9.disponibles.every((d) => Math.abs(d - etat9.constante) <= 0.5),
-                "à 1280 px, la largeur disponible pour une grille égale LARGEUR_GRILLE_REFERENCE_PX lue dans le source servi",
-                ["disponible : " + etat9.disponibles.join(", ") + " px ; constante du source : " + etat9.constante]);
-        }
+        if (LARGEUR === 1280) await verification9(chrome, verdict, 9);
         await chrome.evaluer(`localStorage.clear()`);
         }   // fin du scénario complet
     } catch (erreur) {

@@ -414,12 +414,11 @@ bloc reste une donnée du **schéma**, jamais du thème (revue de C1-T1).
 | `indication` | non | Amendement D11. Autorisé sur `texte` et `zone-texte` uniquement, émis comme `placeholder`. |
 | `valeurs` | oui pour `radio` uniquement | Liste d'options, chacune `{ "cle": "...", "valeur": "...", "libelle": "..." }`. |
 | `entetes` | oui pour `tableau` uniquement | En-tête de colonnes, partagé par toutes les lignes. |
-| `lignes` | oui pour `tableau` uniquement | Liste de `{ "nom": "...", "cle": "...", "colonnes": [{ "valeur": "...", "libelle": "..." }, ...] }`. |
+| `lignes` | oui pour `tableau` et pour `grille` | `tableau` : liste de `{ "nom": "...", "cle": "...", "colonnes": [{ "valeur": "...", "libelle": "..." }, ...] }`. `grille` (version 2) : de 1 à 20 lignes, chacune `{ "cle": "...", "libelle": "...", "neutralisees": ["cle de colonne", ...] }` ; `neutralisees`, facultatif, désigne les cellules de cette ligne qui n'existent pas (aucun contrôle, fond neutre), et en laisse au moins une active. |
 | `fichier` | oui pour `image-annotable` uniquement | Chemin de l'image à annoter. |
 | `texte_alternatif` | oui pour `image-annotable` uniquement | Texte alternatif de l'image. |
 | `apparence` | non | Amendement D9. Autorisé sur `image-annotable` (`squelette` par défaut, ou `encadree`) et sur `case` (`titre_avant` : le libellé précède la case, dans son propre label). Interdit sur tout autre type. |
 | `colonnes` | oui pour `grille` uniquement | Version 2. De 1 à 12 colonnes, chacune `{ "cle": "...", "libelle": "...", "nature": "case" ou "texte-court" }`. La nature est fixée par colonne. |
-| `lignes` | oui pour `grille` aussi | De 1 à 20 lignes, chacune `{ "cle": "...", "libelle": "...", "neutralisees": ["cle de colonne", ...] }` ; `neutralisees`, facultatif, désigne les cellules de cette ligne qui n'existent pas (aucun contrôle, fond neutre), et en laisse au moins une active. |
 | `groupes` | non, `grille` uniquement | Version 2. Liste non vide de `{ "libelle": "...", "etendue": N }` : un en-tête qui coiffe `N` colonnes consécutives. La somme des étendues égale le nombre de colonnes. Le libellé d'un groupe peut être vide. |
 
 `type`, `cle` (ou `valeurs`/`lignes` selon le type) et `libelle` forment
@@ -437,7 +436,11 @@ sont cochables indépendamment. Une cellule `texte-court` accepte 8 caractères
 au plus : au-delà, l'impression ne montrerait qu'une valeur tronquée, sans le
 dire. Trop de colonnes déborderait de la page et trop de lignes la couperait
 au milieu d'une ligne ; l'atelier **scinde** une grille trop longue en
-plusieurs blocs plutôt que d'en forcer les bornes. **Largeur d'une grille.** Elle dépend de la fenêtre de la tablette, des
+plusieurs blocs plutôt que d'en forcer les bornes. Faute de pouvoir exprimer
+une cellule à trois états, l'atelier prend une colonne `texte-court` où l'on
+saisit « + » ou « − ».
+
+**Largeur d'une grille.** Elle dépend de la fenêtre de la tablette, des
 intitulés (celui du coin ne passe pas à la ligne) et du nombre de colonnes de
 texte court ; la validation ne peut pas la connaître. L'export la mesure donc au
 moment de capturer le formulaire :
@@ -464,9 +467,10 @@ ne sont pas réunies, client par client :
 
 1. la réduction et le refus décrits ci-dessus sont livrés (revue « À LIVRER ») ;
 2. le schéma du client passe deux épreuves :
-   - **en atelier** : `essai-grille.js`, joué à 1 280 px sur ce schéma, rend
-     « OK » pour chaque grille (largeur au plus égale à
-     `LARGEUR_GRILLE_REFERENCE_PX`) ;
+   - **en atelier** : `essai-grille.js` en mode `ESSAI_MODE=mesure`, joué à
+     1 280 px sur ce schéma (n'importe quel schéma de version 2 : le mode ne
+     saisit rien), rend « OK » pour chaque grille (largeur au plus égale à
+     `LARGEUR_GRILLE_REFERENCE_PX`) et pour la vérification de la constante ;
    - **sur la tablette du client elle-même**, avec son navigateur et ses
      réglages d'affichage habituels (taille du texte, zoom) : chaque grille
      remplie au maximum (toutes les cases cochées, chaque cellule `texte-court`
@@ -474,10 +478,6 @@ ne sont pas réunies, client par client :
      colonne entière. Un changement de tablette, de navigateur ou de taille de
      texte chez ce client rejoue cette épreuve ;
 3. le favori de secours est posé chez ce client.
-
-Faute de pouvoir exprimer
-une cellule à trois états, l'atelier prend une colonne `texte-court` où l'on
-saisit « + » ou « − ».
 
 **Amendement D9 (`apparence` sur `image-annotable`, facultatif, valeurs
 fermées).** `"squelette"` (défaut) → `class="squelette dessinable"`, image

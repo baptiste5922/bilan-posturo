@@ -15,7 +15,8 @@ jamais un `$?` lu après autre chose.
 | `python3 -O -m unittest discover -s tests` | 219 tests, OK (2 sautés) |
 | Suites Node de la CI (9 : `file_depots`, `pagination`, `version`, `palette`, `inventaire_formulaire`, `comparaison_dom`, `demarrage_moteur`, `nommage`, `concurrence_export`) | code 0 chacune |
 
-Le contrat et `CLAUDE.md` parlent de « dix suites Node » : la CI et
+Le contrat et `CLAUDE.md` parlent de « dix suites Node » (onze depuis A1, avec
+`test_export_grille.js`) : la CI et
 `package.json` n'en comptaient que **neuf** à `1ec796c` ; la dixième est
 `test_grille.js`, ajoutée par cette tâche.
 
@@ -35,7 +36,7 @@ Méthode : copie de travail par `git ls-files -z --cached --others
 --exclude-standard` (ni `config.json`, ni clé, ni journal, ni la fiche du
 prospect n'y figurent), fichier sauvegardé hors de la copie avant chaque mutation
 et restauré par `cp`, **témoin sans mutation** relancé avant et après (les dix
-suites Node, toutes à 0). Les dix suites sont rejouées à chaque mutation ; seules
+suites Node, toutes à 0). Les dix suites alors existantes (onze depuis A1) sont rejouées à chaque mutation ; seules
 celles qui rougissent sont listées (code 1 chacune).
 
 | # | Mutation | Suites rouges | Premier cas qui rougit dans `test_grille.js` |
@@ -172,7 +173,7 @@ test_donnees_de_test (...VocabulaireFictif...) ... ok
 test_exemples_de_grille_de_la_specification (...VocabulaireFictif...) ... ok
 test_le_verificateur_mord (...VocabulaireFictif...) ... ok
 
-Ran 6 tests in 3.4s
+Ran 7 tests in 5.6s
 OK
 ```
 
@@ -184,6 +185,9 @@ Exécution `workflow_dispatch` sur la branche, au commit « Écarte la prose des
 commentaires de la garde de marqueurs » : identifiant
 **41809865962**, succès sur les sept tâches — `test` (ubuntu 3.9 et 3.13,
 windows 3.9 et 3.13, macos 3.13), `scripts-windows` et `lint`.
+
+Après l'amendement A1 : exécution **41847917207**, sur le commit `d84b443`, succès
+sur les mêmes sept tâches.
 
 ## Amendement A1 — mutations (m) à (s), sur une copie passée par `SCRIPT_A_TESTER`
 
@@ -233,3 +237,34 @@ Mutations de l'essai réel, en plus (copie du bac, jamais le dépôt) :
 |---|---|---|---|
 | refus supprimé | refus, 1280 px | 1 (message) et 2 (un PDF est déposé) | 1 |
 | réduction neutralisée (`transform = ""`) | complet, 1024 px | 8 (grille 3 : bord droit à 1159,2 px pour 996,0) | 1 |
+
+## Reprise après la revue — mode `mesure`, largeur de `produire.js`, égalité stricte
+
+Faites sur des copies de bac hors du dépôt, avec témoin et code de retour.
+
+**`ESSAI_MODE=mesure`** (épreuve d'atelier d'un schéma client, spécification
+§5.3, condition 2) : ne saisit rien, une ligne « OK » / « RATÉ » par grille (largeur
+au plus égale à `LARGEUR_GRILLE_REFERENCE_PX`, lue dans le source servi), puis la
+vérification de la constante à 1280 px.
+
+| Schéma | Résultat | Code |
+|---|---|---|
+| `schema-v2-grilles-fictives.json` | « OK » pour le rendu, les trois grilles (1182 px chacune pour 1192) et la constante (disponible 1192, 1192, 1192 ; source 1192) | 0 |
+| `schema-v2-grille-trop-large.json` (témoin négatif) | « RATÉ » pour la grille 1 : 1911 px contre 1192 ; constante « OK » | 1 |
+
+Les modes d'origine sont inchangés : complet à 1280 et 820 px, et refus, rejoués
+tous « OK », code 0.
+
+**Vérification de la constante, désormais stricte** (`disponible === constante`, au
+lieu de 0,5 px près). Mutation du bac : constante servie à 1192,4, que l'ancienne
+tolérance aurait laissée passer — vérification « RATÉ », code 1 ; témoin à 1192,
+« OK », code 0.
+
+**`produire.js` relit `window.innerWidth`** et l'imprime à chaque production
+(« fenêtre : 1280 px » par défaut ; « fenêtre : 1024 px (demandé : 1024) » avec
+`ESSAI_LARGEUR=1024`). Témoin négatif : copie de `produire.js` hors du dépôt dont
+l'imposition de largeur est neutralisée, `ESSAI_LARGEUR=1000` — elle imprime
+« fenêtre : 1280 px (demandé : 1000) », « ÉCHEC : largeur de fenêtre 1280 au lieu
+de 1000… », code 1. (Les essais de `produire.js` ont tourné sur un port de débogage
+autre que 9222, par une copie ; le refus d'un Chrome que `cdp.js` n'a pas lancé
+reste hors du contrat.)

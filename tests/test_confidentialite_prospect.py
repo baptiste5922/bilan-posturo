@@ -51,7 +51,8 @@ ATTRIBUTS_TEXTUELS = frozenset(
     ["id", "class", "name", "for", "placeholder", "title", "alt", "value", "label"])
 PREFIXES_ATTRIBUTS = ("aria-", "data-")
 # Deux exemptions, écrites parce que le contrat se heurtait à lui-même au premier
-# essai (écart signalé dans le compte rendu de C1-T6) : D9 impose des clés
+# essai (voir « Un vrai positif, trouvé en cours de route » dans
+# docs/audits/C1-T6-mises-en-echec.md) : D9 impose des clés
 # « grille-N » que la fiche emploie aussi, et la décision D12 nomme l'attribut
 # standard `aria-label`, qui n'était pas encore dans le dépôt. Un texte du
 # vocabulaire fictif est public par construction ; un nom d'attribut WAI-ARIA
