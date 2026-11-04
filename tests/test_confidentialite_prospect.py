@@ -131,10 +131,36 @@ def blocs_json_de_la_specification():
 
 # ----------------------------------------------------------- marqueurs de la fiche
 
+def litteraux_js(source):
+    """Les littéraux de chaîne d'un script, commentaires exclus.
+
+    Une simple expression régulière prenait pour des chaînes la prose française
+    des commentaires (« l'en-tête … d'une … ») : ses apostrophes se répondaient
+    d'un mot à l'autre. D'où ce petit parcours, qui saute `//` et `/* */`.
+    """
+    trouves = []
+    i, n = 0, len(source)
+    while i < n:
+        c = source[i]
+        if c == "/" and source[i + 1:i + 2] == "/":
+            fin = source.find("\n", i)
+            i = n if fin == -1 else fin
+        elif c == "/" and source[i + 1:i + 2] == "*":
+            fin = source.find("*/", i + 2)
+            i = n if fin == -1 else fin + 2
+        elif c in "\"'`":
+            j = i + 1
+            while j < n and source[j] != c:
+                j += 2 if source[j] == "\\" else 1
+            trouves.append(source[i + 1:j])
+            i = j + 1
+        else:
+            i += 1
+    return trouves
+
+
 class _ExtracteurDeFiche(html.parser.HTMLParser):
     """Récolte les nœuds texte et, dans les scripts, les littéraux entre guillemets."""
-
-    LITTERAL = re.compile(r"\"((?:[^\"\\\n]|\\.)*)\"|'((?:[^'\\\n]|\\.)*)'|`((?:[^`\\]|\\.)*)`")
 
     def __init__(self):
         super().__init__(convert_charrefs=True)
@@ -158,8 +184,7 @@ class _ExtracteurDeFiche(html.parser.HTMLParser):
         if self._dans_style:
             return
         if self._dans_script:
-            for m in self.LITTERAL.finditer(donnee):
-                self.textes.append(next(g for g in m.groups() if g is not None))
+            self.textes.extend(litteraux_js(donnee))
         else:
             self.textes.append(donnee)
 

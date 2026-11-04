@@ -617,7 +617,7 @@ table.grille {
 
 /* La règle globale « .titre_section » rend ses éléments en inline-block : un th
    ainsi rendu cesse d'être une cellule de tableau, et son rowspan est ignoré —
-   l'en-tête à deux rangées se décalerait d'une colonne. Constaté au rendu réel
+   la seconde rangée d'en-têtes se décalerait d'une colonne. Vu au rendu réel
    (CONSTAT C1-T6), invisible de tout test sur double de DOM. */
 table.grille th.titre_section {
     display: table-cell;
