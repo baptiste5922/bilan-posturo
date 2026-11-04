@@ -437,6 +437,19 @@ l'en-tête ; le moteur de rendu, identique chez tous les clients, produit le DOM
 
 ### C1-T6 — Type `grille` : cases et mesures en tableau
 
+> **État : livrée le 4 novembre 2026** sur la branche `c1-t6-grille`, après
+> audit (`docs/audits/C1-T6.md`, CONFORME SOUS RÉSERVE, réserve R1 levée) et
+> revue (`docs/revues/C1-T6.md`, À LIVRER). Contrat `docs/contrats/C1-T6.md`,
+> 24 critères vérifiés. Format de schéma en version 2, huitième type `grille`
+> (`case` et `texte-court` ; cellules à trois états écartées par décision du
+> 4 novembre). **Élargie par l'amendement A1** : `script.js` réduit à l'export
+> une grille trop large, et refuse au-delà de `LARGEUR_GRILLE_REFERENCE_PX`
+> (1 192 px) ; la fiche de secours reste identique au pixel. Effort réel L + M.
+> **Aucune grille dans un schéma client** avant les trois conditions de
+> `docs/schema-formulaire.md` (« Livrer une grille dans un schéma client »),
+> dont un export d'essai **sur la tablette du client**. Rien ne part au
+> cabinet : le schéma pilote reste en version 1. Suites reportées : C1-T6b.
+
 - **Effort :** M
 - **Process :** Complet — révise le format de schéma (`version_schema` 2) et
   le moteur partagé par tous les cabinets.
@@ -465,6 +478,32 @@ l'en-tête ; le moteur de rendu, identique chez tous les clients, produit le DOM
     `outils/reference-visuelle/`).
   - Une grille saisie se restaure depuis le brouillon et s'imprime dans le PDF.
   - Chaque garde est mise en échec par une mutation, aussi sous `-O`.
+
+### C1-T6b — Fiabiliser l'outillage et les gardes de la grille
+
+- **Effort :** S
+- **Process :** Allégé — outillage et CI, rien qui parte au cabinet.
+- **Dépendances :** C1-T6. À faire **avant le premier schéma client à grille**.
+- **Périmètre :** `outils/reference-visuelle/cdp.js`, `.github/workflows/tests.yml`,
+  `tests/test_confidentialite_prospect.py`, `docs/schema-formulaire.md`
+- **Pourquoi :** constats laissés ouverts par l'audit et la revue de C1-T6,
+  hors de son périmètre.
+- **Travail :**
+  1. `cdp.js` réutilise sans le dire un Chrome déjà en écoute sur son port, à
+     une taille de fenêtre inconnue (constat R2 de l'audit : six pages au lieu
+     de trois pour le bilan témoin). Refuser un Chrome qu'il n'a pas lancé, ou
+     le signaler et imposer la largeur.
+  2. Un cas de `tests/test_export_grille.js` (options de capture identiques à
+     `1ec796c`) est sauté en CI, faute d'historique : `fetch-depth: 0` ou un
+     autre moyen de le jouer partout (remarque 4 de la revue).
+  3. Les messages de commit et les noms de branche ne passent sous aucune garde
+     de confidentialité (constat faible de l'audit) ; les valeurs `src` et
+     `href` de la fiche non plus.
+  4. Sous environ 680 px de fenêtre, une grille haute et trop étroite pour être
+     réduite peut être coupée entre deux pages au milieu d'une ligne (réaudit) :
+     mesurer, puis borner ou documenter.
+- **Critères d'acceptation :** chaque point est fermé par une garde mise en
+  échec par une mutation, ou consigné comme accepté avec sa raison.
 
 ## C2 — Identité du cabinet en configuration
 
