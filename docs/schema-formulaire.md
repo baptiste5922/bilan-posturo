@@ -437,7 +437,10 @@ sont cochables indépendamment. Une cellule `texte-court` accepte 8 caractères
 au plus : au-delà, l'impression ne montrerait qu'une valeur tronquée, sans le
 dire. Trop de colonnes déborderait de la page et trop de lignes la couperait
 au milieu d'une ligne ; l'atelier **scinde** une grille trop longue en
-plusieurs blocs plutôt que d'en forcer les bornes. Faute de pouvoir exprimer
+plusieurs blocs plutôt que d'en forcer les bornes. Mesure du 4 novembre 2026
+(fenêtre de 1280 px) : à 12 colonnes, la grille tient avec quatre colonnes de
+texte court au plus ; à cinq, elle déborde de la page et serait rognée à
+l'impression, sans que la validation le sache. Faute de pouvoir exprimer
 une cellule à trois états, l'atelier prend une colonne `texte-court` où l'on
 saisit « + » ou « − ».
 
