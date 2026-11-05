@@ -86,3 +86,23 @@ clones), **0** pour les six clones de l, m, n (sous `python3` puis `-O`), et **0
   erreur de `fetch` vaut libre ») passerait les quatre autres cas ; l'ancien code,
   sur macOS, lance alors un vrai Chrome sur un port tenu par un autre service. Les
   processus `profil-chrome-` restants ont été arrêtés (0 après).
+
+## Rejeu de l, m et n après l'optimisation de la garde (revue de C1-T6b)
+
+La revue a relevé que `normaliser(texte)` était appelé une fois par marqueur et
+par blob. Le texte n'est désormais normalisé qu'une fois (dans
+`localiser_dans_blobs` et aux deux endroits « marqueur à cheval »). Résultat
+strictement identique, vérifié sur la plage réelle avec et sans l'exemption.
+
+- **Durée mesurée sur le poste qui détient la fiche :** `localiser_dans_blobs`
+  14,6 s → 0,28 s ; `localiser_marqueurs` (fichiers) 7,5 s → 0,57 s ; la classe
+  de garde entière 25,1 s → 3,1 s.
+- **Mutations l, m, n rejouées** sur le code optimisé (clones jetables, `origin`
+  retiré, `git -C <clone> remote | wc -l` → 0 avant mutation pour chacun des six
+  clones, marqueur écrit par le pilote, clones supprimés), sous `python3` et
+  `python3 -O`, témoin code 0 :
+  - l : code 1 sous les deux, nomme `81f06a971edc (formulaire/style.css):620` ;
+  - m : code 1 sous les deux, seul `test_l_exemption_de_blob_ne_couvre_que_sa_ligne_et_son_blob` rougit ;
+  - n : garde de l'état final code 0, garde des blobs code 1 sous les deux, nomme `<sha 12> (mutation-n.txt):2` ;
+  - marqueur absent de la sortie : True pour l, m, n.
+
