@@ -21,7 +21,10 @@
  *
  * Le cas « sans grille » compare les options passées à html2canvas à celles
  * du `script.js` du commit 1ec796c (lu par `git show`, jamais recopié). Dans un
- * clone superficiel qui n'a pas ce commit, ce seul cas est sauté, en le disant.
+ * clone superficiel qui n'a pas ce commit, ce seul cas est sauté, en le disant
+ * — sauf quand la variable `CI` est posée : la CI porte tout l'historique
+ * (`fetch-depth: 0`), et un commit absent y est alors un échec, sans quoi une
+ * régression du clone repasserait au vert en silence (C1-T6b, D5).
  */
 
 const fs = require("fs"), vm = require("vm"), assert = require("assert");
@@ -32,7 +35,9 @@ const RACINE = path.join(__dirname, "..");
 const SCRIPT = process.env.SCRIPT_A_TESTER
     ? path.resolve(process.env.SCRIPT_A_TESTER)
     : path.join(RACINE, "formulaire", "script.js");
-const COMMIT_DE_REPERE = "1ec796c";
+// Sha complet : `git cat-file -e` en vérifie la présence sans ambiguïté.
+const COMMIT_DE_REPERE = "1ec796c172bf1dcc9129bd0331fa6368edddb8c0";
+const COMMIT_DE_REPERE_COURT = COMMIT_DE_REPERE.slice(0, 7);
 
 // Le refus de A1-D4, mot pour mot : le contrat le fixe.
 const MESSAGE_ATTENDU = "Une grille de ce formulaire est trop large pour être imprimée "
@@ -406,17 +411,28 @@ async function exporter(c) {
     });
 
     // ------------------------------------------------- inertie sans grille
-    let scriptReference = null;
+    let commitPresent = true;
     try {
+        execFileSync("git", ["cat-file", "-e", COMMIT_DE_REPERE + "^{commit}"],
+            { cwd: RACINE, stdio: "ignore" });
+    } catch (e) { commitPresent = false; }
+
+    let scriptReference = null;
+    if (commitPresent) {
         scriptReference = execFileSync("git", ["show", COMMIT_DE_REPERE + ":formulaire/script.js"],
             { cwd: RACINE, stdio: ["ignore", "pipe", "ignore"], maxBuffer: 16 * 1024 * 1024 });
-    } catch (e) { scriptReference = null; }
+    }
 
-    if (scriptReference === null) {
-        console.log("saut - options de capture sans grille identiques à celles de " + COMMIT_DE_REPERE
+    if (scriptReference === null && process.env.CI) {
+        await cas("sans grille : html2canvas reçoit les mêmes options que le script.js de " + COMMIT_DE_REPERE_COURT, () => {
+            throw new Error("commit de repère " + COMMIT_DE_REPERE_COURT + " absent alors que CI est posé : "
+                + "le clone de la CI doit porter l'historique (fetch-depth: 0)");
+        });
+    } else if (scriptReference === null) {
+        console.log("saut - options de capture sans grille identiques à celles de " + COMMIT_DE_REPERE_COURT
             + " : commit absent (clone superficiel), cas non joué");
     } else {
-        await cas("sans grille : html2canvas reçoit les mêmes options que le script.js de " + COMMIT_DE_REPERE, async () => {
+        await cas("sans grille : html2canvas reçoit les mêmes options que le script.js de " + COMMIT_DE_REPERE_COURT, async () => {
             // Le script de référence est écrit dans un fichier temporaire hors du dépôt.
             const os = require("os");
             const dossier = fs.mkdtempSync(path.join(os.tmpdir(), "script-reference-"));

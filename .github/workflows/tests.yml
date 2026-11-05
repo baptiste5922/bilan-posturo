@@ -21,7 +21,13 @@ jobs:
             python: '3.9'
 
     steps:
+      # Historique complet : le cas « sans grille » de test_export_grille.js lit
+      # le script.js du commit 1ec796c, et test_licence.py compare le dépôt au
+      # commit-frontière. Dans un clone de profondeur 1, ces vérifications se
+      # sautaient en silence (C1-T6b). Le dépôt pèse quelques Mio.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
@@ -73,6 +79,9 @@ jobs:
 
       - name: Run identity and export concurrency tests
         run: node tests/test_concurrence_export.js
+
+      - name: Run Chrome driver refusal tests
+        run: node tests/test_cdp.js
 
   lint:
     runs-on: ubuntu-latest
