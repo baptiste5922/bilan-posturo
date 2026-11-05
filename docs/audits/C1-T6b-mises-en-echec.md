@@ -11,13 +11,13 @@ et les numéros de ligne que les échecs nomment eux-mêmes.
 
 ## Méthode
 
-- **a, b, c, k** (outillage Node) : mutation faite sur une copie
+- **a, b, c, k, o** (outillage Node) : mutation faite sur une copie
   `git ls-files -z --cached --others --exclude-standard` du dépôt (125 fichiers ;
   aucun `*.pem`, `config.json`, journal, `autorite.crt` ni `fiche_presentation*`
   dans la copie : `find … | wc -l` → 0), le fichier étant sauvegardé hors du dépôt
   avant la mutation et restauré par `cp`, puis comparé au dépôt par `cmp`. Pour c,
   un clone superficiel (`--depth 1`) du dépôt, sans remote.
-- **d, e** (Python, sans historique) et **f, g, h, i, j** (Python, avec la fiche
+- **d, e, m** (Python, sans historique) et **f, g, h, i, j, l, n** (Python, avec la fiche
   et un historique modifié) : un **pilote** Python hors dépôt (bloc-notes de la
   session). À chaque lancement, il fait un **clone jetable** complet du dépôt
   (`git clone file://…`), retire aussitôt `origin` et vérifie
@@ -51,10 +51,14 @@ et les numéros de ligne que les échecs nomment eux-mêmes.
 | i | exemption pointant un autre commit de la plage (celui de `HEAD`) | clone, idem | `…exemptions_toujours_justifiees` code 0 | code 1 | code 1 | `exemption sans objet (commit absent de la plage ou ligne sans marqueur) : <sha 12>:1` |
 | j | fichier non suivi du clone portant la charge utile **entière et la plus courte** des 5 `src` (9 356 caractères, retenue comme marqueur : True) | clone, `mutation-j.txt` écrit par le pilote | `…fichiers_changes` code 0 | code 1 | code 1 | `texte de la fiche retrouvé dans : mutation-j.txt:2` ; marqueur absent de la sortie : **True** |
 | k | comparaison de hauteur neutralisée (`hauteur <= etat.page` → `hauteur !== null`) | copie de `essai-grille.js` | à 734 px, copie non mutée : code **1** (ligne de hauteur de la grille 3 : RATÉ, 963 px pour 962,84) | à 734 px, copie mutée : code **0** au lieu de 1 (la même ligne passe « OK ») | sans objet | rien : la ligne RATÉ du témoin devient OK ; à 1 280 px (non muté), huit lignes OK, code 0 |
+| l | `BLOBS_EXEMPTES` vidé | clone, `tests/test_confidentialite_prospect.py` | `…blobs_de_la_plage` code 0 | code 1 | code 1 | `texte de la fiche retrouvé dans les blobs : 81f06a971edc (formulaire/style.css):620` ; marqueur absent de la sortie : **True** |
+| m | exemption de blob élargie au blob entier (ligne ignorée) | clone, idem | `ReperageHorsFichiers` (11 cas) code 0 | code 1 | code 1 | `test_l_exemption_de_blob_ne_couvre_que_sa_ligne_et_son_blob`, seul cas en échec |
+| n | deux commits jetables : l'un ajoute un fichier portant un marqueur (le plus court, 8 caractères), le suivant le retire | clone (historique), fichier écrit par le pilote, commits aux messages neutres | blobs + fichiers changés : code 0 | blobs : code **1** ; garde de l'état final (`…fichiers_changes`) : code **0**, le fichier n'étant plus dans l'arbre | blobs : code 1 ; état final : code 0 | `texte de la fiche retrouvé dans les blobs : <sha 12> (mutation-n.txt):2` ; marqueur absent de la sortie : **True**. C'est la preuve que la garde de l'état final seule laissait passer le cas. |
+| o | ancienne conclusion de la sonde restaurée (`portEstOccupe` rend `false` pour toute erreur) | copie de `outils/reference-visuelle/cdp.js` | `test_cdp.js` : 5 `ok`, code 0 | code 1 (1 cas sur 5) | sans objet (Node) | le seul cas « un port qui accepte la connexion sans jamais répondre est refusé, en moins de 5 s » : `aucun refus en 5 s : cdp.js a continué sur un port occupé` |
 
 `git -C <clone> remote | wc -l` relevé **avant la première mutation** de chaque
 clone : **0** pour d, e, f, g, h, i, j sous `python3` et sous `python3 -O` (14
-clones), et **0** pour le clone superficiel de c. Chaque pilote a affiché
+clones), **0** pour les six clones de l, m, n (sous `python3` puis `-O`), et **0** pour le clone superficiel de c. Chaque pilote a affiché
 `clone supprime : True`.
 
 ## Ce que les mutations ont appris
@@ -74,3 +78,11 @@ clones), et **0** pour le clone superficiel de c. Chaque pilote a affiché
 - **Mutation j** : la charge utile la plus courte fait 9 356 caractères. Un
   fragment ne ferait rien rougir (la garde cherche chaque marqueur en entier) :
   c'est pourquoi la mutation prend la charge utile entière.
+- **Mutations l à o (correctifs de l'audit)** : le blob exempté de la mutation l
+  est le seul que la garde des blobs nomme quand l'exemption disparaît ; aucun
+  autre blob de la plage ne porte de marqueur. La mutation n joue le scénario que
+  l'audit avait relevé : un texte commité puis retiré avant la poussée.
+- **Mutation o** : sans le cas du serveur muet, l'ancienne conclusion (« toute
+  erreur de `fetch` vaut libre ») passerait les quatre autres cas ; l'ancien code,
+  sur macOS, lance alors un vrai Chrome sur un port tenu par un autre service. Les
+  processus `profil-chrome-` restants ont été arrêtés (0 après).
