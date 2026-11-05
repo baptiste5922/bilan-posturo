@@ -481,6 +481,23 @@ l'en-tête ; le moteur de rendu, identique chez tous les clients, produit le DOM
 
 ### C1-T6b — Fiabiliser l'outillage et les gardes de la grille
 
+> **État : livrée le 5 novembre 2026** sur la branche `c1-t6b-outillage`
+> (tirée de `c1-t6-grille`), après audit (`docs/audits/C1-T6b.md`, CONFORME
+> au réaudit) et revue (`docs/revues/C1-T6b.md`, À LIVRER). Contrat
+> `docs/contrats/C1-T6b.md`, critères 1 à 27 et 21b vérifiés (DB1 et DB2 :
+> voie A). Effort réel M, process monté à Allégé + audit.
+> - `cdp.js` refuse tout port qui ne refuse pas la connexion.
+> - La CI clone l'historique complet, et un commit de repère absent y échoue.
+> - La garde de confidentialité lit les messages de commit, les noms de
+>   référence, les `src`/`href` de la fiche et **tous les blobs introduits
+>   dans la plage**, avec deux exemptions ancrées sur (SHA, ligne).
+> - Largeur seuil de la donnée fictive : 735 px ; la hauteur se vérifie en
+>   atelier, à la largeur de la tablette du client.
+>
+> **Restent hors garde** : les messages d'étiquettes annotées, et une image
+> de la fiche commitée en binaire. Les deux exemptions visent des SHA de
+> `c1-t6-grille` : une fusion qui réécrit l'historique les rendra sans objet.
+
 - **Effort :** S
 - **Process :** Allégé — outillage et CI, rien qui parte au cabinet.
 - **Dépendances :** C1-T6. À faire **avant le premier schéma client à grille**.

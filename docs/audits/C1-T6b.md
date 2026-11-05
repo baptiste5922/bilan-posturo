@@ -257,3 +257,50 @@ soit `tests/test_confidentialite_prospect.py`, `outils/reference-visuelle/cdp.js
   invisible.
 - Messages d'étiquettes annotées non scannés ; le piège « `cdp.js`
   réutilise… » de `CLAUDE.md`, pour `/cloture-projet`.
+
+---
+
+## Réaudit après revue
+
+**Date :** 2026-11-05  **Périmètre :** `4156217..2e289fd` (2 commits, poussés) ;
+CI 42111426184 : `success` sur `2e289fd`.
+**Verdict :** CONFORME
+
+- **L'optimisation ne change aucun résultat.** J'ai chargé côte à côte la garde
+  de `4156217` et celle de `2e289fd`, sur le dépôt réel et avec les mêmes 365
+  marqueurs (l'ensemble est identique d'une version à l'autre). Les résultats
+  sont identiques sur la plage réelle :
+  - sans exemptions : `localiser_dans_messages` rend 1 couple dans les deux
+    versions (`fbf905a:1`), et `localiser_dans_blobs` 1 triplet
+    (`81f06a971edc`, `formulaire/style.css`, 620) ;
+  - avec exemptions : 0 dans les deux ;
+  - `localiser_marqueurs` (fichiers) : 0 dans les deux.
+
+  Sur des cas factices, les deux versions rendent aussi la même ligne :
+  marqueur à cheval sur deux lignes (ligne 0), espaces et tabulations
+  multiples, casse, formes Unicode décomposées et composées, sigma final grec,
+  et un texte portant à la fois un marqueur sur une ligne et un autre à cheval.
+- **Pas de normalisation divergente.** Le code de `normaliser` est identique
+  à l'octet entre les deux versions. Le texte entier est normalisé une fois,
+  hors du générateur, par la même fonction que les lignes et les marqueurs. Le
+  chemin « à cheval » n'est emprunté, comme avant, que si aucune ligne ne porte
+  de marqueur. Le préfiltre sur le blob entier, déjà présent au réaudit
+  précédent, reste un sur-ensemble des lignes.
+- **`cdp.js` : seul un commentaire est re-coupé.** Le source, privé de ses
+  commentaires et de ses blancs, est identique entre `4156217` et `2e289fd`.
+  `test_cdp.js` : 5 cas sur 5 verts.
+- **Le reste.** Le commentaire sur la fragilité des deux exemptions face à une
+  fusion qui réécrit l'historique dit juste : `test_exemptions_toujours_justifiees`
+  échouerait alors. La docstring et la condition 2 de `docs/schema-formulaire.md`
+  sont seulement re-coupées : la phrase exigée par le critère 26 y figure
+  toujours une fois, et `VocabulaireFictif` passe.
+- **Contrôles rejoués.** La garde passe sous `python3` (3,6 s) et sous
+  `python3 -O`, sans `assert` nue. Rien de la fiche dans les deux messages ni
+  dans les lignes ajoutées. Le rejeu de l, m et n est consigné avec des
+  nombres, des SHA et des numéros de ligne seulement. Aucun commit « Pilote »
+  parmi les objets du dépôt réel, aucun clone restant. Les références (24
+  locales, 14 distantes) sont inchangées. `formulaire/`, `serveur/` et
+  `CLAUDE.md` sont intacts.
+
+Les points à surveiller du réaudit précédent demeurent : images de la fiche
+commitées en binaire, messages d'étiquettes annotées.
