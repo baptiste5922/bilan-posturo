@@ -495,8 +495,9 @@ ne sont pas réunies, client par client :
      réglages d'affichage habituels (taille du texte, zoom) : chaque grille
      remplie au maximum (toutes les cases cochées, chaque cellule `texte-court`
      à 8 caractères larges) s'exporte sans refus, et le PDF montre la dernière
-     colonne entière et aucune ligne de grille n'est coupée entre deux pages. Un changement de tablette, de navigateur ou de taille de
-     texte chez ce client rejoue cette épreuve ;
+     colonne entière et aucune ligne de grille n'est coupée entre deux pages.
+     Un changement de tablette, de navigateur ou de taille de texte chez ce
+     client rejoue cette épreuve ;
 3. le favori de secours est posé chez ce client.
 
 **Amendement D9 (`apparence` sur `image-annotable`, facultatif, valeurs

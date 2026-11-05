@@ -59,12 +59,12 @@ async function portEstOccupe(port) {
  */
 async function ouvrirChrome({ port = 9222, largeur = 1280, hauteur = 900,
                               dossierTelechargement, visible = false } = {}) {
-    // Un port qui ne refuse pas la connexion est refusé, jamais réutilisé : un Chrome laissé par un
-    // essai précédent tourne à une fenêtre inconnue, et `--window-size` n'a
-    // alors aucun effet. C'est ainsi qu'un verdict « au pixel » a donné 6 pages
-    // au lieu de 3 (R2 de l'audit de C1-T6). La sonde passe avant tout le reste
-    // pour que le refus se joue aussi hors macOS, donc en CI, et sans créer de
-    // profil temporaire.
+    // Un port qui ne refuse pas la connexion est refusé, jamais réutilisé : un
+    // Chrome laissé par un essai précédent tourne à une fenêtre inconnue, et
+    // `--window-size` n'a alors aucun effet. C'est ainsi qu'un verdict « au
+    // pixel » a donné 6 pages au lieu de 3 (R2 de l'audit de C1-T6). La sonde
+    // passe avant tout le reste pour que le refus se joue aussi hors macOS,
+    // donc en CI, et sans créer de profil temporaire.
     const occupe = await portEstOccupe(port);
     if (occupe) {
         throw new Error("Le port " + port + " est déjà occupé (un Chrome laissé par "

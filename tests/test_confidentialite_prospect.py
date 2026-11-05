@@ -17,7 +17,9 @@ sauf accord écrit. Trois gardes, de la plus générale à la plus fine :
 
 Règle de cette suite : un échec ne nomme **jamais** ce qu'il a trouvé, seulement
 le fichier et le numéro de ligne, le SHA abrégé et la ligne d'un message, le SHA
-abrégé, le chemin et la ligne d'un blob, ou le rang d'une référence (même règle que la garde d'identité de C1-T1). Les journaux d'intégration continue sont publics eux aussi.
+abrégé, le chemin et la ligne d'un blob, ou le rang d'une référence (même règle
+que la garde d'identité de C1-T1). Les journaux d'intégration continue sont
+publics eux aussi.
 
 Bibliothèque standard seule. Aucun `assert` nu : sous `python -O` ils
 s'évaporent, et une garde qui ne garde plus rien est le piège le plus coûteux de
@@ -76,6 +78,11 @@ ATTRIBUTS_DE_REFERENCE = frozenset(["src", "href"])
 # fermée : une entrée nouvelle est une décision de l'architecte, pas un réglage.
 # Le texte en cause n'est jamais recopié.
 MESSAGES_EXEMPTES = frozenset([("fbf905a144aba6895a0835c9ecc396225c2473cb", 1)])
+# Ces deux SHA appartiennent à l'historique de `c1-t6-grille`. Une fusion qui le
+# réécrit (squash, rebase) les fera disparaître : `test_exemptions_toujours_
+# justifiees` échouera alors sur le poste qui détient la fiche, et la conduite
+# est de retirer l'exemption devenue sans objet — pas d'en ajouter une autre
+# sans décision de l'architecte.
 # Même principe pour un blob de l'historique : un couple (SHA complet du blob,
 # numéro de ligne), jamais un texte. Il désigne la ligne 620 de l'ancienne
 # version de la feuille de style que ce commit a introduite et que le suivant a
@@ -325,7 +332,10 @@ def localiser_marqueurs(marqueurs):
             if any(m in normalisee for m in marqueurs):
                 trouves.append((nom, numero))
                 ligne_trouvee = True
-        if not ligne_trouvee and any(m in normaliser(texte) for m in marqueurs):
+        # Le texte entier n'est normalisé qu'une fois, hors du générateur : dans
+        # `any(...)`, il l'était une fois par marqueur.
+        entier = None if ligne_trouvee else normaliser(texte)
+        if entier is not None and any(m in entier for m in marqueurs):
             trouves.append((nom, 0))   # un marqueur à cheval sur plusieurs lignes
     return trouves
 
@@ -345,7 +355,8 @@ def localiser_dans_messages(messages, marqueurs, exemptions):
             if any(m in normalisee for m in marqueurs):
                 trouves.add((sha, numero))
                 ligne_trouvee = True
-        if not ligne_trouvee and any(m in normaliser(texte) for m in marqueurs):
+        entier = None if ligne_trouvee else normaliser(texte)
+        if entier is not None and any(m in entier for m in marqueurs):
             trouves.add((sha, 0))   # un marqueur à cheval sur plusieurs lignes
     return sorted(trouves - set(exemptions))
 
@@ -364,8 +375,10 @@ def localiser_dans_blobs(blobs, marqueurs, exemptions):
             continue
         # Un premier passage sur le blob entier évite de normaliser chaque ligne
         # des blobs qui ne portent rien (la plupart) : ce qu'une ligne contient,
-        # le texte entier le contient aussi.
-        if not any(m in normaliser(texte) for m in marqueurs):
+        # le texte entier le contient aussi. Le texte n'est normalisé qu'une
+        # fois par blob, hors du générateur (il l'était une fois par marqueur).
+        entier = normaliser(texte)
+        if not any(m in entier for m in marqueurs):
             continue
         ligne_trouvee = False
         for numero, ligne in enumerate(texte.split("\n"), 1):
