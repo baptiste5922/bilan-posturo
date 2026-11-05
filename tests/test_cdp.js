@@ -15,10 +15,11 @@
 const assert = require("assert");
 const fs = require("fs");
 const http = require("http");
+const net = require("net");
 const os = require("os");
 const path = require("path");
 
-const { ouvrirChrome } = require(path.join(__dirname, "..", "outils", "reference-visuelle", "cdp.js"));
+const { ouvrirChrome, portEstOccupe } = require(path.join(__dirname, "..", "outils", "reference-visuelle", "cdp.js"));
 
 let nbCas = 0;
 const echecs = [];
@@ -49,6 +50,39 @@ function fermerServeur(serveur) {
         serveur.close(ok);
         // Les connexions keep-alive de fetch retardent la fermeture : on les coupe.
         if (typeof serveur.closeAllConnections === "function") serveur.closeAllConnections();
+    });
+}
+
+/**
+ * Un serveur qui accepte la connexion et ne répond jamais : le cas que « le
+ * port répond » ne couvre pas. Il tient le port aussi sûrement qu'un autre.
+ */
+function occuperUnPortMuet() {
+    return new Promise((ok) => {
+        const sockets = new Set();
+        const serveur = net.createServer((socket) => {
+            sockets.add(socket);
+            socket.on("error", () => {});
+            socket.on("close", () => sockets.delete(socket));
+        });
+        serveur.listen(0, "127.0.0.1", () => ok({
+            serveur, port: serveur.address().port,
+            fermer: () => new Promise((fini) => {
+                sockets.forEach((s) => s.destroy());
+                serveur.close(fini);
+            })
+        }));
+    });
+}
+
+/** Un port que personne n'écoute : on en réserve un, puis on le rend. */
+function portLibre() {
+    return new Promise((ok) => {
+        const serveur = net.createServer();
+        serveur.listen(0, "127.0.0.1", () => {
+            const port = serveur.address().port;
+            serveur.close(() => ok(port));
+        });
     });
 }
 
@@ -109,6 +143,24 @@ async function rejetDe(port) {
         } finally {
             await fermerServeur(serveur);
         }
+    });
+
+    await cas("un port qui accepte la connexion sans jamais répondre est refusé, en moins de 5 s", async () => {
+        const muet = await occuperUnPortMuet();
+        try {
+            const debut = Date.now();
+            const erreur = await rejetDe(muet.port);
+            assert.ok(String(erreur.message).includes("Le port " + muet.port + " est déjà occupé"),
+                "message inattendu : " + erreur.message);
+            assert.ok(Date.now() - debut < 5000, "refus trop lent");
+        } finally {
+            await muet.fermer();
+        }
+    });
+
+    await cas("un port dont la connexion est refusée est déclaré libre", async () => {
+        const port = await portLibre();
+        assert.strictEqual(await portEstOccupe(port), false, "le port " + port + " est libre");
     });
 
     console.log("\n" + nbCas + " cas joués, " + echecs.length + " en échec.");

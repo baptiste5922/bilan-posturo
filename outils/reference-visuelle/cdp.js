@@ -26,6 +26,31 @@ async function lireJson(url, essais = 40) {
     throw new Error("Chrome n'a pas ouvert son port de débogage : " + url);
 }
 
+/** Vrai si l'erreur de `fetch` est un refus de connexion : rien n'écoute sur ce port. */
+function estRefusDeConnexion(erreur) {
+    const cause = erreur && erreur.cause;
+    if (!cause) return false;
+    if (cause.code === "ECONNREFUSED") return true;
+    return Array.isArray(cause.errors) && cause.errors.length > 0
+        && cause.errors.every((e) => e.code === "ECONNREFUSED");
+}
+
+/**
+ * Un port est libre seulement si la connexion y est refusée. Une réponse HTTP
+ * quel qu'en soit le statut, un délai écoulé (3 s) ou toute autre erreur
+ * après connexion le disent occupé : un service qui accepte sans répondre
+ * tient le port aussi sûrement qu'un autre (D2 de C1-T6b).
+ */
+async function portEstOccupe(port) {
+    try {
+        await fetch("http://127.0.0.1:" + port + "/json/version",
+                    { signal: AbortSignal.timeout(3000) });
+        return true;
+    } catch (e) {
+        return !estRefusDeConnexion(e);
+    }
+}
+
 /**
  * Démarre Chrome et rend un canal de pilotage.
  *
@@ -34,18 +59,13 @@ async function lireJson(url, essais = 40) {
  */
 async function ouvrirChrome({ port = 9222, largeur = 1280, hauteur = 900,
                               dossierTelechargement, visible = false } = {}) {
-    // Un port qui répond est refusé, jamais réutilisé : un Chrome laissé par un
+    // Un port qui ne refuse pas la connexion est refusé, jamais réutilisé : un Chrome laissé par un
     // essai précédent tourne à une fenêtre inconnue, et `--window-size` n'a
     // alors aucun effet. C'est ainsi qu'un verdict « au pixel » a donné 6 pages
     // au lieu de 3 (R2 de l'audit de C1-T6). La sonde passe avant tout le reste
     // pour que le refus se joue aussi hors macOS, donc en CI, et sans créer de
     // profil temporaire.
-    let occupe = false;
-    try {
-        await fetch("http://127.0.0.1:" + port + "/json/version",
-                    { signal: AbortSignal.timeout(3000) });
-        occupe = true;
-    } catch (e) { occupe = false; }
+    const occupe = await portEstOccupe(port);
     if (occupe) {
         throw new Error("Le port " + port + " est déjà occupé (un Chrome laissé par "
             + "un essai précédent ?) : cdp.js ne pilote qu'un Chrome qu'il a lancé "
@@ -164,4 +184,4 @@ async function ouvrirChrome({ port = 9222, largeur = 1280, hauteur = 900,
              navigateur: version["User-Agent"], profil };
 }
 
-module.exports = { ouvrirChrome, pause };
+module.exports = { ouvrirChrome, portEstOccupe, pause };
