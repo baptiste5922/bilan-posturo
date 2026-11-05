@@ -9,11 +9,13 @@ sauf accord écrit. Trois gardes, de la plus générale à la plus fine :
 * `VocabulaireFictif` : les données de test et les exemples de grille de la
   spécification n'emploient que le vocabulaire fictif de D9 ;
 * `AucunMarqueurDeLaFiche` : aucun texte de la fiche, qui ne soit déjà public,
-  ne figure dans un fichier modifié ou ajouté depuis le commit de repère.
+  ne figure dans un fichier modifié ou ajouté depuis le commit de repère, ni
+  dans un message de commit de la plage `repère..HEAD`, ni dans le nom d'une
+  branche ou d'une étiquette locale (C1-T6b : tout cela part sur GitHub).
 
 Règle de cette suite : un échec ne nomme **jamais** ce qu'il a trouvé, seulement
-le fichier et le numéro de ligne (même règle que la garde d'identité de
-C1-T1). Les journaux d'intégration continue sont publics eux aussi.
+le fichier et le numéro de ligne, le SHA abrégé et la ligne d'un message, ou le
+rang d'une référence (même règle que la garde d'identité de C1-T1). Les journaux d'intégration continue sont publics eux aussi.
 
 Bibliothèque standard seule. Aucun `assert` nu : sous `python -O` ils
 s'évaporent, et une garde qui ne garde plus rien est le piège le plus coûteux de
@@ -59,6 +61,19 @@ PREFIXES_ATTRIBUTS = ("aria-", "data-")
 # l'est par la norme. Cette liste est fermée et ne s'allonge pas à la volée : un
 # nouveau faux positif est une décision de l'architecte, pas un réglage.
 JETONS_TECHNIQUES_PUBLICS = frozenset(["aria-label"])
+# Attributs qui portent une adresse ou une image embarquée : `src` et `href`
+# sont récoltés en entier (C1-T6b), car la fiche embarque des images en URI
+# `data:` et porte des ancres `#…` dont le nom est un identifiant de la fiche.
+ATTRIBUTS_DE_REFERENCE = frozenset(["src", "href"])
+# Une exemption de message est un couple (SHA complet, numéro de ligne) : elle
+# ne peut couvrir qu'une ligne d'un commit immuable, ne recopie aucun texte, et
+# `test_exemptions_toujours_justifiees` l'empêche de survivre à sa raison. Elle
+# désigne la ligne 1 d'un commit où la garde a trouvé une correspondance
+# fortuite, jugée par l'audit de C1-T6 (constat « Faible — messages de
+# commit ») ; ce commit est déjà poussé, l'historique ne se récrit pas. Liste
+# fermée : une entrée nouvelle est une décision de l'architecte, pas un réglage.
+# Le texte en cause n'est jamais recopié.
+MESSAGES_EXEMPTES = frozenset([("fbf905a144aba6895a0835c9ecc396225c2473cb", 1)])
 MOTIF_LIBELLE_NORMALISE = re.compile(MOTIF_LIBELLE.pattern, re.I)
 
 
@@ -169,8 +184,9 @@ def litteraux_js(source):
 
 
 class _ExtracteurDeFiche(html.parser.HTMLParser):
-    """Récolte les nœuds texte, les valeurs d'attributs textuels et, dans les
-    scripts, les littéraux entre guillemets."""
+    """Récolte les nœuds texte, les valeurs d'attributs textuels ou de référence
+    (`src`, `href`) et, dans les scripts, les littéraux entre guillemets.
+    `style` reste non récolté."""
 
     def __init__(self):
         super().__init__(convert_charrefs=True)
@@ -187,6 +203,15 @@ class _ExtracteurDeFiche(html.parser.HTMLParser):
                     self.textes.extend(valeur.split())
                 else:
                     self.textes.append(valeur)
+            elif nom in ATTRIBUTS_DE_REFERENCE:
+                self.textes.append(valeur)
+                # L'ancre sans son « # » : c'est l'identifiant qu'un fichier
+                # versionné recopierait. La charge utile d'une URI `data:`
+                # sans son en-tête : c'est elle qui est propre à la fiche.
+                if nom == "href" and valeur.startswith("#"):
+                    self.textes.append(valeur[1:])
+                if valeur.startswith("data:") and "," in valeur:
+                    self.textes.append(valeur.split(",", 1)[1])
         if balise == "script":
             self._dans_script = True
         elif balise == "style":
@@ -281,6 +306,68 @@ def localiser_marqueurs(marqueurs):
     return trouves
 
 
+def localiser_dans_messages(messages, marqueurs, exemptions):
+    """Liste triée de (sha complet, ligne) d'un message qui porte un marqueur.
+
+    `messages` : liste de (sha complet, texte). Les couples de `exemptions` sont
+    retirés : une exemption est ancrée sur un commit et une ligne, jamais sur un
+    texte. Jamais le marqueur lui-même.
+    """
+    trouves = set()
+    for sha, texte in messages:
+        ligne_trouvee = False
+        for numero, ligne in enumerate(texte.split("\n"), 1):
+            normalisee = normaliser(ligne)
+            if any(m in normalisee for m in marqueurs):
+                trouves.add((sha, numero))
+                ligne_trouvee = True
+        if not ligne_trouvee and any(m in normaliser(texte) for m in marqueurs):
+            trouves.add((sha, 0))   # un marqueur à cheval sur plusieurs lignes
+    return sorted(trouves - set(exemptions))
+
+
+def localiser_dans_noms(noms, marqueurs):
+    """Rangs (à partir de 1) des noms de référence qui portent un marqueur.
+
+    Le rang et jamais le nom : un nom de branche porteur est justement ce que la
+    garde est là pour ne pas laisser passer dans un journal public.
+    """
+    return [rang for rang, nom in enumerate(noms, 1)
+            if any(m in normaliser(nom) for m in marqueurs)]
+
+
+def messages_de_commit():
+    """Liste de (sha complet, texte) des commits de `repère..HEAD`."""
+    plage = COMMIT_DE_REPERE + "..HEAD"
+    sortie = git("log", "-z", "--format=%H%x00%B", plage)
+    if sortie.returncode != 0:
+        raise RuntimeError("git log %s a échoué (code %d)" % (plage, sortie.returncode))
+    morceaux = sortie.stdout.split(b"\0")
+    if morceaux and morceaux[-1].strip() == b"":
+        morceaux.pop()
+    if len(morceaux) % 2 != 0:
+        raise RuntimeError("sortie de git log inattendue : %d morceaux" % len(morceaux))
+    return [(morceaux[i].decode("ascii").strip(),
+             morceaux[i + 1].decode("utf-8", errors="replace"))
+            for i in range(0, len(morceaux), 2)]
+
+
+def nombre_de_commits_de_la_plage():
+    """Compte indépendant (`rev-list --count`), pour que la lecture ne soit pas muette."""
+    sortie = git("rev-list", "--count", COMMIT_DE_REPERE + "..HEAD")
+    if sortie.returncode != 0:
+        raise RuntimeError("git rev-list a échoué (code %d)" % sortie.returncode)
+    return int(sortie.stdout.strip())
+
+
+def noms_de_reference():
+    """Noms courts des branches et étiquettes locales : ce qui peut être poussé."""
+    sortie = git("for-each-ref", "--format=%(refname:short)", "refs/heads", "refs/tags")
+    if sortie.returncode != 0:
+        raise RuntimeError("git for-each-ref a échoué (code %d)" % sortie.returncode)
+    return [n for n in sortie.stdout.decode("utf-8", errors="replace").split("\n") if n]
+
+
 # ----------------------------------------------------------------------- gardes
 
 class FicheNonSuivie(unittest.TestCase):
@@ -354,17 +441,68 @@ class ExtractionDeLaFiche(unittest.TestCase):
             '<p id="un-identifiant" class="classe-a classe-b" name="un-nom" for="un-for" '
             'placeholder="un-texte" title="un-titre" alt="un-alt" value="une-valeur" '
             'label="une-etiquette" aria-label="une-aria" data-cle="une-donnee" '
-            'href="pas-recolte" style="pas-recolte-non-plus">Un texte</p>'
+            'href="#une-ancre" src="data:image/png;base64,UNECHARGE" '
+            'style="pas-recolte-non-plus">Un texte</p>'
             '<script>var a = "un-litteral"; // l\'apostrophe d\'un commentaire\n</script>')
         extracteur.close()
         attendus = ["un-identifiant", "classe-a", "classe-b", "un-nom", "un-for", "un-texte",
                     "un-titre", "un-alt", "une-valeur", "une-etiquette", "une-aria",
-                    "une-donnee", "Un texte", "un-litteral"]
+                    "une-donnee", "Un texte", "un-litteral",
+                    "#une-ancre", "une-ancre",
+                    "data:image/png;base64,UNECHARGE", "UNECHARGE"]
         for attendu in attendus:
             self.assertIn(attendu, extracteur.textes, "valeur non récoltée par l'extraction")
-        for refuse in ("pas-recolte", "pas-recolte-non-plus"):
-            self.assertNotIn(refuse, extracteur.textes)
+        self.assertNotIn("pas-recolte-non-plus", extracteur.textes)
         self.assertFalse(any("apostrophe" in t for t in extracteur.textes))
+
+
+class ReperageHorsFichiers(unittest.TestCase):
+    """Garde de la garde pour les messages et les noms : sans fiche ni git, donc en CI."""
+
+    MARQUEUR = "un-marqueur-factice"
+    SHA_A = "a" * 40
+    SHA_B = "b" * 40
+
+    def test_un_marqueur_est_trouve_a_la_bonne_ligne(self):
+        messages = [(self.SHA_A, "Un titre\n\nUn corps avec %s dedans\n" % self.MARQUEUR)]
+        self.assertEqual(
+            localiser_dans_messages(messages, {self.MARQUEUR}, frozenset()),
+            [(self.SHA_A, 3)])
+
+    def test_l_exemption_ne_couvre_que_sa_ligne(self):
+        messages = [(self.SHA_A, "%s\nrien\n%s" % (self.MARQUEUR, self.MARQUEUR))]
+        self.assertEqual(
+            localiser_dans_messages(messages, {self.MARQUEUR}, frozenset([(self.SHA_A, 1)])),
+            [(self.SHA_A, 3)])
+
+    def test_l_exemption_ne_couvre_pas_un_autre_commit(self):
+        messages = [(self.SHA_B, self.MARQUEUR)]
+        self.assertEqual(
+            localiser_dans_messages(messages, {self.MARQUEUR}, frozenset([(self.SHA_A, 1)])),
+            [(self.SHA_B, 1)])
+
+    def test_un_marqueur_coupe_par_un_saut_de_ligne_donne_la_ligne_zero(self):
+        coupe = "un-marqueur\nfactice"
+        messages = [(self.SHA_A, "Titre\n" + coupe)]
+        self.assertEqual(
+            localiser_dans_messages(messages, {"un-marqueur factice"}, frozenset()),
+            [(self.SHA_A, 0)])
+
+    def test_aucun_element_rendu_ne_contient_le_marqueur(self):
+        messages = [(self.SHA_A, "Titre\n%s" % self.MARQUEUR)]
+        rendu = localiser_dans_messages(messages, {self.MARQUEUR}, frozenset())
+        self.assertTrue(rendu, "la garde de la garde ne trouve rien : elle ne mord pas")
+        self.assertNotIn(self.MARQUEUR, repr(rendu))
+        rangs = localiser_dans_noms(["main", "x-%s" % self.MARQUEUR], {self.MARQUEUR})
+        self.assertNotIn(self.MARQUEUR, repr(rangs))
+
+    def test_un_nom_de_branche_porteur_est_rendu_par_son_rang(self):
+        noms = ["main", "c1-t6-grille", "essai-%s-fin" % self.MARQUEUR, "autre"]
+        self.assertEqual(localiser_dans_noms(noms, {self.MARQUEUR}), [3])
+
+    def test_aucun_marqueur_aucun_resultat(self):
+        self.assertEqual(localiser_dans_messages([(self.SHA_A, "Titre")], {self.MARQUEUR}, frozenset()), [])
+        self.assertEqual(localiser_dans_noms(["main"], {self.MARQUEUR}), [])
 
 
 class AucunMarqueurDeLaFiche(unittest.TestCase):
@@ -387,6 +525,48 @@ class AucunMarqueurDeLaFiche(unittest.TestCase):
             trouves, [],
             "texte de la fiche retrouvé dans : %s (le texte n'est volontairement pas "
             "affiché)" % ", ".join("%s:%d" % t for t in trouves))
+
+    def test_aucun_marqueur_dans_les_messages_de_commit(self):
+        marqueurs = marqueurs_de_la_fiche()
+        self.assertTrue(marqueurs, "aucun marqueur extrait de la fiche : la garde ne garderait rien")
+        messages = messages_de_commit()
+        # Une lecture muette (git log qui ne rend rien) ferait passer la garde à vide.
+        self.assertEqual(
+            len(messages), nombre_de_commits_de_la_plage(),
+            "la lecture des messages ne rend pas autant de commits que la plage en compte")
+        trouves = localiser_dans_messages(messages, marqueurs, MESSAGES_EXEMPTES)
+        self.assertEqual(
+            trouves, [],
+            "texte de la fiche retrouvé dans les messages de : %s (le texte n'est "
+            "volontairement pas affiché ; un message non poussé se corrige par "
+            "git commit --amend)" % ", ".join("%s:%d" % (sha[:12], n) for sha, n in trouves))
+
+    def test_aucun_marqueur_dans_les_noms_de_reference(self):
+        marqueurs = marqueurs_de_la_fiche()
+        self.assertTrue(marqueurs, "aucun marqueur extrait de la fiche : la garde ne garderait rien")
+        noms = noms_de_reference()
+        self.assertTrue(noms, "aucune branche ni étiquette lue : la garde ne garderait rien")
+        rangs = localiser_dans_noms(noms, marqueurs)
+        self.assertEqual(
+            rangs, [],
+            "texte de la fiche retrouvé dans le nom des références de rang : %s (le nom "
+            "n'est volontairement pas affiché)" % ", ".join(str(r) for r in rangs))
+
+    def test_exemptions_toujours_justifiees(self):
+        # Une exemption ne doit pas survivre à sa raison : elle désigne un commit
+        # encore dans la plage et une ligne qui porte encore un marqueur.
+        marqueurs = marqueurs_de_la_fiche()
+        self.assertTrue(marqueurs, "aucun marqueur extrait de la fiche : la garde ne garderait rien")
+        messages = messages_de_commit()
+        presents = {sha for sha, _ in messages}
+        encore_porteurs = set(localiser_dans_messages(messages, marqueurs, frozenset()))
+        sans_objet = [
+            "%s:%d" % (sha[:12], ligne) for sha, ligne in sorted(MESSAGES_EXEMPTES)
+            if sha not in presents or (sha, ligne) not in encore_porteurs]
+        self.assertEqual(
+            sans_objet, [],
+            "exemption sans objet (commit absent de la plage ou ligne sans marqueur) : %s"
+            % ", ".join(sans_objet))
 
 
 if __name__ == "__main__":
