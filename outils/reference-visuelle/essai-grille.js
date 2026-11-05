@@ -37,8 +37,8 @@
 // Amendement A1 (aucune grille rognée dans le PDF) : trois variables facultatives.
 //
 //   ESSAI_LARGEUR=1024   largeur de fenêtre imposée par Emulation.setDeviceMetricsOverride,
-//                        puis RELUE par window.innerWidth avant toute mesure (un Chrome
-//                        déjà en écoute est réutilisé par cdp.js avec sa propre taille).
+//                        puis RELUE par window.innerWidth avant toute mesure (cdp.js refuse
+//                        un port occupé ; la relecture vérifie que l'émulation a pris).
 //                        Défaut : 1280, la fenêtre de référence.
 //   ESSAI_MODE=refus     scénario de refus (ESSAI_SCHEMA = schema-v2-grille-trop-large.json).
 //   ESSAI_MODE=mesure    épreuve d'atelier d'un schéma client (spécification, « Livrer une
@@ -316,9 +316,10 @@ const BROUILLON = `(() => JSON.parse(localStorage.getItem("bilan-posturo-brouill
         await chrome.cmd("Security.enable");
         await chrome.cmd("Security.setIgnoreCertificateErrors", { ignore: true });
 
-        // La largeur est IMPOSÉE, puis RELUE dans la page : cdp.js réutilise un Chrome
-        // déjà en écoute sans en changer la fenêtre, et une mesure faite à une autre
-        // largeur que celle annoncée n'aurait aucune valeur.
+        // La largeur est IMPOSÉE, puis RELUE dans la page : cdp.js refuse un port
+        // occupé (C1-T6b) ; la relecture reste, elle vérifie que l'émulation de
+        // largeur a pris, car une mesure faite à une autre largeur que celle
+        // annoncée n'aurait aucune valeur.
         await chrome.cmd("Emulation.setDeviceMetricsOverride",
             { width: LARGEUR, height: 900, deviceScaleFactor: 1, mobile: false });
 
@@ -330,7 +331,7 @@ const BROUILLON = `(() => JSON.parse(localStorage.getItem("bilan-posturo-brouill
         const largeurLue = await chrome.evaluer(`window.innerWidth`);
         if (largeurLue !== LARGEUR) {
             throw new Error("largeur de fenêtre " + largeurLue + " au lieu de " + LARGEUR
-                + " : Chrome déjà en écoute sur le port " + PORT_CHROME + " ? Mesure abandonnée.");
+                + " : l'émulation de largeur n'a pas pris. Mesure abandonnée.");
         }
         lignes.push("  Fenêtre : " + largeurLue + " px (imposée par Emulation.setDeviceMetricsOverride, relue dans la page)");
 

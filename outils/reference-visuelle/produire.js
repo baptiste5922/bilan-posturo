@@ -196,17 +196,17 @@ async function dessiner(chrome) {
 /**
  * Relit la largeur réelle de la fenêtre et l'imprime, à chaque production : la
  * largeur change la pagination (3 pages à 1280 px, 6 vers 760 px pour le bilan
- * témoin), et cdp.js réutilise sans rien dire un Chrome déjà en écoute avec sa
- * propre taille. Si ESSAI_LARGEUR est posé et que la valeur relue diffère, la
- * production s'arrête : un PDF de référence fait à une autre largeur que celle
- * annoncée ne prouve rien.
+ * témoin). cdp.js refuse un port occupé (C1-T6b) ; la relecture reste, elle
+ * vérifie que l'émulation de largeur a pris. Si ESSAI_LARGEUR est posé et que
+ * la valeur relue diffère, la production s'arrête : un PDF de référence fait à
+ * une autre largeur que celle annoncée ne prouve rien.
  */
 async function relireLargeur(chrome) {
     const lue = await chrome.evaluer(`window.innerWidth`);
     console.log("fenêtre : " + lue + " px" + (LARGEUR ? " (demandé : " + LARGEUR + ")" : ""));
     if (LARGEUR && lue !== LARGEUR) {
         throw new Error("largeur de fenêtre " + lue + " au lieu de " + LARGEUR
-            + " : un Chrome déjà en écoute sur le port a-t-il été réutilisé ?");
+            + " : l'émulation de largeur n'a pas pris");
     }
 }
 

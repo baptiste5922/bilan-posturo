@@ -34,17 +34,28 @@ async function lireJson(url, essais = 40) {
  */
 async function ouvrirChrome({ port = 9222, largeur = 1280, hauteur = 900,
                               dossierTelechargement, visible = false } = {}) {
+    // Un port qui répond est refusé, jamais réutilisé : un Chrome laissé par un
+    // essai précédent tourne à une fenêtre inconnue, et `--window-size` n'a
+    // alors aucun effet. C'est ainsi qu'un verdict « au pixel » a donné 6 pages
+    // au lieu de 3 (R2 de l'audit de C1-T6). La sonde passe avant tout le reste
+    // pour que le refus se joue aussi hors macOS, donc en CI, et sans créer de
+    // profil temporaire.
+    let occupe = false;
+    try {
+        await fetch("http://127.0.0.1:" + port + "/json/version",
+                    { signal: AbortSignal.timeout(3000) });
+        occupe = true;
+    } catch (e) { occupe = false; }
+    if (occupe) {
+        throw new Error("Le port " + port + " est déjà occupé (un Chrome laissé par "
+            + "un essai précédent ?) : cdp.js ne pilote qu'un Chrome qu'il a lancé "
+            + "lui-même, à une fenêtre connue. Fermez ce processus (lsof -ti tcp:"
+            + port + ") ou choisissez un autre port.");
+    }
+
     if (!fs.existsSync(CHROME)) {
         throw new Error("Google Chrome n'est pas installé dans /Applications.");
     }
-    // Un Chrome déjà en écoute sur ce port est réutilisé : le tout premier
-    // démarrage initialise le profil et peut dépasser la minute, ce qui avait
-    // fait expirer l'essai initial.
-    let dejaLa = false;
-    try {
-        const r = await fetch("http://127.0.0.1:" + port + "/json/version");
-        dejaLa = r.ok;
-    } catch (e) { dejaLa = false; }
 
     const profil = fs.mkdtempSync(path.join(os.tmpdir(), "profil-chrome-"));
     const arguments_ = [
@@ -57,7 +68,7 @@ async function ouvrirChrome({ port = 9222, largeur = 1280, hauteur = 900,
     ];
     if (!visible) arguments_.unshift("--headless=new");
 
-    const processus = dejaLa ? null : spawn(CHROME, arguments_, { stdio: "ignore" });
+    const processus = spawn(CHROME, arguments_, { stdio: "ignore" });
 
     // 240 essais × 250 ms = une minute de patience au premier démarrage.
     const version = await lireJson("http://127.0.0.1:" + port + "/json/version", 240);
@@ -146,7 +157,7 @@ async function ouvrirChrome({ port = 9222, largeur = 1280, hauteur = 900,
 
     function fermer() {
         try { ws.close(); } catch (e) {}
-        if (processus) { try { processus.kill(); } catch (e) {} }
+        try { processus.kill(); } catch (e) {}
     }
 
     return { cmd, attendre, evaluer, aller, fermer, pause,
