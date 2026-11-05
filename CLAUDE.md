@@ -8,10 +8,10 @@ août 2026 par une pédicure-podologue à Morlaix, pour la totalité de ses bila
 **Dernière mise à jour :** 5 novembre 2026, par `/cloture-projet`
 **Version :** V1 en production au cabinet ; `main` porte la 1.1.0
 (`formulaire/version.json`), sous **BUSL 1.1** depuis le 14 octobre 2026
-**Jalon en cours :** V2 — 15 tâches livrées ; rien de la V2 n'est au cabinet.
-**`main` local n'est pas poussé**, et **`c1-t6-grille` n'y est pas fusionnée**.
-**Premier prospect hors pilote :** un formateur en posturologie, à installer à
-distance. Sa fiche, hors dépôt, demande le type `grille` (C1-T6, puis C1-T6b).
+**Jalon en cours :** V2 — 16 tâches livrées ; rien de la V2 n'est au cabinet.
+**`main` local n'est pas poussé** ; **`c1-t6-grille` puis `c1-t6b-outillage`**,
+livrées, attendent d'y être fusionnées. **Premier prospect hors pilote :** un
+formateur en posturologie. Sa fiche (hors dépôt) est faisable : type `grille`.
 
 ## Architecture en bref
 
@@ -37,7 +37,7 @@ distance. Sa fiche, hors dépôt, demande le type `grille` (C1-T6, puis C1-T6b).
 | `formulaire/style.css` | La palette du cabinet : cinq tokens sur `:root`, **source unique** |
 | `formulaire/version.json` | Numéro de version, **source unique** (serveur, pied de page, `technique.log`) |
 | `installer-demarrage.ps1` | Tâche planifiée SYSTEM + pare-feu ; `-Verifier` contrôle sans rien modifier |
-| `tests/` | 226 tests Python + 11 suites Node (branche `c1-t6-grille`) |
+| `tests/` | 241 tests Python + 12 suites Node (branche `c1-t6b-outillage`) |
 
 Le PDF est produit **côté navigateur** : le serveur ne reçoit qu'un fichier déjà
 assemblé, et n'a aucune dépendance Python.
@@ -78,7 +78,7 @@ une image et non une donnée.
 | Chantier | Intitulé | État |
 |---|---|---|
 | C0 | Cadre juridique et licence | T1 **livré** ; T2 (contrat RGPD, modèles génériques) à faire |
-| C1 | Moteur de formulaire à schéma | T1, T2, T3, T3b, **T6 (`grille`) livrés** ; T6b ; T4 bloqué par le favori ; T5 |
+| C1 | Moteur de formulaire à schéma | T1, T2, T3, T3b, **T6 (`grille`), T6b livrés** ; T4 bloqué par le favori ; T5 |
 | C2 | Identité du cabinet en configuration | T1 **livré** ; T2 (logo) à faire |
 | C3 | Adressage, certificat et installateur | T1, **T3a livrés** (T3a : VM Windows à faire) ; T2, T3, T4 |
 | C4 | Observabilité et support | T1, **T2, T4 livrés** ; T5 **sortie de la V2** ; T3, T6 |
@@ -142,14 +142,15 @@ emprunte est éprouvé. **Tant qu'il n'est pas fait, rien ne part au cabinet et
 C1-T4 ne peut pas commencer** — son critère d'acceptation est une semaine de
 bilans réels sans régression.
 
-**Tests :** 226 Python (2 sautés hors Windows) et 11 suites Node, tous verts
+**Tests :** 241 Python (2 sautés hors Windows) et 12 suites Node, tous verts
 au 5 novembre 2026, aussi sous `python3 -O`, et en CI sur Linux, Windows et
 macOS, Python 3.9 et 3.13 — CI jouée sur les branches de tâche, pas sur `main`.
 `npm test` dépasse le délai de 2 min d'une commande : le lancer en arrière-plan.
 
 **Une grille n'entre dans un schéma client** qu'aux trois conditions de
 `docs/schema-formulaire.md`, dont un export d'essai **sur la tablette du
-client** : au-delà de 1 192 px, l'export est refusé en consultation.
+client**, à sa largeur : au-delà de 1 192 px, l'export est refusé ; sous
+~735 px de fenêtre, une grille de 20 lignes est coupée entre deux pages.
 
 **Avant d'envoyer le paquet au prospect** : essai de C3-T3a sur une VM Windows
 propre, fiche `docs/essais/C3-T3a-windows.md`. Et annoncer à la praticienne
@@ -157,6 +158,8 @@ pilote que l'historique de `journal.log` partira en bloc vers février 2027.
 
 ## Dernières sessions
 
+- [2026-11-05 (2) — Fiabiliser l'outillage et les gardes de la grille](docs/resumes/2026-11-05-outillage-et-gardes-grille.md) :
+  C1-T6b livrée. La garde lit tout l'historique de la plage ; seuil de 735 px.
 - [2026-11-05 — Le type `grille`, et la grille qu'on ne voyait pas rognée](docs/resumes/2026-11-05-type-grille.md) :
   C1-T6 livrée (format v2, amendement A1 : réduire puis refuser). C1-T6b ouverte.
 - [2026-11-04 — Un premier prospect, et huit tâches livrées](docs/resumes/2026-11-04-premier-prospect-et-huit-taches.md) :
@@ -165,8 +168,6 @@ pilote que l'historique de `journal.log` partira en bloc vers février 2027.
   C3-T1 et C4-T1 livrées. Le garde-fou qui ne garde rien, quatre fois.
 - [2026-10-19 — La bascule, et ce que le rendu réel a révélé](docs/resumes/2026-10-19-bascule-et-fidelite.md) :
   C1-T3b livrée. Cinq écarts de rendu trouvés dans un vrai navigateur.
-- [2026-10-15 (2) — Le moteur de rendu, sans la bascule](docs/resumes/2026-10-15-moteur-de-rendu.md) :
-  C1-T3 étapes 1 à 8. Moteur, schéma, comparateur V1 ↔ moteur.
 
 ## Comment on travaille ici
 
@@ -240,20 +241,16 @@ Ils ont déjà coûté du temps ; ils le recoûteront.
   exige que les quatre images soient déjà dans le DOM ; sinon le stylet ne
   répond plus et les traits d'un brouillon restauré tombent dans le vide. D'où
   `demarrerApplication()`, appelée **par le moteur, après rendu**.
-- **`dossier_pdf` et le compte SYSTEM** — la tâche planifiée tourne en SYSTEM :
-  un lecteur réseau monté dans la session du praticien n'existe pas pour elle.
-  Chemin local absolu ou chemin UNC. Corollaire : `TerminateProcess` n'exécute
-  pas le `finally`, donc la ligne `ARRET` du journal technique n'existera presque
-  jamais au cabinet.
-- **`actions/checkout` clone à la profondeur 1.** Un test qui a besoin d'un autre
-  commit doit vérifier **l'objet** (`git cat-file -e`), pas le dossier ; et
-  `git log -1 -- <fichier>` y rend la date de `HEAD`, donc toute mesure de date
-  tirée de l'historique y est silencieusement fausse.
-- **`git ls-files` sans `-z`** échappe les chemins non ASCII à la façon du C.
-  Tous les documents de ce dépôt portent des noms français. Et `xargs -0 grep`
-  rend 123 aussi bien pour « rien trouvé » que pour une erreur réelle : il faut
-  une boucle. Un contrôle qui lit l'index Git doit être éprouvé sur des fichiers
-  **indexés** — validé sur des fichiers non suivis, il ne voit rien.
+- **`dossier_pdf` et le compte SYSTEM** — un lecteur réseau de la session du
+  praticien n'existe pas pour la tâche planifiée : chemin local ou UNC. Et
+  `TerminateProcess` saute le `finally` : pas de ligne `ARRET` au cabinet.
+- **`actions/checkout` clone à la profondeur 1** (sauf le job `test`, en
+  `fetch-depth: 0` depuis C1-T6b). Un test qui a besoin d'un autre commit
+  vérifie **l'objet** (`git cat-file -e`) ; `git log -1 -- <fichier>` y rend la
+  date de `HEAD`.
+- **`git ls-files` sans `-z`** échappe les chemins accentués ; `xargs -0 grep`
+  rend 123 pour « rien » comme pour une erreur. Un contrôle qui lit l'index Git
+  s'éprouve sur des fichiers **indexés**.
 - **Un tube `stdout=PIPE` jamais lu fige le serveur de test sous Windows**
   (tampon minuscule) : toute requête qui journalise se bloque, `/sante` seule
   répond. C'était le « délai TLS » de C7-T5 ; un fil lecteur le règle (même
@@ -264,27 +261,30 @@ Ils ont déjà coûté du temps ; ils le recoûteront.
   <branche>`. Un `GITHUB_TOKEN` invalide dans l'environnement masque le
   trousseau de `gh`. Des commits jamais passés en CI ont caché deux semaines une
   régression Windows : ne pas laisser `main` local longtemps sans CI.
-- **Un harnais de mutation peut mentir** : `$?` lu après un `printf`, une
-  commande rangée dans une variable sous zsh, une mutation placée là où elle ne
-  change rien. Toujours un témoin sans mutation, et le code de retour du test
-  lui-même. Les mutations se font sur une copie `git ls-files -z --cached
-  --others --exclude-standard` : le classificateur refuse de muter `serveur.py`
-  en place, et une poussée forcée (pousser sous un nouveau nom de branche).
+- **Un harnais de mutation peut mentir** (`$?` après un `printf`, commande en
+  variable sous zsh) : toujours un témoin et le code du test lui-même. Muter une
+  copie `git ls-files -z --cached --others --exclude-standard`, ou un clone
+  jetable **sans `origin`** (un clone `file://` pousse dans le dépôt réel).
 - **Une mutation qui provoque un interblocage fige la suite** au lieu d'échouer :
   préférer une garde statique dérivée de l'arbre syntaxique (C4-T2).
 - **Piloter Chrome ne demande rien à installer** (Node 24 expose `WebSocket`),
   mais les coordonnées de `Input.dispatchMouseEvent` sont relatives à la zone
   affichée — il faut défiler jusqu'à l'élément — et sans
   `Network.setCacheDisabled`, un PDF régénéré ressort identique à l'octet près.
-  **`cdp.js` réutilise sans le dire un Chrome déjà en écoute sur le port 9222**,
-  à une largeur inconnue : le bilan témoin fait 3 pages à 1 280 px, 6 vers
-  760 px. Vérifier le port avant tout essai de rendu (C1-T6b).
+  Le nombre de pages dépend de la fenêtre (bilan témoin : 3 à 1 280 px, 6 vers
+  760 px) : `cdp.js` **refuse** un port occupé plutôt que de réutiliser un
+  Chrome de largeur inconnue (C1-T6b).
+- **`python3 -O` lancé par `(… &)` d'un shell non interactif ignore SIGINT** :
+  `ServeurArret.test_arret_journalise` y échoue toujours. Jouer `-O` au premier
+  plan ; ce n'est pas un test instable.
 - **La fiche de secours charge `script.js`.** Toute modification de ce fichier
   doit prouver que le PDF de `index-v1.html` reste identique au pixel.
-- **Le dépôt est public, la fiche du prospect ne l'est pas.** Elle est ignorée
-  par Git et gardée par `tests/test_confidentialite_prospect.py`, mais **rien
-  ne garde les messages de commit ni les noms de branche** : n'y nommer aucun
-  élément de sa fiche. Les données de test n'emploient qu'un vocabulaire fictif.
+- **Le dépôt est public, la fiche du prospect ne l'est pas.** Ignorée par Git,
+  elle est gardée par `tests/test_confidentialite_prospect.py` : fichiers,
+  messages de commit, noms de référence et **tout blob de la plage** — sur le
+  seul poste qui détient la fiche. Restent hors garde : messages d'étiquettes
+  annotées, image commitée en binaire. Les deux exemptions visent des SHA de
+  `c1-t6-grille` : une fusion qui réécrit l'historique les rend sans objet.
 
 ## Fichiers à ne jamais toucher
 
