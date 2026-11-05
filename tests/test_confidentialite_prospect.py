@@ -11,11 +11,13 @@ sauf accord écrit. Trois gardes, de la plus générale à la plus fine :
 * `AucunMarqueurDeLaFiche` : aucun texte de la fiche, qui ne soit déjà public,
   ne figure dans un fichier modifié ou ajouté depuis le commit de repère, ni
   dans un message de commit de la plage `repère..HEAD`, ni dans le nom d'une
-  branche ou d'une étiquette locale (C1-T6b : tout cela part sur GitHub).
+  branche ou d'une étiquette locale, ni dans aucun blob introduit dans cette
+  plage, même retiré depuis (C1-T6b : tout cela part sur GitHub, et un texte
+  commité puis retiré avant la poussée reste public dans l'historique).
 
 Règle de cette suite : un échec ne nomme **jamais** ce qu'il a trouvé, seulement
-le fichier et le numéro de ligne, le SHA abrégé et la ligne d'un message, ou le
-rang d'une référence (même règle que la garde d'identité de C1-T1). Les journaux d'intégration continue sont publics eux aussi.
+le fichier et le numéro de ligne, le SHA abrégé et la ligne d'un message, le SHA
+abrégé, le chemin et la ligne d'un blob, ou le rang d'une référence (même règle que la garde d'identité de C1-T1). Les journaux d'intégration continue sont publics eux aussi.
 
 Bibliothèque standard seule. Aucun `assert` nu : sous `python -O` ils
 s'évaporent, et une garde qui ne garde plus rien est le piège le plus coûteux de
@@ -32,7 +34,7 @@ import unittest
 
 RACINE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FICHE = "fiche_presentation.html"
-COMMIT_DE_REPERE = "1ec796c"
+COMMIT_DE_REPERE = "1ec796c172bf1dcc9129bd0331fa6368edddb8c0"
 DONNEES = os.path.join(RACINE, "tests", "donnees")
 SPECIFICATION = os.path.join(RACINE, "docs", "schema-formulaire.md")
 
@@ -74,6 +76,16 @@ ATTRIBUTS_DE_REFERENCE = frozenset(["src", "href"])
 # fermée : une entrée nouvelle est une décision de l'architecte, pas un réglage.
 # Le texte en cause n'est jamais recopié.
 MESSAGES_EXEMPTES = frozenset([("fbf905a144aba6895a0835c9ecc396225c2473cb", 1)])
+# Même principe pour un blob de l'historique : un couple (SHA complet du blob,
+# numéro de ligne), jamais un texte. Il désigne la ligne 620 de l'ancienne
+# version de la feuille de style que ce commit a introduite et que le suivant a
+# remplacée : la garde y a trouvé la même correspondance fortuite de huit
+# caractères que celle qui exempte le message ci-dessus (audit de C1-T6b). Ce
+# blob est déjà poussé ; l'historique ne se récrit pas. Liste fermée, une seule
+# entrée, couverte par `test_exemptions_toujours_justifiees` : une entrée
+# nouvelle est une décision de l'architecte, pas un réglage. Le texte en cause
+# n'est jamais recopié.
+BLOBS_EXEMPTES = frozenset([("81f06a971edcf5b5c11945dbb32e53f72b6acab1", 620)])
 MOTIF_LIBELLE_NORMALISE = re.compile(MOTIF_LIBELLE.pattern, re.I)
 
 
@@ -256,10 +268,16 @@ def marqueurs_de_la_fiche():
 
 def corpus_public():
     """Tout le texte des fichiers suivis au commit de repère, normalisé : déjà public."""
-    noms = git("ls-tree", "-r", "-z", "--name-only", COMMIT_DE_REPERE).stdout.split(b"\0")
+    arbre = git("ls-tree", "-r", "-z", "--name-only", COMMIT_DE_REPERE)
+    if arbre.returncode != 0:
+        raise RuntimeError("git ls-tree a échoué (code %d)" % arbre.returncode)
+    noms = arbre.stdout.split(b"\0")
     requete = b"".join(
         COMMIT_DE_REPERE.encode() + b":" + n + b"\n" for n in noms if n)
-    sortie = git("cat-file", "--batch", input=requete).stdout
+    lecture = git("cat-file", "--batch", input=requete)
+    if lecture.returncode != 0:
+        raise RuntimeError("git cat-file a échoué (code %d)" % lecture.returncode)
+    sortie = lecture.stdout
     morceaux = []
     position = 0
     while position < len(sortie):
@@ -279,9 +297,15 @@ def corpus_public():
 
 def fichiers_modifies_ou_ajoutes():
     """Fichiers texte changés depuis le commit de repère, plus les non suivis non ignorés."""
-    noms = set(noms_zero(git("diff", "--name-only", "-z", COMMIT_DE_REPERE).stdout))
-    noms |= set(noms_zero(
-        git("ls-files", "-z", "--others", "--exclude-standard").stdout))
+    diff = git("diff", "--name-only", "-z", COMMIT_DE_REPERE)
+    autres = git("ls-files", "-z", "--others", "--exclude-standard")
+    # Un git en échec ferait passer la garde à vide : il doit lever.
+    for sortie in (diff, autres):
+        if sortie.returncode != 0:
+            raise RuntimeError("git a échoué (code %d) en listant les fichiers changés"
+                               % sortie.returncode)
+    noms = set(noms_zero(diff.stdout))
+    noms |= set(noms_zero(autres.stdout))
     noms.discard(FICHE)
     return sorted(n for n in noms if os.path.isfile(os.path.join(RACINE, n)))
 
@@ -326,6 +350,35 @@ def localiser_dans_messages(messages, marqueurs, exemptions):
     return sorted(trouves - set(exemptions))
 
 
+def localiser_dans_blobs(blobs, marqueurs, exemptions):
+    """Liste triée de (sha complet, chemin, ligne) d'un blob qui porte un marqueur.
+
+    `blobs` : liste de (sha complet, chemin ou "", texte ou None) ; un texte à
+    None est un blob binaire, qu'on ne lit pas. Les couples (sha, ligne) de
+    `exemptions` sont retirés : une exemption est ancrée sur un blob et une
+    ligne, jamais sur un texte. Jamais le marqueur lui-même.
+    """
+    trouves = set()
+    for sha, chemin, texte in blobs:
+        if texte is None:
+            continue
+        # Un premier passage sur le blob entier évite de normaliser chaque ligne
+        # des blobs qui ne portent rien (la plupart) : ce qu'une ligne contient,
+        # le texte entier le contient aussi.
+        if not any(m in normaliser(texte) for m in marqueurs):
+            continue
+        ligne_trouvee = False
+        for numero, ligne in enumerate(texte.split("\n"), 1):
+            normalisee = normaliser(ligne)
+            if any(m in normalisee for m in marqueurs):
+                trouves.add((sha, chemin, numero))
+                ligne_trouvee = True
+        if not ligne_trouvee:
+            trouves.add((sha, chemin, 0))   # un marqueur à cheval sur plusieurs lignes
+    exemptes = set(exemptions)
+    return sorted(t for t in trouves if (t[0], t[2]) not in exemptes)
+
+
 def localiser_dans_noms(noms, marqueurs):
     """Rangs (à partir de 1) des noms de référence qui portent un marqueur.
 
@@ -358,6 +411,72 @@ def nombre_de_commits_de_la_plage():
     if sortie.returncode != 0:
         raise RuntimeError("git rev-list a échoué (code %d)" % sortie.returncode)
     return int(sortie.stdout.strip())
+
+
+def blobs_de_la_plage():
+    """Liste de (sha complet, chemin, texte ou None) des blobs introduits dans `repère..HEAD`.
+
+    Tout blob que la plage fait entrer dans le dépôt, qu'il figure encore dans
+    l'arbre ou non : c'est ce que l'état final des fichiers ne montre pas. Le
+    chemin est celui sous lequel `git rev-list --objects` rencontre le blob en
+    premier. Un texte à None est un blob binaire. Un objet manquant lève.
+    """
+    plage = COMMIT_DE_REPERE + "..HEAD"
+    liste = git("rev-list", "--objects", plage)
+    if liste.returncode != 0:
+        raise RuntimeError("git rev-list --objects %s a échoué (code %d)" % (plage, liste.returncode))
+    chemins, ordre = {}, []
+    for ligne in liste.stdout.decode("utf-8", errors="replace").split("\n"):
+        if not ligne:
+            continue
+        sha, _, chemin = ligne.partition(" ")
+        if sha not in chemins:
+            chemins[sha] = chemin
+            ordre.append(sha)
+    lecture = git("cat-file", "--batch", input="".join(s + "\n" for s in ordre).encode("ascii"))
+    if lecture.returncode != 0:
+        raise RuntimeError("git cat-file --batch a échoué (code %d)" % lecture.returncode)
+    sortie = lecture.stdout
+    blobs, lus, position = [], 0, 0
+    while position < len(sortie):
+        fin = sortie.index(b"\n", position)
+        entete = sortie[position:fin].split()
+        position = fin + 1
+        if len(entete) == 2 and entete[1] == b"missing":
+            raise RuntimeError("objet manquant dans la plage : %s" % entete[0].decode("ascii")[:12])
+        if len(entete) != 3:
+            raise RuntimeError("entête de git cat-file inattendu")
+        taille = int(entete[2])
+        contenu = sortie[position:position + taille]
+        position += taille + 1
+        lus += 1
+        if entete[1] != b"blob":
+            continue
+        sha = entete[0].decode("ascii")
+        if b"\0" in contenu[:8000]:
+            blobs.append((sha, chemins[sha], None))
+        else:
+            blobs.append((sha, chemins[sha], contenu.decode("utf-8", errors="replace")))
+    if lus != len(ordre):
+        raise RuntimeError("git cat-file a rendu %d objets pour %d demandés" % (lus, len(ordre)))
+    return blobs
+
+
+def nombre_de_blobs_de_la_plage():
+    """Compte indépendant (`rev-list` puis `cat-file --batch-check`), pour que la lecture ne soit pas muette."""
+    liste = git("rev-list", "--objects", COMMIT_DE_REPERE + "..HEAD")
+    if liste.returncode != 0:
+        raise RuntimeError("git rev-list --objects a échoué (code %d)" % liste.returncode)
+    shas = []
+    for ligne in liste.stdout.split(b"\n"):
+        if ligne.strip():
+            sha = ligne.split(b" ", 1)[0]
+            if sha not in shas:
+                shas.append(sha)
+    types = git("cat-file", "--batch-check=%(objecttype)", input=b"".join(s + b"\n" for s in shas))
+    if types.returncode != 0:
+        raise RuntimeError("git cat-file --batch-check a échoué (code %d)" % types.returncode)
+    return len([t for t in types.stdout.split(b"\n") if t.strip() == b"blob"])
 
 
 def noms_de_reference():
@@ -500,6 +619,29 @@ class ReperageHorsFichiers(unittest.TestCase):
         noms = ["main", "c1-t6-grille", "essai-%s-fin" % self.MARQUEUR, "autre"]
         self.assertEqual(localiser_dans_noms(noms, {self.MARQUEUR}), [3])
 
+    def test_un_blob_porteur_est_trouve_avec_son_chemin_et_sa_ligne(self):
+        blobs = [(self.SHA_A, "dossier/fichier.css", "a\nb\n%s\n" % self.MARQUEUR)]
+        rendu = localiser_dans_blobs(blobs, {self.MARQUEUR}, frozenset())
+        self.assertEqual(rendu, [(self.SHA_A, "dossier/fichier.css", 3)])
+        self.assertNotIn(self.MARQUEUR, repr(rendu))
+
+    def test_l_exemption_de_blob_ne_couvre_que_sa_ligne_et_son_blob(self):
+        blobs = [(self.SHA_A, "x", "%s\n%s" % (self.MARQUEUR, self.MARQUEUR)),
+                 (self.SHA_B, "y", self.MARQUEUR)]
+        self.assertEqual(
+            localiser_dans_blobs(blobs, {self.MARQUEUR}, frozenset([(self.SHA_A, 1)])),
+            [(self.SHA_A, "x", 2), (self.SHA_B, "y", 1)])
+
+    def test_un_marqueur_de_blob_coupe_par_un_saut_de_ligne_donne_la_ligne_zero(self):
+        blobs = [(self.SHA_A, "x", "debut\nun-marqueur\nfactice")]
+        self.assertEqual(
+            localiser_dans_blobs(blobs, {"un-marqueur factice"}, frozenset()),
+            [(self.SHA_A, "x", 0)])
+
+    def test_un_blob_binaire_n_est_pas_lu(self):
+        self.assertEqual(
+            localiser_dans_blobs([(self.SHA_A, "x.png", None)], {self.MARQUEUR}, frozenset()), [])
+
     def test_aucun_marqueur_aucun_resultat(self):
         self.assertEqual(localiser_dans_messages([(self.SHA_A, "Titre")], {self.MARQUEUR}, frozenset()), [])
         self.assertEqual(localiser_dans_noms(["main"], {self.MARQUEUR}), [])
@@ -541,6 +683,22 @@ class AucunMarqueurDeLaFiche(unittest.TestCase):
             "volontairement pas affiché ; un message non poussé se corrige par "
             "git commit --amend)" % ", ".join("%s:%d" % (sha[:12], n) for sha, n in trouves))
 
+    def test_aucun_marqueur_dans_les_blobs_de_la_plage(self):
+        # Un texte commité puis retiré avant la poussée n'est plus dans l'arbre,
+        # mais il reste public dans l'historique : seul le blob le montre.
+        marqueurs = marqueurs_de_la_fiche()
+        self.assertTrue(marqueurs, "aucun marqueur extrait de la fiche : la garde ne garderait rien")
+        blobs = blobs_de_la_plage()
+        self.assertEqual(
+            len(blobs), nombre_de_blobs_de_la_plage(),
+            "la lecture des blobs ne rend pas autant d'objets que la plage en compte")
+        trouves = localiser_dans_blobs(blobs, marqueurs, BLOBS_EXEMPTES)
+        self.assertEqual(
+            trouves, [],
+            "texte de la fiche retrouvé dans les blobs : %s (le texte n'est volontairement "
+            "pas affiché ; un blob non poussé se retire en réécrivant les commits)"
+            % ", ".join("%s (%s):%d" % (sha[:12], chemin, n) for sha, chemin, n in trouves))
+
     def test_aucun_marqueur_dans_les_noms_de_reference(self):
         marqueurs = marqueurs_de_la_fiche()
         self.assertTrue(marqueurs, "aucun marqueur extrait de la fiche : la garde ne garderait rien")
@@ -561,11 +719,21 @@ class AucunMarqueurDeLaFiche(unittest.TestCase):
         presents = {sha for sha, _ in messages}
         encore_porteurs = set(localiser_dans_messages(messages, marqueurs, frozenset()))
         sans_objet = [
-            "%s:%d" % (sha[:12], ligne) for sha, ligne in sorted(MESSAGES_EXEMPTES)
+            "message %s:%d" % (sha[:12], ligne) for sha, ligne in sorted(MESSAGES_EXEMPTES)
             if sha not in presents or (sha, ligne) not in encore_porteurs]
+        blobs = blobs_de_la_plage()
+        blobs_presents = {sha for sha, _, _ in blobs}
+        # Seuls les blobs exemptés comptent ici : relire toute la plage doublerait
+        # le temps de la garde sans rien prouver de plus.
+        exemptes = {sha for sha, _ in BLOBS_EXEMPTES}
+        blobs_porteurs = {(sha, ligne) for sha, _, ligne in localiser_dans_blobs(
+            [b for b in blobs if b[0] in exemptes], marqueurs, frozenset())}
+        sans_objet += [
+            "blob %s:%d" % (sha[:12], ligne) for sha, ligne in sorted(BLOBS_EXEMPTES)
+            if sha not in blobs_presents or (sha, ligne) not in blobs_porteurs]
         self.assertEqual(
             sans_objet, [],
-            "exemption sans objet (commit absent de la plage ou ligne sans marqueur) : %s"
+            "exemption sans objet (objet absent de la plage ou ligne sans marqueur) : %s"
             % ", ".join(sans_objet))
 
 
