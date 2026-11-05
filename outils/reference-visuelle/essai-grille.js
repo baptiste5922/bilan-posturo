@@ -45,7 +45,9 @@
 //                        grille dans un schéma client », condition 2) : accepte n'importe
 //                        quel schéma v2, ne saisit RIEN, et imprime une ligne OK/RATÉ par
 //                        grille — sa largeur est au plus égale à LARGEUR_GRILLE_REFERENCE_PX,
-//                        lue dans le source servi — puis, à 1280 px, la vérification 9.
+//                        lue dans le source servi — puis une ligne OK/RATÉ par grille pour sa
+//                        HAUTEUR, au plus égale à la hauteur de page à cette largeur, puis,
+//                        à 1280 px, la vérification 9.
 //                        Code 0 si toutes les grilles passent, 1 sinon.
 //   (sans)               scénario complet : sept vérifications d'origine, plus
 //                        8. la copie capturée n'a aucune grille hors de #form-bilan,
@@ -196,7 +198,8 @@ async function verification9(chrome, verdict, numero) {
 
 /**
  * Épreuve d'atelier (ESSAI_MODE=mesure) : sur un schéma v2 quelconque, chaque
- * grille doit tenir dans la largeur de référence. Rien n'est saisi, rien n'est
+ * grille doit tenir dans la largeur de référence, et ne pas dépasser la hauteur
+ * d'une page à la largeur de fenêtre jouée. Rien n'est saisi, rien n'est
  * exporté : seules les mesures de la page rendue comptent.
  */
 async function scenarioMesure(chrome, verdict) {
@@ -211,7 +214,17 @@ async function scenarioMesure(chrome, verdict) {
             largeurs: ${JSON.stringify(grilles.map((g) => g.bloc))}.map((id) => {
                 const t = document.getElementById(id);
                 return t ? t.getBoundingClientRect().width : null;
-            })
+            }),
+            // La boîte non réduite, celle que calculerPages() lit pour décider d'une coupure.
+            hauteurs: ${JSON.stringify(grilles.map((g) => g.bloc))}.map((id) => {
+                const t = document.getElementById(id);
+                return t ? t.getBoundingClientRect().height : null;
+            }),
+            // Hauteur de page de l'export, en px CSS : celle de l'export (script.js,
+            // exporterBilanPDF), dérivée des constantes du script servi, jamais recopiées ici.
+            formulaire: document.getElementById("form-bilan").getBoundingClientRect().width,
+            page: document.getElementById("form-bilan").getBoundingClientRect().width
+                * ((PDF_HAUTEUR - 2 * MARGE_MM) / (PDF_LARGEUR - 2 * MARGE_MM))
         };
     })()`);
     const rendu = !etat.attente && etat.message === "" && etat.largeurs.every((l) => l !== null);
@@ -224,7 +237,19 @@ async function scenarioMesure(chrome, verdict) {
             + (largeur === null ? "introuvable" : Math.round(largeur * 100) / 100 + " px")
             + " au plus égale à LARGEUR_GRILLE_REFERENCE_PX (" + etat.reference + " px)");
     });
-    if (LARGEUR === 1280) await verification9(chrome, verdict, 2 + grilles.length);
+    // Une grille plus haute que la page serait coupée par calculerPages() au milieu
+    // d'une ligne : rien n'est perdu (l'image est continue), mais le bilan imprimé
+    // serait mal présenté. La hauteur de page baisse avec la largeur de la tablette,
+    // celle d'une grille ne baisse pas : d'où une vérification à la largeur du client.
+    grilles.forEach((g, k) => {
+        const hauteur = etat.hauteurs[k];
+        verdict(2 + grilles.length + k, hauteur !== null && hauteur <= etat.page,
+            "grille " + (k + 1) + " (" + g.cle + ") : hauteur "
+            + (hauteur === null ? "introuvable" : Math.round(hauteur * 100) / 100 + " px")
+            + " au plus égale à la hauteur de page " + Math.round(etat.page * 100) / 100
+            + " px à cette largeur (#form-bilan : " + Math.round(etat.formulaire * 100) / 100 + " px)");
+    });
+    if (LARGEUR === 1280) await verification9(chrome, verdict, 2 + 2 * grilles.length);
 }
 
 /**
