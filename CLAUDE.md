@@ -5,13 +5,13 @@ formulaire et annote les schémas au stylet, le PDF est fabriqué dans le
 navigateur et déposé sur le PC du cabinet. Utilisée quotidiennement depuis
 août 2026 par une pédicure-podologue à Morlaix, pour la totalité de ses bilans.
 
-**Dernière mise à jour :** 4 novembre 2026, par `/cloture-projet`
+**Dernière mise à jour :** 5 novembre 2026, par `/cloture-projet`
 **Version :** V1 en production au cabinet ; `main` porte la 1.1.0
 (`formulaire/version.json`), sous **BUSL 1.1** depuis le 14 octobre 2026
-**Jalon en cours :** V2 — 14 tâches livrées ; rien de la V2 n'est encore au
-cabinet. **`main` local n'est pas poussé** (voir les pièges).
+**Jalon en cours :** V2 — 15 tâches livrées ; rien de la V2 n'est au cabinet.
+**`main` local n'est pas poussé**, et **`c1-t6-grille` n'y est pas fusionnée**.
 **Premier prospect hors pilote :** un formateur en posturologie, à installer à
-distance. Fiche de démonstration hors dépôt ; sa fiche exige C1-T6 (`grille`).
+distance. Sa fiche, hors dépôt, demande le type `grille` (C1-T6, puis C1-T6b).
 
 ## Architecture en bref
 
@@ -37,7 +37,7 @@ distance. Fiche de démonstration hors dépôt ; sa fiche exige C1-T6 (`grille`)
 | `formulaire/style.css` | La palette du cabinet : cinq tokens sur `:root`, **source unique** |
 | `formulaire/version.json` | Numéro de version, **source unique** (serveur, pied de page, `technique.log`) |
 | `installer-demarrage.ps1` | Tâche planifiée SYSTEM + pare-feu ; `-Verifier` contrôle sans rien modifier |
-| `tests/` | 219 tests Python + 10 suites Node |
+| `tests/` | 226 tests Python + 11 suites Node (branche `c1-t6-grille`) |
 
 Le PDF est produit **côté navigateur** : le serveur ne reçoit qu'un fichier déjà
 assemblé, et n'a aucune dépendance Python.
@@ -78,7 +78,7 @@ une image et non une donnée.
 | Chantier | Intitulé | État |
 |---|---|---|
 | C0 | Cadre juridique et licence | T1 **livré** ; T2 (contrat RGPD, modèles génériques) à faire |
-| C1 | Moteur de formulaire à schéma | T1, T2, T3, T3b **livrés** ; T4 bloqué par le favori ; **T6 (`grille`) ajouté** ; T5 |
+| C1 | Moteur de formulaire à schéma | T1, T2, T3, T3b, **T6 (`grille`) livrés** ; T6b ; T4 bloqué par le favori ; T5 |
 | C2 | Identité du cabinet en configuration | T1 **livré** ; T2 (logo) à faire |
 | C3 | Adressage, certificat et installateur | T1, **T3a livrés** (T3a : VM Windows à faire) ; T2, T3, T4 |
 | C4 | Observabilité et support | T1, **T2, T4 livrés** ; T5 **sortie de la V2** ; T3, T6 |
@@ -105,8 +105,8 @@ MIT au bout de quatre ans. L'historique antérieur reste MIT à jamais.
 Explication : `docs/licence.md` ; seul `LICENSE` fait foi.
 
 **Vocabulaire du schéma**, fixé par C1-T1 : `docs/schema-formulaire.md` est la
-source de vérité du format — sept types fermés, clés reprises à l'identique des
-`id` du formulaire, version du format en première clé.
+source de vérité du format — types fermés (huit depuis la version 2 et C1-T6),
+clés reprises à l'identique des `id` du formulaire, version en première clé.
 
 **Adressage**, tranché par C3-T1 le 19 octobre : **IP privée fixe + autorité
 locale**, soit l'existant, conservé délibérément. 0 €/cabinet/an, aucun geste à
@@ -142,9 +142,14 @@ emprunte est éprouvé. **Tant qu'il n'est pas fait, rien ne part au cabinet et
 C1-T4 ne peut pas commencer** — son critère d'acceptation est une semaine de
 bilans réels sans régression.
 
-**Tests :** 219 Python (2 sautés hors Windows) et 10 suites Node, tous verts
-au 4 novembre 2026, aussi sous `python3 -O`, et en CI sur Linux, Windows et
+**Tests :** 226 Python (2 sautés hors Windows) et 11 suites Node, tous verts
+au 5 novembre 2026, aussi sous `python3 -O`, et en CI sur Linux, Windows et
 macOS, Python 3.9 et 3.13 — CI jouée sur les branches de tâche, pas sur `main`.
+`npm test` dépasse le délai de 2 min d'une commande : le lancer en arrière-plan.
+
+**Une grille n'entre dans un schéma client** qu'aux trois conditions de
+`docs/schema-formulaire.md`, dont un export d'essai **sur la tablette du
+client** : au-delà de 1 192 px, l'export est refusé en consultation.
 
 **Avant d'envoyer le paquet au prospect** : essai de C3-T3a sur une VM Windows
 propre, fiche `docs/essais/C3-T3a-windows.md`. Et annoncer à la praticienne
@@ -152,6 +157,8 @@ pilote que l'historique de `journal.log` partira en bloc vers février 2027.
 
 ## Dernières sessions
 
+- [2026-11-05 — Le type `grille`, et la grille qu'on ne voyait pas rognée](docs/resumes/2026-11-05-type-grille.md) :
+  C1-T6 livrée (format v2, amendement A1 : réduire puis refuser). C1-T6b ouverte.
 - [2026-11-04 — Un premier prospect, et huit tâches livrées](docs/resumes/2026-11-04-premier-prospect-et-huit-taches.md) :
   C2-T1, C6-T4, C9-T1, C7-T1, C4-T4, C7-T5, C3-T3a, C4-T2. Décisions métier.
 - [2026-10-20 — L'adressage tranché, et un journal que l'éditeur peut lire](docs/resumes/2026-10-20-adressage-et-journal-technique.md) :
@@ -160,8 +167,6 @@ pilote que l'historique de `journal.log` partira en bloc vers février 2027.
   C1-T3b livrée. Cinq écarts de rendu trouvés dans un vrai navigateur.
 - [2026-10-15 (2) — Le moteur de rendu, sans la bascule](docs/resumes/2026-10-15-moteur-de-rendu.md) :
   C1-T3 étapes 1 à 8. Moteur, schéma, comparateur V1 ↔ moteur.
-- [2026-10-15 — Le vocabulaire du schéma de formulaire](docs/resumes/2026-10-15-vocabulaire-de-schema.md) :
-  C1-T1 livrée. 29 blocs et 45 champs inventoriés, sept types fermés.
 
 ## Comment on travaille ici
 
@@ -185,22 +190,16 @@ sous 300 lignes. Il oriente ; il ne recopie pas `docs/ROADMAP.md`.
 Ils ont déjà coûté du temps ; ils le recoûteront.
 
 - **Un garde-fou non mis en échec ne garde rien.** Le piège le plus coûteux du
-  dépôt, rencontré **quatre fois sur la seule C4-T1** : un test anti-fuite qui
-  ne mordait pas sur `str(erreur)` parce que l'échec d'écriture survient au
-  `mkstemp` et non au renommage ; aucun ancrage des lignes par lesquelles la
-  détection passe ; une garde en **`assert` nus, qui s'évapore sous `python -O`** ;
-  et une liste de noms tenue à la main qui manquait déjà un cas présent dans le
-  dépôt. Avant : listes normatives recopiées (C1-T1), comparateur qui sautait
-  deux blocs sur 29 (C1-T3). **Dériver du code, jamais transcrire ; éprouver
-  chaque garde par une mutation volontaire ; et la jouer sous `-O`.** Une
-  tolérance ajoutée pendant l'implémentation est le moyen le plus simple de faire
-  taire un comparateur.
-- **Le rendu réel voit ce qu'aucun test ne voit.** Le 19 octobre : 115 tests
-  verts, audit CONFORME, revue À LIVRER — et cinq écarts de rendu quand même,
-  dont un titre de bloc invisible. **Le moteur n'invente ni ponctuation ni
-  structure** : le schéma porte le texte exact qui s'affiche. Et se méfier de ses
-  propres tolérances : le bruit JPEG invoqué pour excuser un écart était **nul**,
-  mesure faite.
+  dépôt, quatre fois sur la seule C4-T1 : test qui ne mordait pas, détection non
+  ancrée, **`assert` nus qui s'évaporent sous `python -O`**, liste de noms tenue
+  à la main. **Dériver du code, jamais transcrire ; éprouver chaque garde par
+  une mutation volontaire ; la jouer sous `-O`.** Une tolérance ajoutée pendant
+  l'implémentation est le moyen le plus simple de faire taire un comparateur.
+- **Le rendu réel voit ce qu'aucun test ne voit.** Le 19 octobre, cinq écarts
+  de rendu sous 115 tests verts ; le 4 novembre, une grille rognée sans un mot
+  dans le PDF. **Le moteur n'invente ni ponctuation ni structure** : le schéma
+  porte le texte exact qui s'affiche. Se méfier de ses propres tolérances : le
+  bruit JPEG invoqué pour excuser un écart était **nul**, mesure faite.
 - **Ne jamais lancer `serveur.py` ni `generer_autorite.py` depuis le dépôt.**
   Ils calculent leur racine depuis leur emplacement et **écraseraient** les
   fichiers réels du cabinet. Tout essai se fait en bac à sable — patron
@@ -210,12 +209,10 @@ Ils ont déjà coûté du temps ; ils le recoûteront.
   `journal.log` et un PDF de bilan réel dans le dossier de travail d'un agent.
   Purgé, originaux intacts, mais **aucun garde-fou mécanique ne l'empêche** :
   copier par `git ls-files -z`, toujours.
-- **Un agent interrompu laisse son chantier ouvert.** Deux limites de session ont
-  coupé un implémenteur en pleine mutation volontaire ; la première fois, une
-  **fuite d'adresse IP est restée active dans le code**. Sauvegarder le fichier
-  hors du dépôt avant toute mutation et restaurer par `cp` — `git checkout`
-  effacerait l'implémentation non commitée. Au retour d'un agent interrompu,
-  vérifier l'absence de mutation résiduelle **avant** toute autre question.
+- **Un agent interrompu laisse son chantier ouvert** : une fois, une **fuite
+  d'adresse IP est restée active dans le code**. Sauvegarder hors du dépôt avant
+  toute mutation, restaurer par `cp` ; au retour d'un agent interrompu, vérifier
+  l'absence de mutation résiduelle **avant** toute autre question.
 - **ALPN** — sans `set_alpn_protocols`, Chrome ferme la connexion sans envoyer
   un octet, là où curl retombe sur HTTP/1.1. Symptôme : `ERR_EMPTY_RESPONSE`
   sans aucune trace serveur.
@@ -259,9 +256,8 @@ Ils ont déjà coûté du temps ; ils le recoûteront.
   **indexés** — validé sur des fichiers non suivis, il ne voit rien.
 - **Un tube `stdout=PIPE` jamais lu fige le serveur de test sous Windows**
   (tampon minuscule) : toute requête qui journalise se bloque, `/sante` seule
-  répond. C'était le « délai TLS » de C7-T5 ; un fil lecteur le règle.
-  `demarrer_sandbox_court` garde un `PIPE` relu par `communicate()` : même
-  mécanisme, à traiter de même s'il revient. Ne jamais relancer un échec
+  répond. C'était le « délai TLS » de C7-T5 ; un fil lecteur le règle (même
+  mécanisme dans `demarrer_sandbox_court`). Ne jamais relancer un échec
   intermittent : le capturer.
 - **La CI ne part que sur `main`, une pull request ou à la main.** Une branche
   poussée ne lance rien : `env -u GITHUB_TOKEN gh workflow run tests.yml --ref
@@ -280,6 +276,15 @@ Ils ont déjà coûté du temps ; ils le recoûteront.
   mais les coordonnées de `Input.dispatchMouseEvent` sont relatives à la zone
   affichée — il faut défiler jusqu'à l'élément — et sans
   `Network.setCacheDisabled`, un PDF régénéré ressort identique à l'octet près.
+  **`cdp.js` réutilise sans le dire un Chrome déjà en écoute sur le port 9222**,
+  à une largeur inconnue : le bilan témoin fait 3 pages à 1 280 px, 6 vers
+  760 px. Vérifier le port avant tout essai de rendu (C1-T6b).
+- **La fiche de secours charge `script.js`.** Toute modification de ce fichier
+  doit prouver que le PDF de `index-v1.html` reste identique au pixel.
+- **Le dépôt est public, la fiche du prospect ne l'est pas.** Elle est ignorée
+  par Git et gardée par `tests/test_confidentialite_prospect.py`, mais **rien
+  ne garde les messages de commit ni les noms de branche** : n'y nommer aucun
+  élément de sa fiche. Les données de test n'emploient qu'un vocabulaire fictif.
 
 ## Fichiers à ne jamais toucher
 
