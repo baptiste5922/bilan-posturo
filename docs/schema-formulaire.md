@@ -462,20 +462,40 @@ moment de capturer le formulaire :
   tablette peuvent élargir une grille qui tenait dans Chrome à 1 280 px. D'où la
   condition 2 ci-dessous, jouée sur l'appareil du client.
 
+**Hauteur d'une grille.** La pagination ne coupe jamais à l'intérieur d'un bloc,
+sauf si ce bloc dépasse à lui seul une page : `calculerPages()` le coupe alors
+net, au milieu d'une ligne de la grille. La hauteur d'une page vaut la largeur
+de `#form-bilan` × 273/186 (hauteur utile sur largeur utile du PDF, marges
+déduites) : elle **baisse avec la largeur de la tablette**, alors que la hauteur
+d'une grille, elle, ne baisse pas. Rien n'est perdu (l'image est continue), mais
+une ligne de tableau à cheval sur deux pages est un bilan mal présenté ; aucune
+borne statique du schéma ne peut l'écarter, puisqu'elle dépendrait de la
+largeur d'une tablette que le schéma ignore. Pour la donnée fictive de
+l'atelier (`tests/donnees/schema-v2-grilles-fictives.json`), dont la grille la
+plus haute mesure 963 px, la **largeur seuil** mesurée est de **735 px** de
+fenêtre (constat `docs/references-visuelles/CONSTAT-2026-11-05-C1-T6b.md`) ;
+sous cette largeur, cette grille serait coupée. Conséquence : une grille haute
+se **scinde en plusieurs blocs** (de moins de lignes), et l'épreuve d'atelier
+mesure la hauteur de chaque grille à la largeur de fenêtre du client.
+
 **Livrer une grille dans un schéma client.** Interdit tant que trois conditions
 ne sont pas réunies, client par client :
 
 1. la réduction et le refus décrits ci-dessus sont livrés (revue « À LIVRER ») ;
 2. le schéma du client passe deux épreuves :
    - **en atelier** : `essai-grille.js` en mode `ESSAI_MODE=mesure`, joué à
-     1 280 px sur ce schéma (n'importe quel schéma de version 2 : le mode ne
-     saisit rien), rend « OK » pour chaque grille (largeur au plus égale à
-     `LARGEUR_GRILLE_REFERENCE_PX`) et pour la vérification de la constante ;
+     1 280 px **puis à la largeur de fenêtre de la tablette du client**
+     (`ESSAI_LARGEUR`, relevée par `window.innerWidth` sur l'appareil, en
+     portrait) sur ce schéma (n'importe quel schéma de version 2 : le mode ne
+     saisit rien), rend « OK » pour la largeur **et la hauteur** de chaque
+     grille (largeur au plus égale à `LARGEUR_GRILLE_REFERENCE_PX`, hauteur au
+     plus égale à la hauteur d'une page à cette largeur) et, à 1 280 px, pour la
+     vérification de la constante ;
    - **sur la tablette du client elle-même**, avec son navigateur et ses
      réglages d'affichage habituels (taille du texte, zoom) : chaque grille
      remplie au maximum (toutes les cases cochées, chaque cellule `texte-court`
      à 8 caractères larges) s'exporte sans refus, et le PDF montre la dernière
-     colonne entière. Un changement de tablette, de navigateur ou de taille de
+     colonne entière et aucune ligne de grille n'est coupée entre deux pages. Un changement de tablette, de navigateur ou de taille de
      texte chez ce client rejoue cette épreuve ;
 3. le favori de secours est posé chez ce client.
 
