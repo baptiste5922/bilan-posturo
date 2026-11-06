@@ -22,9 +22,11 @@
  * Confidentialité : l'atelier manipule l'identité et le logo d'un client réel,
  * qui ne doivent jamais entrer dans un dépôt public. Toute écriture passe par
  * `ecrireDansTravail` (ou `creerDossier*`) : liste fermée de noms, refus de
- * tout dossier dont un ancêtre réel est la racine du dépôt (identité
- * périphérique + inœud, comme composer-schema.js), création exclusive `wx`,
- * refus des liens. Aucun port n'est ouvert, aucune dépendance npm.
+ * tout dossier situé dans un arbre de travail Git (entrée `.git` sur le chemin
+ * résolu ou l'un de ses ancêtres : tout dépôt, pas seulement celui-ci), puis de
+ * tout dossier dont un ancêtre réel est la racine du dépôt de l'atelier
+ * (identité périphérique + inœud, comme composer-schema.js), création
+ * exclusive `wx`, refus des liens. Aucun port n'est ouvert, aucune dépendance npm.
  *
  * Node nu. Aucun `assert` : un refus est un message, jamais une exception.
  */
@@ -115,14 +117,42 @@ function jugerIdentite(python, cheminIdentite, travail) {
 /* ============================ Garde d'écriture ============================= */
 
 /**
+ * Vrai si `dossier` ou l'un de ses ancêtres réels porte une entrée `.git`
+ * (dossier, ou fichier : worktree et sous-module). Lève si une entrée ne peut
+ * pas être lue autrement que « absente » : l'appelant refuse alors par prudence.
+ */
+function dansUnDepotGit(dossier) {
+    let courant = fs.realpathSync(dossier);
+    for (;;) {
+        try {
+            fs.lstatSync(path.join(courant, ".git"));
+            return true;
+        } catch (erreur) {
+            if (erreur.code !== "ENOENT") throw erreur;
+        }
+        const parent = path.dirname(courant);
+        if (parent === courant) return false;
+        courant = parent;
+    }
+}
+
+/**
  * Refus de confinement d'un dossier EXISTANT : vide s'il est hors du dépôt.
  * Ferme sur l'incertitude : si l'identité des ancêtres ne peut pas être établie,
  * on refuse (ce qu'on ne peut pas prouver hors du dépôt n'est pas écrit).
  */
 function refusConfinement(dossier, options) {
     try {
+        // Première couche : tout arbre de travail Git, le nôtre ou un autre clone,
+        // un worktree, un sous-module. Le dépôt de l'atelier n'est pas le seul où
+        // l'identité d'un client serait visible de Git.
+        if (dansUnDepotGit(dossier)) {
+            return ["écriture refusée : dossier situé dans un dépôt Git. Un client se fabrique HORS de tout dépôt."];
+        }
+        // Seconde couche : l'identité (périphérique + inœud) de la racine du dépôt
+        // de l'atelier, qui tient même sans `.git` (archive décompressée, copie).
         if (composerSchema.estSousFormulaire(dossier, racineDuDepot(options))) {
-            return ["écriture refusée : le dossier de travail est dans le dépôt (ou le dépôt lui-même). " +
+            return ["écriture refusée : le dossier de travail est dans le dépôt de l'atelier (ou le dépôt lui-même). " +
                 "Un client se fabrique HORS du dépôt public."];
         }
     } catch (erreur) {
@@ -224,6 +254,29 @@ function creerSousDossier(travail, relatif, options) {
 
 /* ================================== ouvrir ================================= */
 
+/**
+ * Contrôle d'une recette de départ avant toute copie : du JSON, un objet, les
+ * clés fermées de composer-schema.js (`CLES_RECETTE`, `ecartDeCles`, réutilisées,
+ * pas recopiées). Un refus ne cite RIEN du contenu : ni le message de
+ * `JSON.parse` (qui en reprend un extrait), ni le nom d'une clé inconnue.
+ */
+function refusRecetteDeDepart(octets) {
+    let recette;
+    try {
+        recette = JSON.parse(octets.toString("utf8"));
+    } catch (erreur) {
+        return ["recette refusée : ce n'est pas du JSON valide."];
+    }
+    if (!estObjet(recette)) return ["recette refusée : la racine doit être un objet JSON."];
+    const ecart = composerSchema.ecartDeCles(recette, composerSchema.CLES_RECETTE);
+    const refus = [];
+    if (ecart.inconnues.length > 0) refus.push("recette refusée : " + ecart.inconnues.length + " clé(s) inconnue(s).");
+    if (ecart.absentes.length > 0) {
+        refus.push("recette refusée : clé(s) obligatoire(s) absente(s) : " + ecart.absentes.join(", ") + ".");
+    }
+    return refus;
+}
+
 function ouvrir(travail, cheminRecette, options) {
     const python = trouverPython(options);
     if (python.refus) return python.refus;
@@ -236,6 +289,8 @@ function ouvrir(travail, cheminRecette, options) {
     } catch (erreur) {
         return ["recette illisible (" + erreur.code + ")."];
     }
+    const refusRecette = refusRecetteDeDepart(recette);
+    if (refusRecette.length > 0) return refusRecette;
 
     let refus = creerDossier(travail, options);
     if (refus.length > 0) return refus;
@@ -295,11 +350,17 @@ function refusConvention(convention, marqueurs) {
     const refus = [];
     const motif = /\{([^{}]*)\}/g;
     let trouve;
+    let inconnus = 0;
     while ((trouve = motif.exec(convention)) !== null) {
         if (marqueurs.indexOf(trouve[1]) === -1) {
-            refus.push("convention_nommage : le marqueur « {" + trouve[1] + "} » est inconnu du formulaire " +
-                "(connus : " + marqueurs.map(function (m) { return "{" + m + "}"; }).join(", ") + ").");
+            inconnus += 1;
         }
+    }
+    // Le texte des accolades est la saisie de l'opérateur, donc potentiellement
+    // une coordonnée : on dit combien, jamais lesquels.
+    if (inconnus > 0) {
+        refus.push("convention_nommage : " + inconnus + " marqueur(s) inconnu(s) du formulaire (connus : " +
+            marqueurs.map(function (m) { return "{" + m + "}"; }).join(", ") + ").");
     }
     if (/[{}]/.test(convention.replace(/\{[^{}]*\}/g, ""))) {
         refus.push("convention_nommage : accolade isolée (un marqueur s'écrit {nom}).");

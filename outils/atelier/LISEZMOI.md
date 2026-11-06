@@ -6,11 +6,16 @@ manipule l'**identité professionnelle** et le **logo** d'un client, qui ne
 doivent jamais entrer dans un dépôt public. D'où la règle qui commande tout le
 reste :
 
-> **L'atelier n'écrit jamais dans le dépôt.** Il refuse tout dossier de travail
-> dont un ancêtre réel est la racine du dépôt (comparaison d'inœuds après
-> `realpath` : un lien, une casse différente, un `..` ne la contournent pas),
-> n'écrit qu'une liste fermée de noms, en création exclusive, et ne suit aucun
-> lien. Aucun port n'est ouvert, aucune dépendance npm n'est ajoutée.
+> **L'atelier n'écrit jamais dans un dépôt Git.** Il refuse tout dossier de
+> travail dont le chemin résolu (`realpath`), ou l'un des ancêtres, porte une
+> entrée `.git` — dossier, ou fichier d'un worktree ou d'un sous-module : cela
+> vaut pour **tout** arbre de travail Git, y compris un second clone de ce
+> dépôt, pas seulement celui qui contient l'atelier. En seconde couche, il
+> compare l'identité (périphérique + inœud) des ancêtres à la racine du dépôt de
+> l'atelier, ce qui tient aussi sans `.git` (un lien, une casse différente, un
+> `..` ne la contournent pas). Il n'écrit qu'une liste fermée de noms, en
+> création exclusive, et ne suit aucun lien. Le refus dit « dossier situé dans un
+> dépôt Git ». Aucun port n'est ouvert, aucune dépendance npm n'est ajoutée.
 
 Ni le serveur ni le formulaire ne sont modifiés. Rien de ce dossier ne part dans
 un paquet (`outils/faire-paquet.sh` copie une liste fermée).
@@ -51,7 +56,7 @@ $A apercu   <travail>
 
 | Commande | Fait | Refuse |
 |---|---|---|
-| `ouvrir` | crée le dossier, copie la recette à l'octet, écrit l'identité vierge, crée `images/cabinet/` | un dossier existant ; un parent absent ; un dossier dans le dépôt |
+| `ouvrir` | crée le dossier, copie la recette à l'octet, écrit l'identité vierge, crée `images/cabinet/` | un dossier existant ; un parent absent ; un dossier dans un dépôt Git ; une recette qui n'est pas du JSON ou dont les clés ne sont pas celles de la recette (rien n'est créé, le message ne cite rien du contenu) |
 | `composer` | compose `recette.json` et écrit `schema.json` | d'écraser un `schema.json` : le retoucher, ou l'effacer à la main pour recomposer |
 | `verifier` | schéma, identité, logo, convention de nommage ; rappels `À FAIRE` | voir ci-dessous |
 | `apercu` | écrit `apercu-atelier.html` | un schéma que le moteur refuse |
@@ -70,7 +75,9 @@ changent pas le code.
 - un logo que le serveur refuserait au démarrage, avec son motif (`absent`,
   `illisible`, `trop-volumineux`, `lien-symbolique`, `forme-invalide`…) : un logo
   se pose sous `images/cabinet/` du dossier de travail, un seul niveau ;
-- une `convention_nommage` dont un `{marqueur}` est inconnu du formulaire. La
+- une `convention_nommage` dont un `{marqueur}` est inconnu du formulaire (le
+  refus dit **combien** de marqueurs sont inconnus, jamais lesquels : le texte
+  des accolades est une saisie de l'opérateur). La
   liste des marqueurs est **lue dans `formulaire/script.js`** à chaque exécution ;
   si la ligne qui la définit n'est pas retrouvée exactement une fois, `verifier`
   refuse (« source illisible ») au lieu de deviner.
@@ -115,7 +122,7 @@ aux sept clés, praticien renseigné, convention valide ; le logo sous
 un aperçu relu.
 
 Restent des **gestes de mise en service, hors de l'atelier** : reporter l'identité
-au cabinet par `python3 serveur/serveur.py --config` (`docs/configuration.md`
+au cabinet par `python3 serveur/serveur.py --config` — **à lancer UNIQUEMENT dans le dossier d'installation du cabinet, jamais depuis le dépôt** (depuis la racine du dépôt, la commande réécrit le `config.json` réel) (`docs/configuration.md`
 §2) ; poser le logo sous `formulaire/images/cabinet/` (§7) ; l'export d'essai sur
 la tablette ; la palette ; le paquet (`outils/faire-paquet.sh`).
 
@@ -131,7 +138,8 @@ la tablette ; la palette ; le paquet (`outils/faire-paquet.sh`).
 
 ## Si un fichier d'identité atterrit dans le dépôt malgré tout
 
-`.gitignore` ignore `identite-cabinet.json` et `apercu-atelier.html` à toute
+Ces fichiers ne peuvent y atterrir que par un geste manuel, puisque l'atelier
+refuse d'y écrire. `.gitignore` ignore `identite-cabinet.json` et `apercu-atelier.html` à toute
 profondeur, et le contrôle « aucun secret versionné » de la CI refuse
 `identite-cabinet.json` dans l'index. `tests/test_identite_absente.py` refuse en
 outre tout courriel ou téléphone dans l'arbre suivi. Ce sont des filets : la

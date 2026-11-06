@@ -6,7 +6,8 @@
  *
  *   T1 — `ouvrir` crée exactement ses quatre entrées, clés d'identité tirées du
  *        serveur (jamais d'une liste écrite ici seulement) ;
- *   T2 — confinement : un dossier de travail dans le dépôt, égal à lui, ou
+ *   T2 — confinement : un dossier de travail dans un dépôt Git (le nôtre ou un autre
+ *        clone), égal à la racine du dépôt, ou
  *        atteint par un lien est refusé, la racine reste inchangée (M1) ;
  *   T3 — création exclusive : `composer` n'écrase pas `schema.json` (M2) ;
  *        `apercu` remplace son fichier, mais pas un lien ;
@@ -242,6 +243,33 @@ cas("T1 : ouvrir refuse un dossier existant, une recette illisible et un parent 
     assert.ok(!fs.existsSync(path.join(racine, "absent")), "aucun dossier intermédiaire créé");
 });
 
+cas("T1 : ouvrir valide la recette avant toute copie, sans rien citer de son contenu, sans créer le dossier", () => {
+    const racine = racineJetable("t1r");
+    const temoin = "TEMOIN-" + ["contact", "exemple.test"].join("@");
+    const cas_ = {
+        "pas du JSON": "{ " + temoin + " n'est pas du JSON",
+        "pas un objet": JSON.stringify([temoin]),
+        "clé inconnue": JSON.stringify({ version_recette: 1, description: "Texte 1", version_schema: 1, fragments: ["anamnese"], [temoin]: 1 }),
+        "clé absente": JSON.stringify({ version_recette: 1, description: temoin })
+    };
+    Object.keys(cas_).forEach(function (nom) {
+        const recette = path.join(racine, "recette-" + nom.replace(/\W+/g, "-") + ".json");
+        fs.writeFileSync(recette, cas_[nom]);
+        const travail = path.join(racine, "t-" + nom.replace(/\W+/g, "-"));
+        const refus = atelier.ouvrir(travail, recette);
+        assert.ok(refus.length > 0, nom + " : devrait être refusée");
+        assert.ok(!fs.existsSync(travail), nom + " : le dossier de travail ne doit pas être créé");
+        // Et par la ligne de commande : ni la sortie standard, ni l'erreur standard.
+        const cli = lancer(["ouvrir", travail, "--recette", recette]);
+        assert.strictEqual(cli.code, 1, nom);
+        assert.ok(cli.erreur.indexOf(temoin) === -1 && cli.sortie.indexOf(temoin) === -1, nom + " : le contenu de la recette est cité");
+        assert.ok(cli.erreur.indexOf("@") === -1, nom + " : un fragment du contenu est cité");
+        assert.ok(!fs.existsSync(travail));
+    });
+    // Témoin : une recette valide passe toujours.
+    assert.deepStrictEqual(atelier.ouvrir(path.join(racine, "valide"), RECETTE_COURTE), []);
+});
+
 cas("T1 : l'auxiliaire n'écrit rien sous serveur/ et n'appelle ni main, ni demarrer, ni charger_config", () => {
     childProcess.spawnSync(python.commande, ["-I", "-B", CHEMIN_AUXILIAIRE, "defauts"], { encoding: "utf8" });
     const racine = racineJetable("t1c");
@@ -335,6 +363,47 @@ cas("T2 : la racine réelle du dépôt est reconnue par défaut (sans rien écri
     assert.deepStrictEqual(atelier.refusConfinement(racineJetable("t2d")), [], "un dossier hors du dépôt est admis");
     // Un dossier inexistant : l'identité des ancêtres ne s'établit pas, on refuse.
     assert.ok(atelier.refusConfinement(path.join(racineJetable("t2e"), "absent")).length > 0, "dossier inexistant : refus par prudence");
+});
+
+cas("T2 : un dossier dans un AUTRE arbre de travail Git (second clone, worktree) est refusé, quelle que soit la racine du dépôt", () => {
+    // Une racine « du dépôt » sans rapport avec l'endroit où l'on travaille : seule la
+    // couche « entrée .git » peut refuser ici.
+    const autreDepot = racineJetable("t2g-depot");
+    const options = { racineDepot: autreDepot };
+
+    const clone = racineJetable("t2g-clone");
+    fs.mkdirSync(path.join(clone, ".git"));
+    assert.ok(atelier.ouvrir(path.join(clone, "client"), RECETTE_COURTE, options).length > 0, "sous un .git dossier : refusé");
+    fs.mkdirSync(path.join(clone, "profond", "profond"), { recursive: true });
+    assert.ok(atelier.ouvrir(path.join(clone, "profond", "profond", "client"), RECETTE_COURTE, options).length > 0,
+        "plusieurs niveaux sous le dépôt : refusé");
+    assert.ok(atelier.ecrireDansTravail(clone, "schema.json", "{}", options).length > 0, "la racine du clone elle-même : refusée");
+    assert.deepStrictEqual(lister(clone), [".git/", "profond/", "profond/profond/"], "le clone ne reçoit rien");
+
+    // Worktree ou sous-module : `.git` est un FICHIER.
+    const worktree = racineJetable("t2g-worktree");
+    fs.writeFileSync(path.join(worktree, ".git"), "gitdir: ../ailleurs");
+    const refus = atelier.ouvrir(path.join(worktree, "client"), RECETTE_COURTE, options);
+    assert.ok(refus.length > 0, "sous un .git fichier : refusé");
+    assert.ok(refus.join(" ").indexOf("dossier situé dans un dépôt Git") !== -1, "le refus doit dire pourquoi : " + refus.join(" | "));
+    assert.ok(refus.join(" ").indexOf(worktree) === -1, "le refus ne doit citer aucun chemin");
+    assert.ok(!fs.existsSync(path.join(worktree, "client")));
+    assert.strictEqual(atelier.composer(worktree, options).refus.length > 0, true);
+    assert.ok(atelier.apercu(worktree, options).length > 0);
+
+    // Un dossier hors de tout dépôt reste admis (témoin : la garde ne refuse pas tout).
+    assert.deepStrictEqual(atelier.refusConfinement(racineJetable("t2g-sain"), options), []);
+});
+
+cas("T2 : un lien vers un autre arbre de travail Git est suivi jusqu'au bout (realpath) et refusé", () => {
+    if (!LIENS) return saute("T2 lien Git", "création de lien impossible ici");
+    const clone = racineJetable("t2h-clone");
+    fs.mkdirSync(path.join(clone, ".git"));
+    const ailleurs = racineJetable("t2h-ailleurs");
+    fs.symlinkSync(clone, path.join(ailleurs, "lien"), "dir");
+    const options = { racineDepot: racineJetable("t2h-depot") };
+    assert.ok(atelier.ouvrir(path.join(ailleurs, "lien", "client"), RECETTE_COURTE, options).length > 0, "via le lien : refusé");
+    assert.deepStrictEqual(lister(clone), [".git/"]);
 });
 
 cas("ligne de commande : une commande inconnue ou un argument manquant rend 2", () => {
@@ -469,7 +538,8 @@ cas("T5 : clé en trop, clé absente, valeur qui n'est pas une chaîne → refus
 cas("T5 : convention de nommage — un marqueur inconnu est refusé, les marqueurs du formulaire passent", () => {
     let travail = preparer("t5g", { convention_nommage: "Bilan_{inconnu}_{date}" });
     let resultat = atelier.verifierTravail(travail);
-    assert.ok(texteDeRefus(resultat).indexOf("{inconnu}") !== -1, texteDeRefus(resultat));
+    assert.ok(/1 marqueur\(s\) inconnu\(s\)/.test(texteDeRefus(resultat)), texteDeRefus(resultat));
+    assert.ok(texteDeRefus(resultat).indexOf("inconnu}") === -1, "le texte du marqueur ne doit pas être cité");
 
     travail = preparer("t5h", { convention_nommage: "{date}_{nom}_{prenom}_{patient}" });
     assert.deepStrictEqual(atelier.verifierTravail(travail).refus, []);
@@ -477,6 +547,22 @@ cas("T5 : convention de nommage — un marqueur inconnu est refusé, les marqueu
     travail = preparer("t5i", { convention_nommage: "Bilan_{date" });
     resultat = atelier.verifierTravail(travail);
     assert.ok(texteDeRefus(resultat).indexOf("accolade") !== -1, texteDeRefus(resultat));
+});
+
+cas("T5 : un marqueur inconnu n'est jamais cité dans le refus (il peut être une coordonnée saisie à la main)", () => {
+    const courriel = ["prenom.nom", "exemple.test"].join("@");
+    const travail = preparer("t5n", { convention_nommage: "Bilan_{" + courriel + "}_{date}" });
+    const resultat = atelier.verifierTravail(travail);
+    assert.ok(/1 marqueur\(s\) inconnu\(s\)/.test(texteDeRefus(resultat)), texteDeRefus(resultat));
+    const cli = lancer(["verifier", travail]);
+    assert.strictEqual(cli.code, 1);
+    assert.ok(cli.erreur.indexOf(courriel) === -1 && cli.erreur.indexOf("prenom.nom") === -1, "le texte des accolades est cité");
+    assert.ok(cli.erreur.indexOf("@") === -1, "un fragment du courriel est cité");
+    // Plusieurs marqueurs inconnus : le nombre, pas les textes.
+    const deux = preparer("t5o", { convention_nommage: "{aa}_{bb}_{date}" });
+    const refusDeux = texteDeRefus(atelier.verifierTravail(deux));
+    assert.ok(/2 marqueur\(s\) inconnu\(s\)/.test(refusDeux), refusDeux);
+    assert.ok(refusDeux.indexOf("{aa}") === -1 && refusDeux.indexOf("{bb}") === -1, refusDeux);
 });
 
 cas("T5 : la liste des marqueurs est lue dans script.js ; une ligne absente ou en double → « source illisible »", () => {

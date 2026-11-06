@@ -28,7 +28,10 @@ dans le dépôt, et l'atelier refuse d'y écrire.
   contrat, l'aperçu montre celle du pilote) ; l'**export d'essai sur la tablette**
   du client ; le **versement** du schéma dans `clients/` (D-O1 non tranchée) ;
   la fabrication du **paquet** (`outils/faire-paquet.sh`) ; le report de
-  l'identité dans `config.json` (`python3 serveur/serveur.py --config`) ; la
+  l'identité dans `config.json` (`python3 serveur/serveur.py --config` :
+  **à lancer UNIQUEMENT dans le dossier d'installation du cabinet, jamais depuis
+  le dépôt** — depuis la racine du dépôt, la commande réécrit le `config.json`
+  réel) ; la
   pose du logo sous `formulaire/images/cabinet/`. Aucune de ces étapes n'est
   dans le chronomètre, et un temps plus long ne leur est pas imputé à l'atelier.
 - **Le temps de l'outil compris** : chaque commande de l'atelier fait partie de
