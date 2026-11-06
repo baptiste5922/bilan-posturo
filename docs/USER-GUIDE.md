@@ -270,9 +270,12 @@ It tells, line by line:
 - **Certificate fingerprint** — the same as the `DEMARRAGE` lines of
   `technique.log`;
 - **PC address and certificate** — `conforme` (the certificate covers an
-  address the PC carries), `adresse changée` (it covers none any more: follow
-  "The PC's address has changed" above) or `indéterminé` (the certificate only
-  carries `localhost`, nothing to compare);
+  address the PC carries), `adresse changée` (it covers none that the PC
+  carries right now: either the address has changed, and "The PC's address has
+  changed" above applies; or a network interface is unplugged, Wi-Fi off or
+  cable pulled under Windows, and plugging it back in then reloading the page
+  is enough) or `indéterminé` (nothing to compare: the certificate only
+  carries `localhost`, or it could not be read);
 - **Practice identity** — "not filled in" means assessment export is refused:
   run `python serveur/serveur.py --config`;
 - the **last 30 lines of `technique.log`**.

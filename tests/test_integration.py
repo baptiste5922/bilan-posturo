@@ -237,6 +237,8 @@ class ServeurEnMarche(unittest.TestCase):
                        "certificat": "certificat.pem",
                        "cle_privee": "cle.pem"}, f)
 
+        # Borne basse de demarre_le (test_etat_demarrage_et_identite).
+        cls.lance_a = datetime.datetime.now()
         cls.processus = subprocess.Popen(
             [sys.executable, os.path.join("serveur", "serveur.py")],
             cwd=cls.dossier,
@@ -944,7 +946,11 @@ class ServeurEnMarche(unittest.TestCase):
     def test_etat_demarrage_et_identite(self):
         _, _, etat = self.etat()
         demarre = datetime.datetime.fromisoformat(etat["demarre_le"])
-        self.assertLess(demarre, datetime.datetime.now() + datetime.timedelta(seconds=2))
+        # Ni après maintenant, ni avant le lancement du bac à sable : une
+        # marge de 2 s couvre la troncature à la seconde de l'horodatage.
+        marge = datetime.timedelta(seconds=2)
+        self.assertLess(demarre, datetime.datetime.now() + marge)
+        self.assertGreater(demarre, self.lance_a - marge)
         # Le bac à sable n'a pas de bloc "cabinet" : identité non renseignée.
         self.assertIs(etat["identite_cabinet"], False)
         self.assertIsInstance(etat["disque_libre_octets"], int)

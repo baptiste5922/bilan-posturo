@@ -75,6 +75,21 @@ qu'un (`/cabinet`).
 - Aucune mutation résiduelle : en fin de série, la copie est identique à la
   sauvegarde (`cmp`), et le dépôt n'a jamais été touché.
 
+## Mutation ajoutée après la revue (extension critique)
+
+Constat de revue : `parties[-1]` → `parties[1]` dans `_adresses_alternatives`
+survivait (102 tests verts de `tests.test_serveur`), car aucun certificat de
+test n'avait de `subjectAltName` critique, donc de BOOLEAN entre l'OID et la
+valeur. Test ajouté : `LecteurCertificat.test_san_critique_conforme_a_cryptography`
+(certificat fabriqué par `cryptography`, SAN critique, adresses IPv4 et IPv6 et
+boucle comparées à `cryptography`). Même protocole que ci-dessus (copie hors
+dépôt, restauration par `cp`, vérifiée par `cmp`).
+
+| Id | Mutation | Rouges (normal / `-O`) | Test rouge |
+|---|---|---|---|
+| san | `parties[-1]` remplacé par `parties[1]` | 1 / 1 | `test_san_critique_conforme_a_cryptography` |
+| témoin | aucune | 0 / 0 | `rc=0`, 247 tests OK dans les deux modes |
+
 ## CI
 
 Run `42198008294` (`workflow_dispatch` sur `c4-t3-etat`, commit `9de935e`) :

@@ -1217,10 +1217,13 @@ def rendre_etat_json(etat):
 EXPLICATIONS_ADRESSE = {
     "conforme": "le certificat couvre une adresse portée par ce PC.",
     "adresse changée": (
-        "le certificat ne couvre plus aucune adresse de ce PC : le réémettre "
-        "(mode d'emploi, « L'adresse du PC a changé »)."),
+        "le certificat ne couvre aucune adresse que ce PC porte en ce moment. "
+        "Soit l'adresse a changé : réémettre le certificat (mode d'emploi, "
+        "« L'adresse du PC a changé »). Soit une interface réseau est "
+        "débranchée (Wi-Fi coupé, câble) : la rebrancher et recharger la page."),
     "indéterminé": (
-        "le certificat ne porte aucune adresse de réseau à comparer."),
+        "rien à comparer : le certificat ne porte que des adresses de boucle "
+        "(localhost), ou il n'a pas pu être lu."),
 }
 
 

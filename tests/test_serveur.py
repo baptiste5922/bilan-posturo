@@ -812,7 +812,7 @@ class LecteurCertificat(unittest.TestCase):
     def lire(self, der_octets):
         return serveur.lire_certificat(ecrire_pem(self.dossier, der_octets))
 
-    def fabriquer(self, fin, adresses):
+    def fabriquer(self, fin, adresses, critique=False):
         from cryptography import x509
         from cryptography.hazmat.primitives import hashes, serialization
         from cryptography.hazmat.primitives.asymmetric import ec
@@ -830,7 +830,7 @@ class LecteurCertificat(unittest.TestCase):
             .add_extension(x509.SubjectAlternativeName(
                 [x509.DNSName("localhost")]
                 + [x509.IPAddress(ipaddress.ip_address(a)) for a in adresses]),
-                critical=False)
+                critical=critique)
             .sign(cle, hashes.SHA256()))
         chemin = os.path.join(self.dossier, "reference.pem")
         with open(chemin, "wb") as f:
@@ -863,6 +863,29 @@ class LecteurCertificat(unittest.TestCase):
         self.assertTrue(all(isinstance(a, (ipaddress.IPv4Address,
                                            ipaddress.IPv6Address))
                             for a in lu["adresses"]))
+
+    @unittest.skipIf(cryptography_absente(), "cryptography requis pour la référence")
+    def test_san_critique_conforme_a_cryptography(self):
+        # Une extension critique porte un BOOLEAN entre l'OID et la valeur :
+        # lire la deuxième partie au lieu de la dernière ne se voit que sur
+        # un certificat de ce genre (RFC 5280 exige le SAN critique quand le
+        # subject est vide ; un certificat fabriqué ailleurs peut l'être).
+        adresses = ("192.0.2.7", "2001:db8::1", "127.0.0.1", "::1")
+        fin = datetime.datetime(2030, 3, 4, 5, 6, 7, tzinfo=UTC)
+        certificat, chemin = self.fabriquer(fin, adresses, critique=True)
+        from cryptography import x509
+        san = certificat.extensions.get_extension_for_class(
+            x509.SubjectAlternativeName)
+        self.assertTrue(san.critical)
+
+        lu = serveur.lire_certificat(chemin)
+
+        self.assertEqual(lu["expire_le"], fin)
+        self.assertEqual(
+            list(lu["adresses"]),
+            san.value.get_values_for_type(x509.IPAddress))
+        self.assertEqual(
+            list(lu["adresses"]), [ipaddress.ip_address(a) for a in adresses])
 
     @unittest.skipIf(cryptography_absente(), "cryptography requis pour la référence")
     def test_utctime_et_generalizedtime_de_cryptography(self):
@@ -946,14 +969,13 @@ class LecteurCertificat(unittest.TestCase):
 
     def test_adresse_de_longueur_impossible_rend_vide(self):
         # Un iPAddress de 5 octets n'est ni IPv4 ni IPv6.
-        mauvais = faux_certificat(adresses=("192.0.2.7",)).replace(
-            der(0x87, bytes((192, 0, 2, 7))), der(0x87, bytes((192, 0, 2, 7, 1))))
-        lu = serveur.lire_certificat(ecrire_pem(self.dossier, self.corriger_longueurs(mauvais)))
+        lu = serveur.lire_certificat(
+            ecrire_pem(self.dossier, self.certificat_adresse_de_cinq_octets()))
         self.assertEqual(lu, {"expire_le": None, "adresses": ()})
 
     @staticmethod
-    def corriger_longueurs(_):
-        # Reconstruit le certificat avec un iPAddress de 5 octets, longueurs
+    def certificat_adresse_de_cinq_octets():
+        # Construit le certificat avec un iPAddress de 5 octets, longueurs
         # parentes recalculées : un simple remplacement d'octets les
         # laisserait fausses, et l'échec viendrait d'ailleurs.
         algorithme = der(0x30, der(0x06, b"\x2a"))

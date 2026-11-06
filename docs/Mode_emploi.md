@@ -285,9 +285,12 @@ Elle dit, ligne à ligne :
 - **Empreinte du certificat** — la même que celle des lignes `DEMARRAGE` de
   `technique.log` ;
 - **Adresse du PC et certificat** — `conforme` (le certificat couvre une
-  adresse que le PC porte), `adresse changée` (il n'en couvre plus aucune :
-  suivre « L'adresse du PC a changé » plus haut) ou `indéterminé` (le
-  certificat ne porte que `localhost`, rien à comparer) ;
+  adresse que le PC porte), `adresse changée` (il n'en couvre aucune que le PC
+  porte en ce moment : soit l'adresse a changé, et il faut suivre « L'adresse
+  du PC a changé » plus haut ; soit une interface réseau est débranchée, Wi-Fi
+  coupé ou câble arraché sous Windows, et il suffit de la rebrancher puis de
+  recharger la page) ou `indéterminé` (rien à comparer : le certificat ne
+  porte que `localhost`, ou il n'a pas pu être lu) ;
 - **Identité du cabinet** — « non renseignée » signifie que l'export des
   bilans est refusé : lancer `python serveur/serveur.py --config` ;
 - les **30 dernières lignes de `technique.log`**.
