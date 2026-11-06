@@ -159,6 +159,10 @@ chemin **une fois** ; un chemin refusé n'est jamais proposé à la tablette.
 - `""` : **pas de logo**, c'est un choix et non une anomalie (la case « pas de
   logo » de la feuille de route client).
 
+À l'ouverture de la page, la tablette affiche d'abord le logo par défaut, le
+temps de recevoir l'identité du cabinet ; puis elle le remplace ou le masque.
+Ce bref affichage ne touche jamais le PDF, qui attend le logo configuré.
+
 **Un logo refusé donne pas de logo**, jamais le logo par défaut : l'emblème de
 la podologie n'a rien à faire sur le bilan d'un autre métier. L'export reste
 possible, sans logo (seul `praticien` est pivot, §4).

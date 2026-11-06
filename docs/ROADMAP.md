@@ -646,6 +646,19 @@ HTML.
 
 ### C2-T2 — Logo et actifs propres au client
 
+> **État : livrée le 6 novembre 2026** sur la branche `c2-t2-logo`, après
+> audit (`docs/audits/C2-T2.md`, CONFORME SOUS RÉSERVE, réserve et faible n° 2
+> levés, **CONFORME** au réaudit) et revue (`docs/revues/C2-T2.md`, À LIVRER).
+> Contrat `docs/contrats/C2-T2.md` (D2 amendé), 22 critères vérifiés. Effort
+> réel **M** : `script.js` change, et la fiche de secours le charge ; inertie au
+> pixel prouvée par ensembles d'exports
+> (`docs/references-visuelles/CONSTAT-2026-11-06-C2-T2.md`). Le logo d'un
+> client vit dans `formulaire/images/cabinet/`, ignoré par Git et refusé par le
+> paquet ; le serveur n'accepte que ce dossier ou le défaut exact, valide au
+> démarrage, et un logo refusé donne « pas de logo ». Rien ne part au cabinet.
+> Suites : C6-T6 (liens symboliques suivis par le gestionnaire statique),
+> C5-T2 (ne pas écraser le dossier des logos).
+
 - **Effort :** S
 - **Process :** Allégé + audit — sert un fichier depuis un chemin configuré : la remontée de répertoire est le seul vrai risque, et l'audit ne regarde qu'elle.
 - **Dépendances :** C2-T1

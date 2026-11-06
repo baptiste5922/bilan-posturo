@@ -74,4 +74,9 @@ favori de secours posé et ouvert sur la tablette, puis une semaine de bilans
 réels (C1-T4b, `docs/ROADMAP.md`). Points à préparer d'ici là :
 - le bloc `cabinet` de `config.json` (sans lui, l'export est **refusé**) ;
 - l'installation du démarrage automatique (`installer-demarrage.ps1 -Verifier`) ;
-- l'annonce à la praticienne de la purge des journaux à six mois.
+- l'annonce à la praticienne de la purge des journaux à six mois ;
+- après installation, un bilan d'essai : le logo habituel figure dans
+  l'en-tête de sa première page (C2-T2 ; sans `cabinet.logo`, c'est le défaut
+  `images/favicon.jpeg`). Sinon, `journal.log` dit pourquoi (ligne `LOGO`).
+  Refaire à cette occasion la preuve d'inertie de la fiche de secours à 760 px,
+  avec le vrai logo.
