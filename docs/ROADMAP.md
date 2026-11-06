@@ -1109,7 +1109,9 @@ avant toute nouvelle fonctionnalité. La fiabilité est la marge.
   3. Sauvegarde de la version précédente et **retour arrière automatique** si
      `/sante` ne répond pas dans la minute suivant le redémarrage.
   4. `config.json`, les certificats, `bilans/` et les schémas du client ne sont
-     jamais écrasés.
+     jamais écrasés. Ni le logo du client : **`formulaire/images/cabinet/`**
+     vit sous la racine web (C2-T2) et un remplacement en bloc de
+     `formulaire/` l'effacerait.
   5. Résultat de la mise à jour tracé dans le journal technique et visible dans
      `/etat`.
 - **Critères d'acceptation :**
@@ -1245,6 +1247,33 @@ gratuits.
   22 formes essayées contre un serveur réel (`..`, `%2e%2e`, `..%2f`, `..\`,
   `%5c`, `/....//`, `//`, `/config%2Ejson`, `?`, `#`, `/moteur/../`) laissent
   `config.json` inatteignable, en 403 ou 404.
+
+### C6-T6 — Le gestionnaire statique ne suit pas les liens symboliques
+
+> **Ouverte le 6 novembre 2026**, par l'audit de C2-T2. Défaut
+> **pré-existant**, non introduit par C2-T2 ; mais C2-T2 fait de
+> `formulaire/images/cabinet/` un dossier où l'installateur dépose des fichiers
+> à la main.
+
+- **Effort :** S
+- **Process :** Allégé + audit — surface servie.
+- **Dépendances :** aucune
+- **Périmètre :** `serveur/serveur.py`, `autorise_lecture()` et le service des
+  fichiers statiques
+- **Constaté :** le gestionnaire suit tout lien symbolique posé sous
+  `formulaire/`. Un lien `formulaire/images/cabinet/logo.png` → `config.json`
+  ou une clé privée servirait sa cible à tout client authentifié, pourvu que
+  l'extension soit servie. Il faut déjà pouvoir écrire dans `formulaire/`.
+- **Travail :** résoudre le chemin demandé (`realpath`) et refuser toute cible
+  hors de `formulaire/`, ou tout lien tout court, comme `valider_logo` le fait
+  pour le logo ; jonction Windows comprise.
+- **Critères d'acceptation :** un lien sous `formulaire/` vers un fichier hors
+  racine rend 403 ou 404, jamais son contenu ; test d'intégration, mis en échec
+  par mutation.
+- **À noter (même audit) :** sous Windows, une différence de casse dans
+  `cabinet.logo` est refusée avec le motif `lien-symbolique` alors qu'il n'y a
+  aucun lien (`realpath` rend la casse du disque). Le refus échoue fermé ; seul
+  le motif égare le support. À traiter avec cette tâche.
 
 ---
 
