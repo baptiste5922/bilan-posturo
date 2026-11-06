@@ -273,7 +273,7 @@ def fabriquer_paquet_extrait():
             shutil.copy(str(source), str(cible))
 
         resultat = subprocess.run(
-            ["sh", "outils/faire-paquet.sh"],
+            ["sh", "outils/faire-paquet.sh", "cabinet-01"],
             cwd=travail, capture_output=True, text=True)
         if resultat.returncode != 0:
             raise RuntimeError(

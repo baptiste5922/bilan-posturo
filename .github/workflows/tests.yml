@@ -83,6 +83,10 @@ jobs:
       - name: Run Chrome driver refusal tests
         run: node tests/test_cdp.js
 
+      # Lit l'étiquette production-cabinet-01 : d'où le fetch-depth: 0 plus haut.
+      - name: Run client schema tests
+        run: node tests/test_schema_client.js
+
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -115,20 +119,37 @@ jobs:
           fi
           echo "Aucun secret versionné."
 
-      - name: Remind about the visual reference set's confidentiality
+      - name: Check that no image or PDF is versioned among the visual references
         run: |
-          # Faible (audit C1-T3b) : docs/references-visuelles/ n'attend
-          # encore que son LISEZMOI, mais les quatre fichiers à venir
-          # (critère 1 du contrat C1-T3b) comprennent deux captures PNG
-          # pleine page — onglets, barre de favoris, notifications. Un
-          # refus pur et simple de tout fichier image serait prématuré
-          # (ces fichiers DOIVENT un jour être versionnés) ; ce pas ne
-          # bloque donc rien, il rappelle fort, dans un journal que
-          # quiconque relit avant de fusionner.
-          nouveaux=$(git ls-files docs/references-visuelles | grep -v '/LISEZMOI\.md$' || true)
-          if [ -n "$nouveaux" ]; then
-            echo "::warning::docs/references-visuelles/ contient des fichiers au-delà de LISEZMOI.md : relire le §4 de LISEZMOI.md (confidentialité des captures) avant toute fusion."
+          set -e
+          # Décision D4 de C1-T4a : les images et PDF de mesure ne sont jamais
+          # versionnés. Une capture montre bien plus que le formulaire (onglets,
+          # favoris, notifications), et une image échappe à
+          # tests/test_identite_absente.py ; une donnée publiée ne se reprend
+          # pas. Ce pas remplace un simple avertissement que personne ne lisait.
+          # Seuls .md et .json sont admis dans ce dossier.
+          #
+          # `-z` et core.quotePath=false : sans eux, git entoure de guillemets
+          # les chemins accentués. Un code de grep supérieur à 1 est une erreur
+          # de lecture, à ne pas confondre avec « aucune correspondance » (patron
+          # du pas « palette »).
+          suivis=$(mktemp)
+          trap 'rm -f "$suivis"' EXIT
+          git -c core.quotePath=false ls-files -z docs/references-visuelles > "$suivis"
+          set +e
+          fautifs=$(tr '\0' '\n' < "$suivis" | grep -vE '\.(md|json)$')
+          code=$?
+          set -e
+          if [ "$code" -gt 1 ]; then
+            echo "::error::Erreur de lecture de la liste des fichiers de docs/references-visuelles/."
+            exit 1
           fi
+          if [ "$code" -eq 0 ]; then
+            echo "$fautifs"
+            echo "::error::Fichier autre que .md ou .json dans docs/references-visuelles/ : images et PDF de mesure restent hors du dépôt (docs/references-visuelles/LISEZMOI.md, section 4)."
+            exit 1
+          fi
+          echo "Aucune image ni PDF parmi les références visuelles."
 
       - name: Check that the palette is not duplicated
         run: |

@@ -3,6 +3,13 @@
 # N'inclut QUE ce qui est nécessaire : ni secrets, ni données patient,
 # ni node_modules.
 #
+#     sh outils/faire-paquet.sh <client>        (par exemple : cabinet-01)
+#
+# Le client est un argument OBLIGATOIRE, sans valeur par défaut : le schéma du
+# formulaire qui part dans l'archive est celui de clients/<client>/schema.json
+# (C1-T4a). Un défaut livrerait par mégarde le formulaire du cabinet pilote à
+# un autre cabinet. Le nom de l'archive, lui, ne change pas.
+#
 # `set -e` : sans lui, une copie qui échoue laissait le script continuer,
 # zipper, puis annoncer « Archive créée ». Le paquet partait au cabinet
 # amputé — du texte de licence, par exemple, que BUSL exige sur chaque
@@ -19,6 +26,43 @@ set -e
 # Se placer à la racine du projet, quel que soit le dossier d'appel.
 cd "$(dirname "$0")/.." || exit 1
 
+# Tout contrôle de l'argument a lieu AVANT la première copie : un refus ne
+# laisse ni dossier ni archive. Le motif ancré interdit `/` et `..` : le client
+# entre dans un chemin (clients/$CLIENT/schema.json).
+clients_disponibles() {
+    for schema in clients/*/schema.json; do
+        [ -f "$schema" ] || continue
+        nom=${schema#clients/}
+        echo "  ${nom%/schema.json}"
+    done
+}
+
+if [ "$#" -ne 1 ]; then
+    echo "ERREUR : un seul argument attendu, le client (par exemple : sh outils/faire-paquet.sh cabinet-01)." >&2
+    echo "Clients disponibles :" >&2
+    clients_disponibles >&2
+    exit 2
+fi
+CLIENT="$1"
+# `case` d'abord : il juge la chaîne ENTIÈRE, retours à la ligne compris, là où
+# `grep` ne juge que ligne par ligne (« cabinet-01<saut>../x » passerait).
+case "$CLIENT" in
+    *[!a-z0-9-]*) CLIENT_VALIDE=non ;;
+    *) CLIENT_VALIDE=oui ;;
+esac
+if [ "$CLIENT_VALIDE" != oui ] || ! printf '%s\n' "$CLIENT" | grep -Eq '^cabinet-[0-9]{2,}$'; then
+    echo "ERREUR : nom de client invalide. Attendu : cabinet-NN (par exemple cabinet-01)." >&2
+    echo "Clients disponibles :" >&2
+    clients_disponibles >&2
+    exit 2
+fi
+if [ ! -f "clients/$CLIENT/schema.json" ]; then
+    echo "ERREUR : le client $CLIENT n'existe pas (clients/$CLIENT/schema.json manque)." >&2
+    echo "Clients disponibles :" >&2
+    clients_disponibles >&2
+    exit 2
+fi
+
 PAQUET="BilanPosturo-$(date +%Y-%m-%d)"
 rm -rf "$PAQUET" "$PAQUET.zip"
 mkdir -p "$PAQUET"
@@ -28,6 +72,10 @@ cp demarrer-serveur.bat "$PAQUET/"
 # cabinet, pas ici, et doivent donc voyager avec le paquet.
 cp installer-demarrage.ps1 desinstaller-demarrage.ps1 "$PAQUET/"
 cp -R formulaire serveur "$PAQUET/"
+# Le schéma du client remplace celui de formulaire/ (son miroir, gardé égal par
+# tests/test_schema_client.js). Le dossier clients/ lui-même ne voyage jamais :
+# le schéma d'un client ne doit pas partir chez un autre.
+cp "clients/$CLIENT/schema.json" "$PAQUET/formulaire/schema.json"
 
 # Depuis C1-T3b, le formulaire de production EST le moteur : index.html est
 # une coquille qui rend son corps au chargement depuis schema.json. Un
@@ -76,5 +124,14 @@ for obligatoire in "$PAQUET/LICENSE" "$PAQUET/TIERS.md" \
     fi
 done
 
-echo "Archive créée : $PAQUET.zip"
+# Ce que contient l'archive est ce que le client a décrit, octet pour octet :
+# le contrôle relit l'archive elle-même, pas la copie qui l'a fabriquée.
+if ! unzip -p "$PAQUET.zip" "$PAQUET/formulaire/schema.json" | cmp -s - "clients/$CLIENT/schema.json"; then
+    rm -f "$PAQUET.zip"
+    echo "ERREUR : le formulaire/schema.json de l'archive n'est pas celui de clients/$CLIENT/schema.json." >&2
+    echo "L'archive a été effacée : le paquet ne doit pas partir avec le schéma d'un autre." >&2
+    exit 1
+fi
+
+echo "Archive créée : $PAQUET.zip (client : $CLIENT)"
 unzip -l "$PAQUET.zip"

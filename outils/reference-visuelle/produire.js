@@ -17,7 +17,10 @@
 //   ESSAI_PREFIXE       nom du PDF « moteur » et des captures (défaut C1-T3-moteur)
 //   ESSAI_PAGE          page où « moteur » rejoue le brouillon (défaut index.html ;
 //                       index-v1.html pour la fiche de secours, qui charge le même
-//                       script.js : amendement A1 de C1-T6, critère 19)
+//                       script.js : amendement A1 de C1-T6, critère 19). En mode
+//                       « v1 », page où le bilan témoin est rempli (défaut
+//                       index-v1.html) : index.html pour mesurer la version
+//                       installée au cabinet, servie telle quelle (C1-T4a)
 //   ESSAI_LARGEUR       largeur de fenêtre imposée par
 //                       Emulation.setDeviceMetricsOverride (défaut : celle de Chrome)
 //
@@ -33,6 +36,7 @@ const SORTIE = process.env.ESSAI_SORTIE || path.join(__dirname, "sortie");
 const PREFIXE = process.env.ESSAI_PREFIXE || "C1-T3-moteur";
 const IDENTIFIANTS = process.env.ESSAI_IDENTIFIANTS;
 const PAGE = process.env.ESSAI_PAGE || "index.html";
+const PAGE_V1 = process.env.ESSAI_PAGE || "index-v1.html";
 const LARGEUR = process.env.ESSAI_LARGEUR ? parseInt(process.env.ESSAI_LARGEUR, 10) : null;
 const BROUILLON = path.join(SORTIE, "bilan-reference.json");
 
@@ -270,7 +274,7 @@ async function capturer(chrome, prefixe) {
         }
 
         if (cible === "v1") {
-            await chrome.aller(BASE + "/index-v1.html");
+            await chrome.aller(BASE + "/" + PAGE_V1);
             await relireLargeur(chrome);
             await remplir(chrome);
             const zones = await dessiner(chrome);
