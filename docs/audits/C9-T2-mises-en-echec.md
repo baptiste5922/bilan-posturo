@@ -50,6 +50,14 @@ M1 à M6 sont ceux du contrat (§9) ; M7 à M9 sont ajoutés : ils éprouvent de
 gardes que le contrat exige (refus des liens, source illisible, `-I -B`) sans
 leur donner de numéro.
 
+## Épreuve du motif de la CI
+
+Le motif `identite-cabinet\.json$` ajouté au contrôle « aucun secret versionné »
+a été éprouvé dans le clone jetable, avec le motif reconstruit **depuis
+`tests.yml`** (pas retranscrit) : sur l'arbre sain, `git ls-files | grep -Ei`
+rend 1 (rien) ; après `git add -f x/identite-cabinet.json`, il rend 0 et nomme
+`x/identite-cabinet.json` ; le fichier est ensuite retiré de l'index du clone.
+
 ## Limites connues des cas
 
 - **M9 ne mord que sur un clone frais.** Dans le dépôt réel, `serveur/__pycache__/`
