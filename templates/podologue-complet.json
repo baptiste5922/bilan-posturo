@@ -1,0 +1,16 @@
+{
+  "version_recette": 1,
+  "description": "Bilan podologique complet : les neuf fragments de la bibliothèque, soit les 28 blocs du formulaire du cabinet pilote.",
+  "version_schema": 1,
+  "fragments": [
+    "anamnese",
+    "examen-statique",
+    "examen-dynamique",
+    "examen-bilans",
+    "examen-complementaire",
+    "empreintes",
+    "chaussage",
+    "ortheses",
+    "conclusion"
+  ]
+}

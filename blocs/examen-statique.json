@@ -1,0 +1,87 @@
+{
+  "version_fragment": 1,
+  "description": "Statique (trois images annotables), Appui, Podo.",
+  "blocs": [
+    {
+      "cle": "section_squelettes",
+      "titre": "Statique:",
+      "champs": [
+        {
+          "cle": "squelette_gauche",
+          "type": "image-annotable",
+          "libelle": "Squelette gauche",
+          "fichier": "images/squelette_gauche.png",
+          "texte_alternatif": "squelette gauche"
+        },
+        {
+          "cle": "squelette_droite",
+          "type": "image-annotable",
+          "libelle": "Squelette droite",
+          "fichier": "images/squelette_droite.png",
+          "texte_alternatif": "squelette droite"
+        },
+        {
+          "cle": "squelette_dos",
+          "type": "image-annotable",
+          "libelle": "Squelette dos",
+          "fichier": "images/squelette_dos.png",
+          "texte_alternatif": "squelette dos"
+        }
+      ]
+    },
+    {
+      "cle": "appui",
+      "titre": "Appui:",
+      "disposition": "en-ligne",
+      "champs": [
+        {
+          "type": "radio",
+          "valeurs": [
+            {
+              "cle": "anterieur",
+              "valeur": "anterieur",
+              "libelle": "Antérieur"
+            },
+            {
+              "cle": "posterieur",
+              "valeur": "posterieur",
+              "libelle": "Postérieur"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "cle": "Podo",
+      "titre": "Podo:",
+      "disposition": "en-ligne",
+      "champs": [
+        {
+          "cle": "symétrique",
+          "type": "case",
+          "libelle": "Symétrique"
+        },
+        {
+          "cle": "Isthme",
+          "type": "case",
+          "libelle": "Isthme"
+        },
+        {
+          "type": "radio",
+          "valeurs": [
+            {
+              "cle": "isthme_g",
+              "valeur": "isthme_g",
+              "libelle": "Gauche"
+            },
+            {
+              "cle": "isthme_d",
+              "valeur": "isthme_d",
+              "libelle": "Droit"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

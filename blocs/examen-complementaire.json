@@ -1,0 +1,33 @@
+{
+  "version_fragment": 1,
+  "description": "Examens complémentaires : pouls et enregistrement sur plateforme.",
+  "blocs": [
+    {
+      "cle": "Pouls",
+      "titre": "Pouls:",
+      "disposition": "en-ligne",
+      "champs": [
+        {
+          "cle": "pédieux",
+          "type": "case",
+          "libelle": "Pédieux"
+        },
+        {
+          "cle": "tibial",
+          "type": "case",
+          "libelle": "Tibial"
+        }
+      ]
+    },
+    {
+      "cle": "section_enregistrement_plateforme",
+      "champs": [
+        {
+          "cle": "enregistrement_plateforme",
+          "type": "zone-texte",
+          "libelle": "Enregistrement Plateforme:"
+        }
+      ]
+    }
+  ]
+}

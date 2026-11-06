@@ -1,0 +1,58 @@
+{
+  "version_fragment": 1,
+  "description": "Chaussures de ville et de sport.",
+  "blocs": [
+    {
+      "cle": "section_chaussures_ville",
+      "disposition": "chaussures",
+      "champs": [
+        {
+          "cle": "chaussures_ville",
+          "type": "texte",
+          "libelle": "Chaussures ville:"
+        },
+        {
+          "cle": "usee_ville",
+          "type": "case",
+          "libelle": "Usées"
+        },
+        {
+          "cle": "marque_ville",
+          "type": "texte",
+          "libelle": "Marque :"
+        },
+        {
+          "cle": "type_ville",
+          "type": "texte",
+          "libelle": "Type :"
+        }
+      ]
+    },
+    {
+      "cle": "section_chaussures_sport",
+      "disposition": "chaussures",
+      "champs": [
+        {
+          "cle": "chaussures_sport",
+          "type": "texte",
+          "libelle": "Chaussures sport :"
+        },
+        {
+          "cle": "usee_sport",
+          "type": "case",
+          "libelle": "Usées"
+        },
+        {
+          "cle": "marque_sport",
+          "type": "texte",
+          "libelle": "Marque :"
+        },
+        {
+          "cle": "type_sport",
+          "type": "texte",
+          "libelle": "Type :"
+        }
+      ]
+    }
+  ]
+}

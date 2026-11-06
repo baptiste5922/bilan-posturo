@@ -1,0 +1,18 @@
+{
+  "version_fragment": 1,
+  "description": "Case de l'empreinte à l'encre.",
+  "blocs": [
+    {
+      "cle": "section_empreinte_encre",
+      "disposition": "en-ligne",
+      "champs": [
+        {
+          "cle": "empreinte_encre",
+          "type": "case",
+          "libelle": "Empreinte encre:",
+          "apparence": "titre_avant"
+        }
+      ]
+    }
+  ]
+}

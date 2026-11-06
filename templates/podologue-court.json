@@ -1,0 +1,11 @@
+{
+  "version_recette": 1,
+  "description": "Bilan podologique court : anamnèse, examen statique, orthèses et conclusion (16 blocs).",
+  "version_schema": 1,
+  "fragments": [
+    "anamnese",
+    "examen-statique",
+    "ortheses",
+    "conclusion"
+  ]
+}

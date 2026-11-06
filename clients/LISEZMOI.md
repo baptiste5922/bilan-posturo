@@ -50,6 +50,14 @@ clé, même mal orthographiée, ferait perdre le bilan d'une consultation en cou
 - Si ce commit manque (clone peu profond), le test échoue en donnant le remède
   (`git fetch --all --tags`, ou `--unshallow`) : il ne se saute jamais.
 
+## Créer un client
+
+On ne part pas d'une page blanche : `templates/` porte deux recettes de départ,
+assemblées à partir de `blocs/` par `outils/composer-schema.js`. La procédure
+pas à pas est dans `templates/LISEZMOI.md`. Le résultat se verse ici, dans un
+nouveau dossier `cabinet-NN` (jamais d'après une ville), sous réserve que
+`node tests/test_schema_client.js` reste vert.
+
 ## Fabriquer le paquet d'un client
 
 ```

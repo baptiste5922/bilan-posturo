@@ -1,0 +1,26 @@
+{
+  "version_fragment": 1,
+  "description": "Conseils donnés et orientation à l'issue du bilan.",
+  "blocs": [
+    {
+      "cle": "section_conseils",
+      "champs": [
+        {
+          "cle": "conseils",
+          "type": "zone-texte",
+          "libelle": "Conseils:"
+        }
+      ]
+    },
+    {
+      "cle": "section_orientation",
+      "champs": [
+        {
+          "cle": "orientation",
+          "type": "zone-texte",
+          "libelle": "Orientation:"
+        }
+      ]
+    }
+  ]
+}

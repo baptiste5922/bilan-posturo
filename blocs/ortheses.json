@@ -1,0 +1,70 @@
+{
+  "version_fragment": 1,
+  "description": "Plan d'appareillage proposé avec son schéma annotable, pointures de ville et de sport, base et recouvrement.",
+  "blocs": [
+    {
+      "cle": "section_plan_appareillage",
+      "titre": "Plan appareillage proposé :",
+      "titre_apparence": "label_bloc",
+      "champs": [
+        {
+          "cle": "image_empreintes",
+          "type": "image-annotable",
+          "apparence": "encadree",
+          "libelle": "Empreintes plantaires",
+          "fichier": "images/empreintes_pieds.png",
+          "texte_alternatif": "Empreintes plantaires"
+        },
+        {
+          "cle": "plan_texte",
+          "type": "zone-texte",
+          "libelle": "Plan appareillage proposé",
+          "indication": "Saisissez les éléments du plan d'appareillage..."
+        }
+      ]
+    },
+    {
+      "cle": "pointure_ville_bloc",
+      "disposition": "en-ligne-bas",
+      "champs": [
+        {
+          "cle": "pointure_ville",
+          "type": "texte",
+          "libelle": "Pointure ville:"
+        }
+      ]
+    },
+    {
+      "cle": "pointure_sport_bloc",
+      "disposition": "en-ligne-bas",
+      "champs": [
+        {
+          "cle": "pointure_sport",
+          "type": "texte",
+          "libelle": "Pointure sport:"
+        }
+      ]
+    },
+    {
+      "cle": "base_bloc",
+      "disposition": "en-ligne-bas",
+      "champs": [
+        {
+          "cle": "base",
+          "type": "texte",
+          "libelle": "Base :"
+        }
+      ]
+    },
+    {
+      "cle": "section_recouvrement",
+      "champs": [
+        {
+          "cle": "recouvrement",
+          "type": "zone-texte",
+          "libelle": "Recouvrement :"
+        }
+      ]
+    }
+  ]
+}

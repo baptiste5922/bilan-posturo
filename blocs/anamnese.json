@@ -1,0 +1,119 @@
+{
+  "version_fragment": 1,
+  "description": "Blocs d'ouverture : Informations Patient, Consultation, Orienté par, Déjà SO, Spécialistes, ATCD.",
+  "blocs": [
+    {
+      "cle": "patient_infos",
+      "balise": "section",
+      "titre": "Informations Patient",
+      "titre_apparence": "h3",
+      "titre_cle": "patient_info_title",
+      "champs": [
+        {
+          "cle": "nom",
+          "type": "texte",
+          "libelle": "Nom:"
+        },
+        {
+          "cle": "prenom",
+          "type": "texte",
+          "libelle": "Prénom:"
+        },
+        {
+          "cle": "date_naissance",
+          "type": "texte",
+          "libelle": "Date de naissance:"
+        },
+        {
+          "cle": "sport",
+          "type": "texte",
+          "libelle": "Sport:"
+        },
+        {
+          "cle": "metier",
+          "type": "texte",
+          "libelle": "Métier:"
+        },
+        {
+          "cle": "niveau_scolaire",
+          "type": "texte",
+          "libelle": "Niveau Scolaire:"
+        }
+      ]
+    },
+    {
+      "cle": "consultation_bloc",
+      "titre": "Consultation",
+      "titre_apparence": "h3",
+      "titre_cle": "consultation_title",
+      "champs": [
+        {
+          "cle": "MDC",
+          "type": "zone-texte",
+          "libelle": "MDC:"
+        }
+      ]
+    },
+    {
+      "cle": "oriente_par_bloc",
+      "champs": [
+        {
+          "cle": "oriente_par",
+          "type": "zone-texte",
+          "libelle": "Orienté par:"
+        }
+      ]
+    },
+    {
+      "cle": "semelle_orthopedique_bloc",
+      "disposition": "en-ligne",
+      "titre": "Déjà SO:",
+      "titre_apparence": "label",
+      "champs": [
+        {
+          "type": "radio",
+          "libelle": "Déjà SO",
+          "valeurs": [
+            {
+              "cle": "SO_oui",
+              "valeur": "oui",
+              "libelle": "Oui"
+            },
+            {
+              "cle": "SO_non",
+              "valeur": "non",
+              "libelle": "Non"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "cle": "specialistes_bloc",
+      "champs": [
+        {
+          "cle": "spécialistes",
+          "type": "zone-texte",
+          "libelle": "Spécialistes:"
+        }
+      ]
+    },
+    {
+      "cle": "atcd_bloc",
+      "titre": "ATCD:",
+      "disposition": "atcd",
+      "champs": [
+        {
+          "cle": "perso",
+          "type": "zone-texte",
+          "libelle": "Perso:"
+        },
+        {
+          "cle": "familliaux",
+          "type": "zone-texte",
+          "libelle": "Familiaux:"
+        }
+      ]
+    }
+  ]
+}

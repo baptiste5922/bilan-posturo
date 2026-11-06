@@ -1,0 +1,114 @@
+{
+  "version_fragment": 1,
+  "description": "Rotation tête, Posturo dynamique, Spin test.",
+  "blocs": [
+    {
+      "cle": "rotation",
+      "champs": [
+        {
+          "type": "tableau",
+          "libelle": "Rotation tête:",
+          "entetes": [
+            "Gauche(G)",
+            "Droite (D)"
+          ],
+          "lignes": [
+            {
+              "nom": "Positif",
+              "cle": "test_positif",
+              "colonnes": [
+                {
+                  "valeur": "G",
+                  "libelle": "Gauche(G)"
+                },
+                {
+                  "valeur": "D",
+                  "libelle": "Droite (D)"
+                }
+              ]
+            },
+            {
+              "nom": "Plus court",
+              "cle": "membre_court",
+              "colonnes": [
+                {
+                  "valeur": "G",
+                  "libelle": "Gauche(G)"
+                },
+                {
+                  "valeur": "D",
+                  "libelle": "Droite (D)"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "cle": "Posturo",
+      "champs": [
+        {
+          "type": "tableau",
+          "libelle": "Posturo dynamique:",
+          "entetes": [
+            "Gauche(G)",
+            "Droite (D)"
+          ],
+          "lignes": [
+            {
+              "nom": "Dorsal",
+              "cle": "dorsal",
+              "colonnes": [
+                {
+                  "valeur": "G",
+                  "libelle": "Gauche(G)"
+                },
+                {
+                  "valeur": "D",
+                  "libelle": "Droite (D)"
+                }
+              ]
+            },
+            {
+              "nom": "Lombaire",
+              "cle": "lombaire",
+              "colonnes": [
+                {
+                  "valeur": "G",
+                  "libelle": "Gauche(G)"
+                },
+                {
+                  "valeur": "D",
+                  "libelle": "Droite (D)"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "cle": "spin",
+      "titre": "Spin test:",
+      "disposition": "en-ligne",
+      "champs": [
+        {
+          "type": "radio",
+          "valeurs": [
+            {
+              "cle": "gauche",
+              "valeur": "gauche",
+              "libelle": "Gauche"
+            },
+            {
+              "cle": "droit",
+              "valeur": "droit",
+              "libelle": "Droit"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

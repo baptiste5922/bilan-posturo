@@ -1,0 +1,46 @@
+{
+  "version_fragment": 1,
+  "description": "Éléments testés et bilans algique, morphologique et définitif, en zones de texte libres.",
+  "blocs": [
+    {
+      "cle": "section_elements_testes",
+      "champs": [
+        {
+          "cle": "elements_testes",
+          "type": "zone-texte",
+          "libelle": "Elements testés:"
+        }
+      ]
+    },
+    {
+      "cle": "section_bilan_algique",
+      "champs": [
+        {
+          "cle": "bilan_algique",
+          "type": "zone-texte",
+          "libelle": "Bilan algique:"
+        }
+      ]
+    },
+    {
+      "cle": "section_bilan_morpho",
+      "champs": [
+        {
+          "cle": "bilan_morpho",
+          "type": "zone-texte",
+          "libelle": "Bilan morpho:"
+        }
+      ]
+    },
+    {
+      "cle": "section_bilan_def",
+      "champs": [
+        {
+          "cle": "bilan_def",
+          "type": "zone-texte",
+          "libelle": "Bilan def:"
+        }
+      ]
+    }
+  ]
+}
