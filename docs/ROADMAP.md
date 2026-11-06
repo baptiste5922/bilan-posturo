@@ -658,7 +658,10 @@ Android abandonne, ou le fait mal et appelle au support chaque semaine. À
 
 - **Effort :** L
 - **Process :** Complet — renouvellement de certificat, en plein chemin TLS.
-- **Dépendances :** C3-T1 (si voie 1 retenue)
+- **Dépendances :** C3-T1 (livrée : voie locale, voir l'encadré). Lire
+  `/etat` (C4-T3) : son verdict de concordance d'adresse est le déclencheur à
+  surveiller, et C3-T2 y ajoutera son propre champ. Rejouer alors le test de
+  résistance du lecteur de certificat.
 - **Périmètre :** `serveur/certificat.py` (nouveau), tâche planifiée
 - **Travail :**
   1. Client ACME DNS-01, ou appel d'un client existant, sans ajouter de
@@ -874,6 +877,24 @@ d'une installation à distance. L'éditeur est à Lille, le cabinet en Bretagne.
 
 ### C4-T3 — Page de diagnostic authentifiée `GET /etat`
 
+> **État : livrée le 6 novembre 2026** sur la branche `c4-t3-etat`, après audit
+> (`docs/audits/C4-T3.md`, CONFORME, aucun constat) et revue
+> (`docs/revues/C4-T3.md`, À LIVRER). Contrat `docs/contrats/C4-T3.md`,
+> 16 critères vérifiés.
+> - **Contradiction tranchée par Baptiste (voie A) :** aucune adresse IP sur la
+>   page, un verdict à la place (`conforme`, `adresse changée`, `indéterminé`),
+>   obtenu par un `bind` sur chaque adresse du certificat. La page doit pouvoir
+>   circuler comme `technique.log`, puisque le support passe par le praticien.
+> - **Liste fermée de neuf clés** (la liste ci-dessous n'en comptait que sept) :
+>   « état du renouvellement », sans objet tant que C3-T2 n'existe pas, est
+>   remplacé par la concordance d'adresse ; ajout de l'empreinte du certificat
+>   et de l'identité du cabinet renseignée ou non.
+> - Lecteur DER en bibliothèque standard, éprouvé sur 600 000 entrées
+>   corrompues ; interrupteur `page_etat` pour le retour arrière ; une garde
+>   prouve désormais que `/sante` est la seule route non authentifiée.
+>
+> **Le texte d'origine est conservé ci-dessous.**
+>
 > **Contradiction à trancher dans son contrat, relevée le 19 octobre 2026 par
 > le cadrage de C4-T1.** Le point 3 du travail ci-dessous interdit à `/etat`
 > toute adresse IP, tandis que `docs/adressage.md:263-264` attend qu'il
@@ -913,9 +934,8 @@ d'une installation à distance. L'éditeur est à Lille, le cabinet en Bretagne.
 >   du PDF.
 >
 > `tests/test_version.py` échoue si `package.json` diverge. Sept mutations sont
-> toutes rouges, aussi sous `-O`. **Reste pour C4-T3 :** afficher la même
-> valeur dans `/etat`, qui n'existe pas encore. Son contrat doit réutiliser
-> `lire_version()`, jamais une seconde source.
+> toutes rouges, aussi sous `-O`. **Fait par C4-T3 :** `/etat` affiche la
+> même valeur, lue par un seul appel à `lire_version()` au démarrage.
 
 - **Effort :** S
 - **Process :** Allégé — une constante propagée, couverte par un test de divergence.
@@ -1146,6 +1166,10 @@ gratuits.
   sur le chemin **non décodé**, la résolution sur le chemin décodé.
 - **Travail :** rattraper le cas, répondre un code d'erreur, et calculer
   l'extension et la résolution sur la **même** forme du chemin.
+- **À ajouter (audit de C4-T3, 6 novembre) :** l'en-tête `Server` divulgue la
+  version de Python sur toutes les routes, `/sante` comprise ; le réduire à un
+  nom neutre (`server_version`, `sys_version`), et tester qu'aucune réponse ne
+  porte plus de numéro de version Python.
 - **Critères d'acceptation :** les formes malformées — octet nul compris —
   reçoivent 400, 403 ou 404, jamais un silence ; test d'intégration couvrant
   l'octet nul sur une extension servie et une extension refusée.
