@@ -8,6 +8,7 @@ dossier du projet.
     python3 -m unittest discover -s tests
 """
 
+import ast
 import base64
 import datetime
 import http.client
@@ -52,15 +53,21 @@ def fragments_nom(nom):
     return fragments
 
 
-def chercher_adresse(texte):
+def chercher_adresse(texte, ipv6=True):
     """Rend un message si une adresse IPv4 ou IPv6 figure dans le texte,
     sinon None. Le motif IPv6 est laxiste et reconnaît l'horodatage lui-même
     (":12:03" dans "...T12:58:39...") : il s'applique donc à la ligne privée
-    de son premier mot, l'horodatage, sans espace."""
+    de son premier mot, l'horodatage, sans espace.
+
+    ipv6=False pour un texte qui n'est pas un journal (le HTML de la page
+    d'état, C4-T3) : ses horodatages ne sont pas en tête de ligne et le
+    motif IPv6 y verrait des adresses partout. Seul l'IPv4 y est cherché."""
     correspondance = re.search(r"\b\d{1,3}(?:\.\d{1,3}){3}\b", texte)
     if correspondance:
         return ("une adresse IPv4 figure dans le journal technique : "
                 + correspondance.group(0))
+    if not ipv6:
+        return None
     for ligne in texte.splitlines():
         _, _, reste = ligne.partition(" ")
         correspondance = re.search(
@@ -789,6 +796,321 @@ class ServeurEnMarche(unittest.TestCase):
         # sans quoi l'extraction serait retombée sur son repli par défaut.
         self.assertRegex(contenu, r"REPONSE methode=\w+ route=\w+ code=[1-9]\d{2}")
 
+    # --- page d'état (C4-T3) -------------------------------------------------
+
+    def etat(self, **options):
+        """GET /etat en JSON, authentifié : (statut, entêtes, dictionnaire)."""
+        entetes = {"Accept": "application/json"}
+        statut, retour, corps = self.requete("GET", "/etat", entetes=entetes, **options)
+        return statut, {c.lower(): v for c, v in retour}, (
+            json.loads(corps.decode("utf-8")) if statut == 200 else corps)
+
+    def etat_html(self):
+        statut, retour, corps = self.requete("GET", "/etat")
+        self.assertEqual(statut, 200)
+        return {c.lower(): v for c, v in retour}, corps.decode("utf-8")
+
+    def test_etat_sans_authentification_401(self):
+        statut, entetes, corps = self.requete("GET", "/etat", utilisateur=None)
+        self.assertEqual(statut, 401)
+        self.assertIn("WWW-Authenticate", dict(entetes))
+        self.assertEqual(corps, b"")
+
+    def test_etat_head_sans_authentification_401(self):
+        statut, entetes, corps = self.requete("HEAD", "/etat", utilisateur=None)
+        self.assertEqual(statut, 401)
+        self.assertIn("WWW-Authenticate", dict(entetes))
+        self.assertEqual(corps, b"")
+
+    def test_etat_mauvais_mot_de_passe_401(self):
+        for methode in ("GET", "HEAD"):
+            with self.subTest(methode=methode):
+                statut, entetes, corps = self.requete(
+                    methode, "/etat", mot_de_passe="faux")
+                self.assertEqual(statut, 401)
+                self.assertIn("WWW-Authenticate", dict(entetes))
+                self.assertEqual(corps, b"")
+        statut, _, corps = self.requete("GET", "/etat", utilisateur="intrus")
+        self.assertEqual(statut, 401)
+        self.assertEqual(corps, b"")
+
+    def test_etat_json_liste_blanche(self):
+        statut, entetes, etat = self.etat()
+        self.assertEqual(statut, 200)
+        self.assertEqual(entetes["content-type"], "application/json; charset=utf-8")
+        self.assertEqual(len(serveur.CLES_ETAT), 9)
+        self.assertEqual(set(etat), set(serveur.CLES_ETAT))
+        # Aucune clé de configuration n'y figure (« journal_technique » est
+        # un nom partagé : ici, ce sont les lignes du journal, pas le réglage).
+        for champ in ("mot_de_passe", "utilisateur", "port", "dossier_pdf",
+                      "cabinet", "certificat", "cle_privee"):
+            self.assertNotIn(champ, etat)
+
+    def test_etat_html(self):
+        entetes, page = self.etat_html()
+        self.assertEqual(entetes["content-type"], "text/html; charset=utf-8")
+        self.assertIn("default-src 'none'", entetes["content-security-policy"])
+        self.assertNotIn("<script", page.lower())
+        self.assertIn('<html lang="fr">', page)
+        version = serveur.lire_version(
+            os.path.join(self.dossier, "formulaire", "version.json"))
+        self.assertNotEqual(version, serveur.VERSION_INCONNUE)
+        self.assertIn(version, page)
+
+    def test_etat_negociation_du_format(self):
+        cas = [
+            ("application/json", "application/json"),
+            ("APPLICATION/JSON", "application/json"),
+            ("text/html,application/json;q=0.9", "application/json"),
+            ("text/html,application/xhtml+xml", "text/html"),
+            ("*/*", "text/html"),
+        ]
+        for accept, attendu in cas:
+            with self.subTest(accept=accept):
+                statut, entetes, _ = self.requete(
+                    "GET", "/etat", entetes={"Accept": accept})
+                self.assertEqual(statut, 200)
+                types = [v for c, v in entetes if c.lower() == "content-type"]
+                self.assertEqual(len(types), 1)
+                self.assertTrue(types[0].startswith(attendu), types)
+
+    def test_etat_chaine_de_requete_ignoree(self):
+        statut, _, _ = self.requete("GET", "/etat?x=1")
+        self.assertEqual(statut, 200)
+
+    def test_etat_head_authentifie_sans_corps(self):
+        statut, entetes, corps = self.requete("HEAD", "/etat")
+        self.assertEqual(statut, 200)
+        self.assertEqual(corps, b"")
+        longueur = [v for c, v in entetes if c.lower() == "content-length"]
+        self.assertEqual(len(longueur), 1)
+        self.assertGreater(int(longueur[0]), 0)
+
+    def test_etat_content_length_exact(self):
+        for accept in ("application/json", "text/html"):
+            with self.subTest(accept=accept):
+                _, entetes, corps = self.requete(
+                    "GET", "/etat", entetes={"Accept": accept})
+                longueur = [v for c, v in entetes if c.lower() == "content-length"]
+                self.assertEqual(longueur, [str(len(corps))])
+
+    def test_etat_cache_control_unique(self):
+        _, entetes, _ = self.requete("GET", "/etat")
+        occurrences = [v for c, v in entetes if c.lower() == "cache-control"]
+        self.assertEqual(occurrences, ["no-store"])
+
+    def test_etat_version_source_unique(self):
+        version = serveur.lire_version(
+            os.path.join(self.dossier, "formulaire", "version.json"))
+        self.assertNotEqual(version, serveur.VERSION_INCONNUE)
+        _, _, etat = self.etat()
+        self.assertEqual(etat["version"], version)
+        with open(self.technique, encoding="utf-8") as f:
+            self.assertIn("DEMARRAGE version={} ".format(version), f.read())
+
+        # Garde statique : un seul appel à lire_version() dans demarrer(), et
+        # aucun dans les fonctions de la page. Une seconde source du numéro
+        # finirait par diverger (C4-T4).
+        with open(serveur.__file__, encoding="utf-8") as f:
+            arbre = ast.parse(f.read())
+        fonctions = {}
+        for noeud in ast.walk(arbre):
+            if isinstance(noeud, ast.FunctionDef):
+                fonctions[noeud.name] = noeud
+
+        def appels(nom):
+            if nom not in fonctions:
+                self.fail("fonction introuvable : " + nom)
+            return [n for n in ast.walk(fonctions[nom])
+                    if isinstance(n, ast.Call) and getattr(n.func, "id", None) == "lire_version"]
+
+        self.assertEqual(len(appels("demarrer")), 1)
+        for nom in ("construire_etat", "rendre_etat_html", "rendre_etat_json",
+                    "repondre_etat", "dernieres_lignes_techniques"):
+            with self.subTest(fonction=nom):
+                self.assertEqual(appels(nom), [])
+
+    def test_etat_dernier_depot(self):
+        # ServeurEnMarche est partagé et l'ordre des tests n'est pas garanti :
+        # la valeur « null » se vérifie en unitaire (PageEtat). Ici, la date
+        # APRÈS un dépôt de ce test.
+        statut, _, _ = self.deposer("Cuvelier-Océane_wk9.pdf")
+        self.assertEqual(statut, 200)
+        _, _, etat = self.etat()
+        depot = datetime.datetime.fromisoformat(etat["dernier_depot"])
+        ecart = abs((datetime.datetime.now() - depot).total_seconds())
+        self.assertLess(ecart, 60)
+
+    def test_etat_demarrage_et_identite(self):
+        _, _, etat = self.etat()
+        demarre = datetime.datetime.fromisoformat(etat["demarre_le"])
+        self.assertLess(demarre, datetime.datetime.now() + datetime.timedelta(seconds=2))
+        # Le bac à sable n'a pas de bloc "cabinet" : identité non renseignée.
+        self.assertIs(etat["identite_cabinet"], False)
+        self.assertIsInstance(etat["disque_libre_octets"], int)
+        self.assertGreater(etat["disque_libre_octets"], 0)
+
+    def test_etat_certificat(self):
+        from cryptography import x509
+        with open(os.path.join(self.dossier, "certificat.pem"), "rb") as f:
+            certificat = x509.load_pem_x509_certificate(f.read())
+        attendu = getattr(certificat, "not_valid_after_utc", None)
+        if attendu is None:
+            attendu = certificat.not_valid_after.replace(tzinfo=datetime.timezone.utc)
+
+        _, _, etat = self.etat()
+        lu = datetime.datetime.strptime(
+            etat["certificat_expire_le"], "%Y-%m-%dT%H:%M:%SZ").replace(
+                tzinfo=datetime.timezone.utc)
+        self.assertEqual(lu, attendu.replace(microsecond=0))
+
+        with open(self.technique, encoding="utf-8") as f:
+            lignes = [l for l in f if " DEMARRAGE " in l]
+        self.assertEqual(len(lignes), 1)
+        empreinte = re.search(r"certificat=([0-9a-f]{16}) ", lignes[0]).group(1)
+        self.assertEqual(etat["certificat_empreinte"], empreinte)
+
+    def test_etat_verdict_adresse(self):
+        _, _, etat = self.etat()
+        self.assertIn(etat["certificat_adresse"], serveur.VERDICTS_ADRESSE)
+        # Le certificat du bac à sable ne couvre que localhost, 127.0.0.1 et
+        # ::1 : des adresses de boucle, rien à comparer.
+        self.assertEqual(etat["certificat_adresse"], "indéterminé")
+
+    def test_etat_sans_adresse(self):
+        # Voie A (décision n°1) : aucune adresse sur la page, pas même celle
+        # du serveur. chercher_adresse est importée, pas recopiée.
+        self.requete("GET", "/", utilisateur=None)
+        self.requete("GET", "/", mot_de_passe="faux")
+        _, _, brut = self.requete(
+            "GET", "/etat", entetes={"Accept": "application/json"})
+        texte_json = brut.decode("utf-8")
+        etat = json.loads(texte_json)
+        _, page = self.etat_html()
+
+        self.assertEqual(chercher_adresse(texte_json, ipv6=False), None)
+        self.assertEqual(chercher_adresse(page, ipv6=False), None)
+        # IPv6 : sur les valeurs hors horodatages, où « 12:34:56 » n'est pas
+        # une adresse. Les lignes de journal passent par chercher_adresse,
+        # qui ôte leur premier mot (l'horodatage).
+        for cle, valeur in etat.items():
+            if cle in serveur.CHAMPS_ETAT_HORODATES:
+                continue
+            texte = "\n".join(valeur) if isinstance(valeur, list) else str(valeur)
+            with self.subTest(cle=cle):
+                self.assertIsNone(chercher_adresse(texte))
+        self.assertTrue(etat["journal_technique"])  # ancrage : il y a des lignes à fouiller
+        # Témoin : la garde mord. Une adresse dans la page serait vue.
+        self.assertIsNotNone(chercher_adresse(texte_json + " 192.0.2.7", ipv6=False))
+        self.assertIsNotNone(chercher_adresse("2026-11-06T10:00:00 TLS fe80::1\n"))
+
+    def test_etat_sans_nom_de_fichier(self):
+        nom = "Quenehervé-Maëlys_xq7.pdf"
+        statut, _, corps = self.deposer(nom)
+        self.assertEqual(statut, 200)
+        fichier = json.loads(corps)["fichier"]
+
+        # Ancrage : le nom choisi donne des fragments qui mordent, et aucun
+        # n'est un nombre (l'année du jour les ferait rougir à tort).
+        fragments = self.fragments_nom(nom)
+        self.assertGreaterEqual(len(fragments), 3)
+        self.assertFalse([f for f in fragments if f.isdigit()])
+        fragments = fragments + self.fragments_nom(fichier)
+
+        with open(os.path.join(self.dossier, "config.json"), encoding="utf-8") as f:
+            empreinte_mdp = json.load(f)["mot_de_passe"]
+        interdits = [self.dossier, self.bilans, UTILISATEUR, MOT_DE_PASSE, empreinte_mdp]
+
+        _, _, brut = self.requete("GET", "/etat", entetes={"Accept": "application/json"})
+        _, page = self.etat_html()
+        for nom_rendu, texte in (("JSON", brut.decode("utf-8")), ("HTML", page)):
+            for chaine in fragments + interdits:
+                with self.subTest(rendu=nom_rendu, chaine=chaine):
+                    self.assertNotIn(chaine, texte)
+
+    def test_etat_lignes_du_journal_technique(self):
+        # Au-delà de 30 lignes, pour que la borne morde.
+        for _ in range(serveur.LIGNES_ETAT + 2):
+            self.requete("GET", "/schema.json")
+        _, _, etat = self.etat()
+        lignes = etat["journal_technique"]
+
+        with open(self.technique, encoding="utf-8") as f:
+            reel = f.read().splitlines()
+        with open(os.path.join(self.dossier, "journal.log"), encoding="utf-8") as f:
+            nominatif = f.read().splitlines()
+
+        self.assertEqual(len(lignes), serveur.LIGNES_ETAT)
+        for ligne in lignes:
+            self.assertIn(ligne, reel)
+        # Aucune ligne du journal nominatif : elles portent une adresse.
+        absentes = [l for l in nominatif if l not in reel]
+        self.assertTrue(absentes)      # ancrage : le journal nominatif en porte
+        self.assertEqual([l for l in lignes if l in absentes], [])
+
+    def test_etat_trace_dans_les_deux_journaux(self):
+        self.requete("GET", "/etat")
+        with open(self.technique, encoding="utf-8") as f:
+            self.assertIn("REPONSE methode=GET route=etat code=200", f.read())
+        with open(os.path.join(self.dossier, "journal.log"), encoding="utf-8") as f:
+            self.assertRegex(f.read(), r'"GET /etat HTTP/1\.1" 200')
+
+    def test_seule_sante_sans_authentification(self):
+        # Les chemins comparés à self.chemin_demande() dans do_GET et do_HEAD
+        # sont dérivés de l'arbre syntaxique, jamais écrits ici : une route
+        # ajoutée demain sans authentification fait rougir ce test sans qu'on
+        # ait à y penser.
+        with open(serveur.__file__, encoding="utf-8") as f:
+            arbre = ast.parse(f.read())
+
+        def designe_le_chemin(noeud, variables):
+            if isinstance(noeud, ast.Call):
+                return getattr(noeud.func, "attr", None) == "chemin_demande"
+            if isinstance(noeud, ast.Attribute):
+                return noeud.attr == "path"
+            return isinstance(noeud, ast.Name) and noeud.id in variables
+
+        chemins = set()
+        methodes_vues = set()
+        for classe in arbre.body:
+            if not (isinstance(classe, ast.ClassDef) and classe.name == "Gestionnaire"):
+                continue
+            for fonction in classe.body:
+                if not (isinstance(fonction, ast.FunctionDef)
+                        and fonction.name in ("do_GET", "do_HEAD")):
+                    continue
+                methodes_vues.add(fonction.name)
+                variables = {
+                    a.targets[0].id for a in ast.walk(fonction)
+                    if isinstance(a, ast.Assign) and len(a.targets) == 1
+                    and isinstance(a.targets[0], ast.Name)
+                    and designe_le_chemin(a.value, ())}
+                for comparaison in ast.walk(fonction):
+                    if not isinstance(comparaison, ast.Compare):
+                        continue
+                    operandes = [comparaison.left] + comparaison.comparators
+                    if not any(designe_le_chemin(o, variables) for o in operandes):
+                        continue
+                    for operande in operandes:
+                        for c in ast.walk(operande):
+                            if (isinstance(c, ast.Constant) and isinstance(c.value, str)
+                                    and c.value.startswith("/")):
+                                chemins.add(c.value)
+
+        # Ancrages : sans eux, une dérivation qui ne trouve rien passerait
+        # au vert (c'est le piège du dépôt).
+        self.assertEqual(methodes_vues, {"do_GET", "do_HEAD"})
+        self.assertIn("/sante", chemins)
+        a_proteger = sorted(chemins - {"/sante"})
+        self.assertGreaterEqual(len(a_proteger), 2)
+
+        for chemin in a_proteger:
+            for methode in ("GET", "HEAD"):
+                with self.subTest(chemin=chemin, methode=methode):
+                    statut, _, corps = self.requete(methode, chemin, utilisateur=None)
+                    self.assertEqual(statut, 401)
+                    self.assertEqual(corps, b"")
+
 
 class ServeurArret(unittest.TestCase):
     """L'arrêt se vérifie sur un serveur à lui seul : le bac à sable de
@@ -871,6 +1193,44 @@ class InterrupteurJournalTechnique(unittest.TestCase):
         self.assertFalse(
             os.path.exists(os.path.join(dossier, "technique.log")))
         self.assertTrue(os.path.exists(os.path.join(dossier, "journal.log")))
+
+
+class InterrupteurPageEtat(unittest.TestCase):
+    """Retour arrière niveau 1 (C4-T3, §11) : page_etat à false, et /etat
+    répond exactement comme avant la tâche."""
+
+    @unittest.skipIf(cryptography_absente(),
+                     "cryptography requis pour fabriquer les certificats")
+    def test_etat_desactivee_retrouve_l_existant(self):
+        dossier, port, processus = demarrer_sandbox_court({"page_etat": False})
+        self.addCleanup(shutil.rmtree, dossier, ignore_errors=True)
+
+        statuts = {}
+        try:
+            contexte = ssl.create_default_context(
+                cafile=os.path.join(dossier, "autorite.crt"))
+            jeton = base64.b64encode(
+                "{}:{}".format(UTILISATEUR, MOT_DE_PASSE).encode("utf-8"))
+            # Deux requêtes au plus : le tube de sortie de ce bac à sable
+            # n'est pas lu en continu (piège C7-T5, Windows).
+            for nom, entetes in (("authentifie", {"Authorization": "Basic "
+                                                  + jeton.decode("ascii")}),
+                                 ("anonyme", {})):
+                connexion = http.client.HTTPSConnection(
+                    "127.0.0.1", port, context=contexte, timeout=10)
+                try:
+                    connexion.request("GET", "/etat", headers=entetes)
+                    reponse = connexion.getresponse()
+                    statuts[nom] = reponse.status
+                    reponse.read()
+                finally:
+                    connexion.close()
+        finally:
+            processus.terminate()
+            processus.communicate(timeout=10)
+
+        # 403 : « Type de fichier non servi », l'existant d'avant la tâche.
+        self.assertEqual(statuts, {"authentifie": 403, "anonyme": 401})
 
 
 class PurgeAuDemarrage(unittest.TestCase):

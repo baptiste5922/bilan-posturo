@@ -5,17 +5,26 @@ Bibliothèque standard uniquement, comme le serveur lui-même.
     python3 -m unittest discover -s tests
 """
 
+import ast
 import base64
 import contextlib
+import copy
+import datetime
 import email
+import importlib.util
 import io
+import ipaddress
 import json
 import os
+import random
 import re
 import shutil
+import socket
+import ssl
 import stat
 import sys
 import tempfile
+import threading
 import unittest
 import unittest.mock
 
@@ -728,3 +737,813 @@ class ConfigurationCabinet(unittest.TestCase):
         # Les champs laissés vides conservent la valeur antérieure.
         self.assertEqual(ecrit["cabinet"]["logo"], "images/favicon.jpeg")
         self.assertTrue(ecrit["mot_de_passe"].startswith("pbkdf2_sha256$"))
+
+
+# --------------------------------------------------------------------------
+# Page d'état (C4-T3)
+# --------------------------------------------------------------------------
+
+def cryptography_absente():
+    """cryptography ne sert qu'à fabriquer des certificats de comparaison,
+    jamais au serveur : son absence fait sauter ces tests, pas échouer la
+    suite."""
+    return importlib.util.find_spec("cryptography") is None
+
+
+def der(etiquette, contenu):
+    """Encode un élément DER (formes courte et longue de la longueur).
+
+    Écrit à la main, indépendamment de serveur._element_der : un encodeur et
+    un décodeur qui partageraient leur code se donneraient raison à tort.
+    """
+    n = len(contenu)
+    if n < 0x80:
+        longueur = bytes([n])
+    else:
+        octets = n.to_bytes((n.bit_length() + 7) // 8, "big")
+        longueur = bytes([0x80 | len(octets)]) + octets
+    return bytes([etiquette]) + longueur + contenu
+
+
+def faux_certificat(debut=(0x17, b"260101000000Z"), fin=(0x17, b"290101000000Z"),
+                    adresses=(), version=True, extensions=True, remplissage=0):
+    """Un certificat DER minimal mais structurellement fidèle : version [0]
+    facultative, une extension sans rapport avant le subjectAltName, noms
+    DNS et IP mêlés. `remplissage` gonfle le subject pour exercer les
+    longueurs longues."""
+    algorithme = der(0x30, der(0x06, bytes((0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x03, 0x02))))
+    noms = der(0x82, b"localhost") + b"".join(
+        der(0x87, ipaddress.ip_address(a).packed) for a in adresses)
+    contraintes = der(0x30, der(0x06, bytes((0x55, 0x1D, 0x13)))
+                      + der(0x01, b"\xff") + der(0x04, der(0x30, b"")))
+    alternatifs = der(0x30, der(0x06, bytes((0x55, 0x1D, 0x11)))
+                      + der(0x04, der(0x30, noms)))
+    champs = [
+        der(0xA0, der(0x02, b"\x02")) if version else b"",
+        der(0x02, b"\x01"),
+        algorithme,
+        der(0x30, b""),
+        der(0x30, der(debut[0], debut[1]) + der(fin[0], fin[1])),
+        der(0x30, der(0x04, b"x" * remplissage)),
+        der(0x30, b""),
+        der(0xA3, der(0x30, contraintes + alternatifs)) if extensions else b"",
+    ]
+    return der(0x30, der(0x30, b"".join(champs)) + algorithme + der(0x03, b"\x00"))
+
+
+def ecrire_pem(dossier, der_octets, nom="certificat.pem"):
+    chemin = os.path.join(dossier, nom)
+    with open(chemin, "w", encoding="ascii") as f:
+        f.write(ssl.DER_cert_to_PEM_cert(der_octets))
+    return chemin
+
+
+UTC = datetime.timezone.utc
+
+
+class LecteurCertificat(unittest.TestCase):
+    """lire_certificat : expiration et adresses IP, bibliothèque standard
+    seule, sans jamais lever (C4-T3, étape 3)."""
+
+    def setUp(self):
+        self.dossier = tempfile.mkdtemp(prefix="bilan-test-certificat-")
+        self.addCleanup(shutil.rmtree, self.dossier, ignore_errors=True)
+
+    def lire(self, der_octets):
+        return serveur.lire_certificat(ecrire_pem(self.dossier, der_octets))
+
+    def fabriquer(self, fin, adresses):
+        from cryptography import x509
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import ec
+        from cryptography.x509.oid import NameOID
+
+        cle = ec.generate_private_key(ec.SECP256R1())
+        nom = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "essai")])
+        certificat = (
+            x509.CertificateBuilder()
+            .subject_name(nom).issuer_name(nom)
+            .public_key(cle.public_key())
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(fin - datetime.timedelta(days=30))
+            .not_valid_after(fin)
+            .add_extension(x509.SubjectAlternativeName(
+                [x509.DNSName("localhost")]
+                + [x509.IPAddress(ipaddress.ip_address(a)) for a in adresses]),
+                critical=False)
+            .sign(cle, hashes.SHA256()))
+        chemin = os.path.join(self.dossier, "reference.pem")
+        with open(chemin, "wb") as f:
+            f.write(certificat.public_bytes(serialization.Encoding.PEM))
+        return certificat, chemin
+
+    @staticmethod
+    def expiration_de(certificat):
+        lue = getattr(certificat, "not_valid_after_utc", None)
+        if lue is None:
+            lue = certificat.not_valid_after.replace(tzinfo=UTC)
+        return lue
+
+    @unittest.skipIf(cryptography_absente(), "cryptography requis pour la référence")
+    def test_conforme_a_cryptography(self):
+        # Les mêmes valeurs que la bibliothèque de référence, sur un
+        # certificat IPv4 + IPv6 + boucle : une date de début prise pour une
+        # date de fin, ou un mauvais [3], se verrait ici.
+        adresses = ("192.0.2.7", "2001:db8::1", "127.0.0.1", "::1")
+        fin = datetime.datetime(2030, 3, 4, 5, 6, 7, tzinfo=UTC)
+        certificat, chemin = self.fabriquer(fin, adresses)
+
+        lu = serveur.lire_certificat(chemin)
+
+        self.assertEqual(lu["expire_le"], self.expiration_de(certificat))
+        self.assertEqual(lu["expire_le"], fin)
+        self.assertEqual(
+            list(lu["adresses"]),
+            [ipaddress.ip_address(a) for a in adresses])
+        self.assertTrue(all(isinstance(a, (ipaddress.IPv4Address,
+                                           ipaddress.IPv6Address))
+                            for a in lu["adresses"]))
+
+    @unittest.skipIf(cryptography_absente(), "cryptography requis pour la référence")
+    def test_utctime_et_generalizedtime_de_cryptography(self):
+        # cryptography écrit un UTCTime jusqu'en 2049 et un GeneralizedTime
+        # à partir de 2050 ; 1999 exerce le siècle « 19AA ».
+        for annee in (1999, 2049, 2051):
+            with self.subTest(annee=annee):
+                fin = datetime.datetime(annee, 12, 31, 23, 59, 58, tzinfo=UTC)
+                certificat, chemin = self.fabriquer(fin, ("192.0.2.7",))
+                self.assertEqual(serveur.lire_certificat(chemin)["expire_le"], fin)
+
+    def test_utctime_et_generalizedtime(self):
+        cas = [
+            ((0x17, b"491231235959Z"), datetime.datetime(2049, 12, 31, 23, 59, 59, tzinfo=UTC)),
+            ((0x17, b"500101000000Z"), datetime.datetime(1950, 1, 1, tzinfo=UTC)),
+            ((0x17, b"991231000000Z"), datetime.datetime(1999, 12, 31, tzinfo=UTC)),
+            ((0x17, b"000229120000Z"), datetime.datetime(2000, 2, 29, 12, tzinfo=UTC)),
+            ((0x18, b"20510101000000Z"), datetime.datetime(2051, 1, 1, tzinfo=UTC)),
+        ]
+        for fin, attendu in cas:
+            with self.subTest(fin=fin):
+                lu = self.lire(faux_certificat(fin=fin))
+                self.assertEqual(lu["expire_le"], attendu)
+
+    def test_la_fin_est_la_seconde_date(self):
+        lu = self.lire(faux_certificat(debut=(0x17, b"200101000000Z"),
+                                       fin=(0x17, b"300101000000Z")))
+        self.assertEqual(lu["expire_le"].year, 2030)
+
+    def test_dates_mal_formees_rendent_vide(self):
+        # Sans secondes, avec décalage, avec fraction, jour impossible,
+        # étiquette inattendue : refusées plutôt que devinées.
+        for fin in ((0x17, b"4912312359Z"), (0x17, b"491231235959+0100"),
+                    (0x18, b"20510101000000.5Z"), (0x17, b"261301000000Z"),
+                    (0x17, b"260230000000Z"), (0x04, b"260101000000Z"),
+                    (0x17, b"26010100000\xe9Z")):
+            with self.subTest(fin=fin):
+                lu = self.lire(faux_certificat(fin=fin))
+                self.assertEqual(lu, {"expire_le": None, "adresses": ()})
+
+    def test_adresses_ipv4_et_ipv6_sans_cryptography(self):
+        adresses = ("192.0.2.7", "2001:db8::1", "127.0.0.1")
+        lu = self.lire(faux_certificat(adresses=adresses))
+        self.assertEqual(list(lu["adresses"]),
+                         [ipaddress.ip_address(a) for a in adresses])
+
+    def test_certificat_version_1_et_sans_extension(self):
+        lu = self.lire(faux_certificat(version=False, extensions=False))
+        self.assertEqual(lu["expire_le"],
+                         datetime.datetime(2029, 1, 1, tzinfo=UTC))
+        self.assertEqual(lu["adresses"], ())
+
+    def test_longueurs_longues(self):
+        # 0x81 (< 256 octets), 0x82 (< 65 536) et 0x83 : les formes longues
+        # de la longueur, devant et après le champ qui nous intéresse.
+        for remplissage in (200, 300, 70000):
+            with self.subTest(remplissage=remplissage):
+                lu = self.lire(faux_certificat(
+                    adresses=("192.0.2.7",), remplissage=remplissage))
+                self.assertEqual(lu["expire_le"].year, 2029)
+                self.assertEqual(lu["adresses"], (ipaddress.ip_address("192.0.2.7"),))
+
+    def test_structures_invalides_rendent_vide(self):
+        vide = {"expire_le": None, "adresses": ()}
+        valide = faux_certificat(adresses=("192.0.2.7",))
+        self.assertNotEqual(self.lire(valide), vide)
+        cas = {
+            "longueur indéfinie": b"\x30\x80" + valide[2:],
+            "étiquette sur plusieurs octets": b"\x1f" + valide[1:],
+            "séquence attendue": der(0x04, valide),
+            "élément plus long que son conteneur": valide[:-1],
+            "longueur de 5 octets": b"\x30\x85\x00\x00\x00\x00\x10" + valide[4:],
+            "vide": b"",
+            "un seul octet": b"\x30",
+            "séquence vide": der(0x30, b""),
+            "tbs vide": der(0x30, der(0x30, b"")),
+        }
+        for nom, contenu in cas.items():
+            with self.subTest(cas=nom):
+                self.assertEqual(self.lire(contenu), vide)
+
+    def test_adresse_de_longueur_impossible_rend_vide(self):
+        # Un iPAddress de 5 octets n'est ni IPv4 ni IPv6.
+        mauvais = faux_certificat(adresses=("192.0.2.7",)).replace(
+            der(0x87, bytes((192, 0, 2, 7))), der(0x87, bytes((192, 0, 2, 7, 1))))
+        lu = serveur.lire_certificat(ecrire_pem(self.dossier, self.corriger_longueurs(mauvais)))
+        self.assertEqual(lu, {"expire_le": None, "adresses": ()})
+
+    @staticmethod
+    def corriger_longueurs(_):
+        # Reconstruit le certificat avec un iPAddress de 5 octets, longueurs
+        # parentes recalculées : un simple remplacement d'octets les
+        # laisserait fausses, et l'échec viendrait d'ailleurs.
+        algorithme = der(0x30, der(0x06, b"\x2a"))
+        noms = der(0x87, bytes((192, 0, 2, 7, 1)))
+        alternatifs = der(0x30, der(0x06, bytes((0x55, 0x1D, 0x11)))
+                          + der(0x04, der(0x30, noms)))
+        champs = (der(0x02, b"\x01") + algorithme + der(0x30, b"")
+                  + der(0x30, der(0x17, b"260101000000Z") + der(0x17, b"290101000000Z"))
+                  + der(0x30, b"") + der(0x30, b"")
+                  + der(0xA3, der(0x30, alternatifs)))
+        return der(0x30, der(0x30, champs) + algorithme + der(0x03, b"\x00"))
+
+    def test_entrees_abimees_sans_levee(self):
+        vide = {"expire_le": None, "adresses": ()}
+        valide = faux_certificat(adresses=("192.0.2.7", "2001:db8::1"))
+
+        # Chaque troncature : l'élément extérieur dépasse alors son tampon.
+        for longueur in range(len(valide)):
+            with self.subTest(troncature=longueur):
+                self.assertEqual(self.lire(valide[:longueur]), vide)
+
+        # Un octet corrompu à la fois : le résultat peut varier, la levée
+        # jamais. Graine fixe : un échec doit se rejouer.
+        hasard = random.Random(20261106)
+        for _ in range(500):
+            octets = bytearray(valide)
+            octets[hasard.randrange(len(octets))] = hasard.randrange(256)
+            lu = self.lire(bytes(octets))
+            self.assertEqual(set(lu), {"expire_le", "adresses"})
+
+        # Du bruit pur, dans un PEM valide.
+        for taille in (1, 2, 3, 10, 100, 1000):
+            lu = self.lire(bytes(hasard.randrange(256) for _ in range(taille)))
+            self.assertEqual(set(lu), {"expire_le", "adresses"})
+
+    def test_fichiers_inutilisables_rendent_vide(self):
+        vide = {"expire_le": None, "adresses": ()}
+        chemin = os.path.join(self.dossier, "x.pem")
+        contenus = {
+            "vide": b"",
+            "texte": b"ceci n'est pas un certificat\n",
+            "pem sans corps": b"-----BEGIN CERTIFICATE-----\n-----END CERTIFICATE-----\n",
+            "base64 invalide": b"-----BEGIN CERTIFICATE-----\n!!!\n-----END CERTIFICATE-----\n",
+            "non ascii": "-----BEGIN CERTIFICATE-----\né\n".encode("utf-8"),
+        }
+        for nom, contenu in contenus.items():
+            with self.subTest(cas=nom):
+                with open(chemin, "wb") as f:
+                    f.write(contenu)
+                self.assertEqual(serveur.lire_certificat(chemin), vide)
+        # Absent, et un dossier à la place d'un fichier.
+        self.assertEqual(serveur.lire_certificat(os.path.join(self.dossier, "absent")), vide)
+        self.assertEqual(serveur.lire_certificat(self.dossier), vide)
+
+
+class VerdictAdresse(unittest.TestCase):
+    """Le certificat couvre-t-il encore une adresse de ce PC ? (C4-T3, étape 4)"""
+
+    def test_trois_issues(self):
+        boucle = ipaddress.ip_address("127.0.0.1")
+        boucle6 = ipaddress.ip_address("::1")
+        reseau = ipaddress.ip_address("192.0.2.7")
+        reseau6 = ipaddress.ip_address("2001:db8::1")
+        appels = []
+
+        def portee(valeur):
+            def predicat(adresse):
+                appels.append(adresse)
+                return valeur
+            return predicat
+
+        cas = [
+            ((), portee(True), "indéterminé"),
+            ((boucle, boucle6), portee(True), "indéterminé"),
+            ((boucle, reseau), portee(True), "conforme"),
+            ((reseau6,), portee(True), "conforme"),
+            ((boucle, reseau, reseau6), portee(False), "adresse changée"),
+        ]
+        for adresses, predicat, attendu in cas:
+            with self.subTest(attendu=attendu, adresses=adresses):
+                verdict = serveur.verdict_adresse(adresses, est_portee=predicat)
+                self.assertEqual(verdict, attendu)
+                self.assertIn(verdict, serveur.VERDICTS_ADRESSE)
+
+        # Les adresses de boucle ne sont jamais soumises au prédicat : le PC
+        # les porte toujours, elles ne diraient rien d'un changement de box.
+        self.assertTrue(appels)
+        self.assertFalse([a for a in appels if a.is_loopback])
+
+    def test_une_seule_adresse_portee_suffit(self):
+        a, b = ipaddress.ip_address("192.0.2.7"), ipaddress.ip_address("192.0.2.8")
+        self.assertEqual(
+            serveur.verdict_adresse((a, b), est_portee=lambda x: x == b), "conforme")
+
+    def test_les_trois_verdicts_sont_les_trois_attendus(self):
+        self.assertEqual(len(serveur.VERDICTS_ADRESSE), 3)
+
+    def test_bind_reel(self):
+        # Aucun paquet n'est émis : on demande au système si l'adresse est
+        # celle d'une de ses interfaces. 192.0.2.1 est TEST-NET-1 (RFC 5737),
+        # réservée à la documentation, donc jamais portée par un PC.
+        self.assertTrue(serveur.adresse_portee("127.0.0.1"))
+        self.assertTrue(serveur.adresse_portee(ipaddress.ip_address("127.0.0.1")))
+        self.assertFalse(serveur.adresse_portee("192.0.2.1"))
+        self.assertFalse(serveur.adresse_portee(ipaddress.ip_address("192.0.2.1")))
+        self.assertFalse(serveur.adresse_portee("pas une adresse"))
+
+    def test_bind_reel_ipv6(self):
+        try:
+            with socket.socket(socket.AF_INET6, socket.SOCK_STREAM) as essai:
+                essai.bind(("::1", 0))
+        except OSError:
+            self.skipTest("pas de pile IPv6 sur cette machine")
+        self.assertTrue(serveur.adresse_portee("::1"))
+        # 2001:db8::/32 : plage de documentation (RFC 3849).
+        self.assertFalse(serveur.adresse_portee("2001:db8::1"))
+
+    def test_la_socket_d_essai_est_fermee(self):
+        creees = []
+        reelle = socket.socket
+
+        def espion(*args, **kwargs):
+            s = reelle(*args, **kwargs)
+            creees.append(s)
+            return s
+
+        with unittest.mock.patch.object(serveur.socket, "socket", espion):
+            serveur.adresse_portee("127.0.0.1")
+            serveur.adresse_portee("192.0.2.1")
+        self.assertEqual(len(creees), 2)
+        self.assertTrue(all(s.fileno() == -1 for s in creees))
+
+
+def problemes_adresse_client(source):
+    """Défauts de la source vis-à-vis de l'adresse du client : liste vide si
+    aucun. Une fonction introuvable est un défaut, jamais un succès à vide
+    (une garde qui ne trouve rien ne garde rien).
+
+    Suit, de proche en proche, toute fonction de module appelée par les
+    quatre fonctions de la page : une adresse glissée dans une aide serait
+    sinon invisible.
+    """
+    arbre = ast.parse(source)
+    modulaires = {n.name: n for n in arbre.body if isinstance(n, ast.FunctionDef)}
+    classes = [n for n in arbre.body
+               if isinstance(n, ast.ClassDef) and n.name == "Gestionnaire"]
+    methodes = {n.name: n for n in classes[0].body
+                if isinstance(n, ast.FunctionDef)} if classes else {}
+
+    problemes = []
+    a_voir = []
+    for nom in ("construire_etat", "rendre_etat_html", "rendre_etat_json"):
+        if nom in modulaires:
+            a_voir.append(modulaires[nom])
+        else:
+            problemes.append("fonction introuvable : " + nom)
+    if "repondre_etat" in methodes:
+        a_voir.append(methodes["repondre_etat"])
+    else:
+        problemes.append("méthode introuvable : Gestionnaire.repondre_etat")
+
+    vus = set()
+    while a_voir:
+        fonction = a_voir.pop()
+        if fonction.name in vus:
+            continue
+        vus.add(fonction.name)
+        for noeud in ast.walk(fonction):
+            if (isinstance(noeud, ast.Attribute)
+                    and noeud.attr in ("client_address", "address_string")):
+                problemes.append("{} lit {} (ligne {})".format(
+                    fonction.name, noeud.attr, noeud.lineno))
+            if isinstance(noeud, ast.Name) and noeud.id in modulaires:
+                a_voir.append(modulaires[noeud.id])
+    return problemes
+
+
+def feuilles_texte(valeur):
+    """Toutes les chaînes d'une structure imbriquée, par parcours."""
+    if isinstance(valeur, str):
+        yield valeur
+    elif isinstance(valeur, dict):
+        for v in valeur.values():
+            for feuille in feuilles_texte(v):
+                yield feuille
+    elif isinstance(valeur, (list, tuple)):
+        for v in valeur:
+            for feuille in feuilles_texte(v):
+                yield feuille
+
+
+class PageEtat(unittest.TestCase):
+    """La page de diagnostic GET /etat (C4-T3) : construction et rendus.
+
+    Les fonctions testées ne reçoivent pas le gestionnaire de requête ;
+    technique.log est redirigé vers un dossier temporaire, comme pour
+    JournalTechnique : la racine du projet peut héberger celui d'un cabinet.
+    """
+
+    def setUp(self):
+        self.dossier = tempfile.mkdtemp(prefix="bilan-test-etat-")
+        self.addCleanup(shutil.rmtree, self.dossier, ignore_errors=True)
+        self.technique = os.path.join(self.dossier, "technique.log")
+        for nom, valeur in (("TECHNIQUE", self.technique),
+                            ("JOURNAL", os.path.join(self.dossier, "journal.log")),
+                            ("JOURNAL_TECHNIQUE_ACTIF", True),
+                            ("VERSION_EN_COURS", None), ("DEMARRE_LE", None),
+                            ("DERNIER_DEPOT", None), ("CERTIFICAT_CHARGE", None)):
+            patch = unittest.mock.patch.object(serveur, nom, valeur)
+            patch.start()
+            self.addCleanup(patch.stop)
+
+    def ecrire_journal(self, lignes, chemin=None, fin="\n"):
+        with open(chemin or self.technique, "w", encoding="utf-8", newline="") as f:
+            f.write("".join(ligne + fin for ligne in lignes))
+
+    def config(self):
+        return copy.deepcopy(serveur.CONFIG_DEFAUT)
+
+    # --- vocabulaire ---------------------------------------------------------
+
+    def test_classe_route_etat(self):
+        self.assertEqual(serveur.classe_route("/etat"), "etat")
+        self.assertIn(serveur.classe_route("/etat"), serveur.ROUTES_TECHNIQUES)
+        self.assertIn("etat", serveur.ROUTES_TECHNIQUES)
+        # Seule la route exacte : un fichier du formulaire ne devient pas "etat".
+        self.assertEqual(serveur.classe_route("/etat.html"), "formulaire")
+        self.assertEqual(serveur.classe_route("/etats"), "autre")
+
+    def test_interrupteur_par_defaut(self):
+        self.assertIs(serveur.CONFIG_DEFAUT["page_etat"], True)
+
+    def test_neuf_cles_horodatage_inclus(self):
+        self.assertEqual(len(serveur.CLES_ETAT), 9)
+        self.assertEqual(len(set(serveur.CLES_ETAT)), 9)
+        self.assertTrue(serveur.CHAMPS_ETAT_HORODATES <= set(serveur.CLES_ETAT))
+
+    def test_explications_couvrent_les_verdicts(self):
+        self.assertEqual(set(serveur.EXPLICATIONS_ADRESSE), serveur.VERDICTS_ADRESSE)
+
+    def test_identite_renseignee(self):
+        config = self.config()
+        self.assertFalse(serveur.identite_renseignee(config))
+        config["cabinet"]["praticien"] = "   "
+        self.assertFalse(serveur.identite_renseignee(config))
+        config["cabinet"]["praticien"] = "Dr Témoin"
+        self.assertTrue(serveur.identite_renseignee(config))
+
+    # --- la queue du journal technique ---------------------------------------
+
+    def test_queue_bornee(self):
+        lignes = ["2026-11-06T10:00:00 REPONSE methode=GET route=formulaire code=200 n={}".format(i)
+                  for i in range(200)]
+        self.ecrire_journal(lignes)
+        rendu = serveur.dernieres_lignes_techniques()
+        self.assertEqual(rendu, lignes[-serveur.LIGNES_ETAT:])
+        self.assertEqual(len(rendu), 30)
+
+    def test_queue_d_un_fichier_d_un_mo(self):
+        # 1 Mo : seule la fin compte, et le début n'est jamais lu en entier.
+        ligne = "2026-11-06T10:00:00 REPONSE methode=GET route=formulaire code=200 n={:07d}"
+        lignes = [ligne.format(i) for i in range(14000)]
+        self.ecrire_journal(lignes)
+        self.assertGreater(os.path.getsize(self.technique), 1024 * 1024)
+        octets_lus = []
+        reel = open
+
+        def espion(chemin, *args, **kwargs):
+            f = reel(chemin, *args, **kwargs)
+            lire = f.read
+            def lire_et_compter(*a):
+                donnees = lire(*a)
+                octets_lus.append(len(donnees))
+                return donnees
+            f.read = lire_et_compter
+            return f
+
+        with unittest.mock.patch("builtins.open", espion):
+            rendu = serveur.dernieres_lignes_techniques()
+        self.assertEqual(rendu, lignes[-30:])
+        self.assertLessEqual(sum(octets_lus), serveur.QUEUE_ETAT_OCTETS)
+
+    def test_queue_ecarte_la_ligne_coupee(self):
+        lignes = ["2026-11-06T10:00:00 REPONSE n={:04d}".format(i) for i in range(400)]
+        self.ecrire_journal(lignes)
+        with unittest.mock.patch.object(serveur, "QUEUE_ETAT_OCTETS", 200), \
+             unittest.mock.patch.object(serveur, "LIGNES_ETAT", 1000):
+            rendu = serveur.dernieres_lignes_techniques()
+        self.assertGreater(len(rendu), 3)
+        # Toutes complètes, y compris la première, et contiguës jusqu'à la fin.
+        self.assertEqual(rendu, lignes[-len(rendu):])
+
+    def test_queue_fichier_court_garde_sa_premiere_ligne(self):
+        lignes = ["2026-11-06T10:00:00 DEMARRAGE", "2026-11-06T10:00:01 DEPOT ok 5 octets"]
+        self.ecrire_journal(lignes)
+        self.assertEqual(serveur.dernieres_lignes_techniques(), lignes)
+
+    def test_queue_fins_de_ligne_windows(self):
+        lignes = ["2026-11-06T10:00:00 A", "2026-11-06T10:00:01 B"]
+        self.ecrire_journal(lignes, fin="\r\n")
+        self.assertEqual(serveur.dernieres_lignes_techniques(), lignes)
+
+    def test_queue_absente(self):
+        self.assertFalse(os.path.exists(self.technique))
+        self.assertEqual(serveur.dernieres_lignes_techniques(), [])
+
+    def test_queue_vide(self):
+        self.ecrire_journal([])
+        self.assertEqual(serveur.dernieres_lignes_techniques(), [])
+
+    def test_queue_desactivee(self):
+        self.ecrire_journal(["2026-11-06T10:00:00 DEMARRAGE"])
+        with unittest.mock.patch.object(serveur, "JOURNAL_TECHNIQUE_ACTIF", False):
+            self.assertIsNone(serveur.dernieres_lignes_techniques())
+
+    def test_queue_octets_invalides_sans_levee(self):
+        with open(self.technique, "wb") as f:
+            f.write(b"2026-11-06T10:00:00 TLS_REFUSE raison=\xff\xfe\n2026-11-06T10:00:01 B\n")
+        rendu = serveur.dernieres_lignes_techniques()
+        self.assertEqual(len(rendu), 2)
+        self.assertEqual(rendu[1], "2026-11-06T10:00:01 B")
+
+    def test_queue_ne_lit_ni_archive_ni_journal_nominatif(self):
+        self.ecrire_journal(["2026-11-06T10:00:00 DEMARRAGE"])
+        self.ecrire_journal(["2026-11-06T10:00:00 192.0.2.9 NOMINATIF"], self.technique + ".1")
+        self.ecrire_journal(["2026-11-06T10:00:00 192.0.2.9 NOMINATIF"], serveur.JOURNAL)
+        rendu = serveur.dernieres_lignes_techniques()
+        self.assertEqual(rendu, ["2026-11-06T10:00:00 DEMARRAGE"])
+
+    def test_queue_prend_le_verrou_des_journaux(self):
+        # Sans le verrou, elle pourrait ouvrir le fichier au milieu d'une
+        # rotation, qui le renomme. Le verrou n'est pas réentrant : on le
+        # tient ici depuis ce fil, et la lecture doit attendre dans un autre.
+        self.ecrire_journal(["2026-11-06T10:00:00 DEMARRAGE"])
+        resultat = []
+        fil = threading.Thread(
+            target=lambda: resultat.append(serveur.dernieres_lignes_techniques()))
+        with serveur._verrou_journal:
+            fil.start()
+            fil.join(0.3)
+            self.assertTrue(fil.is_alive(), "lecture sans le verrou des journaux")
+        fil.join(10)
+        self.assertFalse(fil.is_alive())
+        self.assertEqual(resultat, [["2026-11-06T10:00:00 DEMARRAGE"]])
+
+    # --- construction ----------------------------------------------------------
+
+    def test_cles_exactes(self):
+        etat = serveur.construire_etat(self.config(), self.dossier)
+        self.assertEqual(set(etat), set(serveur.CLES_ETAT))
+        self.assertEqual(list(etat), list(serveur.CLES_ETAT))
+        self.assertLessEqual(serveur.CHAMPS_ETAT_HORODATES, set(etat))
+
+    def test_valeurs_par_defaut_avant_demarrage(self):
+        etat = serveur.construire_etat(self.config(), self.dossier)
+        self.assertEqual(etat["version"], serveur.VERSION_INCONNUE)
+        self.assertIsNone(etat["demarre_le"])
+        # Serveur neuf : aucun dépôt depuis le démarrage.
+        self.assertIsNone(etat["dernier_depot"])
+        self.assertIsNone(etat["certificat_expire_le"])
+        self.assertEqual(etat["certificat_empreinte"], "indisponible")
+        self.assertEqual(etat["certificat_adresse"], "indéterminé")
+        self.assertIs(etat["identite_cabinet"], False)
+        self.assertIsInstance(etat["disque_libre_octets"], int)
+        self.assertEqual(etat["journal_technique"], [])
+
+    def test_valeurs_posees_au_demarrage(self):
+        fin = datetime.datetime(2029, 2, 3, 4, 5, 6, tzinfo=UTC)
+        charge = {"expire_le": fin, "adresses": (ipaddress.ip_address("127.0.0.1"),),
+                  "empreinte": "0123456789abcdef"}
+        with unittest.mock.patch.object(serveur, "VERSION_EN_COURS", "9.8.7"), \
+             unittest.mock.patch.object(serveur, "DEMARRE_LE", "2026-11-06T08:00:00"), \
+             unittest.mock.patch.object(serveur, "DERNIER_DEPOT", "2026-11-06T09:30:00"), \
+             unittest.mock.patch.object(serveur, "CERTIFICAT_CHARGE", charge):
+            config = self.config()
+            config["cabinet"]["praticien"] = "Dr Témoin"
+            etat = serveur.construire_etat(config, self.dossier)
+        self.assertEqual(etat["version"], "9.8.7")
+        self.assertEqual(etat["demarre_le"], "2026-11-06T08:00:00")
+        self.assertEqual(etat["dernier_depot"], "2026-11-06T09:30:00")
+        self.assertEqual(etat["certificat_expire_le"], "2029-02-03T04:05:06Z")
+        self.assertEqual(etat["certificat_empreinte"], "0123456789abcdef")
+        self.assertEqual(etat["certificat_adresse"], "indéterminé")
+        self.assertIs(etat["identite_cabinet"], True)
+
+    def test_disque_libre_est_celui_du_dossier(self):
+        libre = shutil.disk_usage(self.dossier).free
+        etat = serveur.construire_etat(self.config(), self.dossier)
+        # Le disque bouge entre les deux lectures : même ordre de grandeur.
+        self.assertLess(abs(etat["disque_libre_octets"] - libre), 1024 ** 3)
+
+    def test_disque_indisponible_ne_divulgue_rien(self):
+        absent = os.path.join(self.dossier, "Dupont-Léa-introuvable")
+        etat = serveur.construire_etat(self.config(), absent)
+        self.assertIsNone(etat["disque_libre_octets"])
+        for rendu in (serveur.rendre_etat_json(etat), serveur.rendre_etat_html(etat)):
+            self.assertNotIn("Dupont", rendu)
+            self.assertNotIn(self.dossier, rendu)
+            self.assertNotIn("Errno", rendu)
+
+    # --- rendus --------------------------------------------------------------
+
+    def etat_complet(self, **remplacements):
+        etat = {
+            "version": "1.1.0", "demarre_le": "2026-11-06T08:00:00",
+            "dernier_depot": "2026-11-06T09:30:00",
+            "disque_libre_octets": int(12.34 * 1024 ** 3),
+            "certificat_expire_le": "2029-02-03T04:05:06Z",
+            "certificat_empreinte": "0123456789abcdef",
+            "certificat_adresse": "conforme", "identite_cabinet": True,
+            "journal_technique": ["2026-11-06T08:00:00 DEMARRAGE version=1.1.0"],
+        }
+        etat.update(remplacements)
+        self.assertEqual(set(etat), set(serveur.CLES_ETAT))
+        return etat
+
+    def test_json_aller_retour(self):
+        etat = self.etat_complet(journal_technique=["2026-11-06T08:00:00 TLS_REFUSE é"])
+        rendu = serveur.rendre_etat_json(etat)
+        self.assertEqual(json.loads(rendu), etat)
+        self.assertIn("é", rendu)       # ensure_ascii=False
+
+    def test_html_echappe(self):
+        piege = '2026-11-06T08:00:00 TLS_REFUSE raison=<script>alert(1)</script>'
+        for etat in (self.etat_complet(journal_technique=[piege]),
+                     self.etat_complet(certificat_empreinte="<script>x</script>",
+                                       version="<img src=x onerror=y>",
+                                       certificat_adresse="<script>")):
+            with self.subTest(etat=etat["journal_technique"]):
+                page = serveur.rendre_etat_html(etat)
+                self.assertNotIn("<script", page.lower())
+                self.assertNotIn("<img", page.lower())
+        page = serveur.rendre_etat_html(self.etat_complet(journal_technique=[piege]))
+        self.assertIn("&lt;script&gt;alert(1)&lt;/script&gt;", page)
+
+    def test_html_autonome(self):
+        page = serveur.rendre_etat_html(self.etat_complet())
+        minuscules = page.lower()
+        self.assertIn('<html lang="fr">', page)
+        self.assertIn('<meta charset="utf-8">', page)
+        self.assertNotIn("<script", minuscules)
+        for ressource in ("http://", "https://", "src=", "href=", "@import", "url("):
+            self.assertNotIn(ressource, minuscules)
+        # Le dossier est nommé par son rôle, jamais par son chemin.
+        self.assertIn("dossier des PDF", page)
+
+    def test_html_espace_en_go_a_virgule(self):
+        page = serveur.rendre_etat_html(self.etat_complet())
+        self.assertIn("12,3 Go", page)
+        page = serveur.rendre_etat_html(self.etat_complet(disque_libre_octets=None))
+        self.assertNotIn(" Go", page)
+
+    def test_html_certificat_jours_restants(self):
+        maintenant = datetime.datetime(2029, 1, 4, 4, 5, 6, tzinfo=UTC)
+        cas = [
+            ("2029-02-03T04:05:06Z", "dans 30 jours", False),
+            ("2029-02-02T04:05:06Z", "dans 29 jours", True),
+            ("2029-01-05T04:05:06Z", "dans 1 jour", True),
+            ("2029-01-03T04:05:06Z", "expiré", None),
+        ]
+        for expire, attendu, a_renouveler in cas:
+            with self.subTest(expire=expire):
+                page = serveur.rendre_etat_html(
+                    self.etat_complet(certificat_expire_le=expire), maintenant)
+                self.assertIn(attendu, page)
+                if a_renouveler is not None:
+                    self.assertEqual("à renouveler" in page, a_renouveler)
+        page = serveur.rendre_etat_html(
+            self.etat_complet(certificat_expire_le=None), maintenant)
+        self.assertIn("inconnue", page)
+
+    def test_rendus_avec_valeurs_nulles(self):
+        etat = self.etat_complet(
+            demarre_le=None, dernier_depot=None, disque_libre_octets=None,
+            certificat_expire_le=None, journal_technique=None,
+            identite_cabinet=False)
+        self.assertEqual(json.loads(serveur.rendre_etat_json(etat)), etat)
+        page = serveur.rendre_etat_html(etat)
+        self.assertIn("aucun depuis le démarrage", page)
+        self.assertIn("Désactivé", page)
+        self.assertIn("export des bilans est refusé", page)
+        vide = self.etat_complet(journal_technique=[])
+        self.assertIn("Aucune ligne", serveur.rendre_etat_html(vide))
+
+    def test_html_dit_chaque_verdict(self):
+        for verdict in sorted(serveur.VERDICTS_ADRESSE):
+            with self.subTest(verdict=verdict):
+                page = serveur.rendre_etat_html(
+                    self.etat_complet(certificat_adresse=verdict))
+                self.assertIn(verdict, page)
+
+    # --- aucune donnée de configuration ----------------------------------------
+
+    def test_aucune_valeur_de_configuration(self):
+        # La configuration est dérivée de CONFIG_DEFAUT, chaque feuille texte
+        # remplacée par une sentinelle : une clé ajoutée plus tard au défaut
+        # est couverte sans qu'on y pense. Le parcours est celui de
+        # feuilles_texte, jamais une liste de clés écrite à la main.
+        config = self.config()
+
+        def sentinelles(noeud, chemin):
+            for cle in list(noeud):
+                if isinstance(noeud[cle], dict):
+                    sentinelles(noeud[cle], chemin + cle + "-")
+                elif isinstance(noeud[cle], str):
+                    noeud[cle] = "SENTINELLE-{}{}-xq7".format(chemin, cle)
+
+        sentinelles(config, "")
+        config["dossier_pdf"] = os.path.join(self.dossier, "SENTINELLE-dossier-xq7")
+        feuilles = [f for f in feuilles_texte(config) if len(f) >= 6]
+        # Ancrage : sans lui, une config vide validerait la garde à vide.
+        self.assertGreaterEqual(len(feuilles), 10)
+        self.assertTrue(all(f.startswith(("SENTINELLE", self.dossier)) for f in feuilles))
+
+        etat = serveur.construire_etat(config, config["dossier_pdf"])
+        self.assertIs(etat["identite_cabinet"], True)
+        for rendu in (serveur.rendre_etat_json(etat), serveur.rendre_etat_html(etat)):
+            for feuille in feuilles:
+                with self.subTest(feuille=feuille):
+                    self.assertNotIn(feuille, rendu)
+
+    # --- gardes statiques ------------------------------------------------------
+
+    def source_serveur(self):
+        with open(serveur.__file__, encoding="utf-8") as f:
+            return f.read()
+
+    def test_garde_statique_sans_adresse_client(self):
+        self.assertEqual(problemes_adresse_client(self.source_serveur()), [])
+
+    def test_garde_statique_mise_en_echec(self):
+        # Une garde qui ne mord pas ne garde rien : elle doit rougir sur une
+        # adresse dans chacune des quatre fonctions, dans une aide appelée,
+        # et sur une fonction introuvable.
+        source = self.source_serveur()
+        mutations = {
+            "construire_etat": ("def construire_etat(config, dossier_pdf):\n",
+                                "    x = self.client_address\n"),
+            "rendre_etat_html": ("def rendre_etat_html(etat, maintenant=None):\n",
+                                 "    x = self.address_string()\n"),
+            "rendre_etat_json": ("def rendre_etat_json(etat):\n",
+                                 "    x = self.client_address[0]\n"),
+            "repondre_etat": ("    def repondre_etat(self, avec_corps):\n",
+                              "        x = self.client_address[0]\n"),
+            "_go": ("def _go(octets):\n", "    x = octets.client_address\n"),
+        }
+        for nom, (entete, ligne) in mutations.items():
+            with self.subTest(fonction=nom):
+                self.assertEqual(source.count(entete), 1)
+                muee = source.replace(entete, entete + ligne)
+                self.assertTrue(problemes_adresse_client(muee))
+        for nom in ("construire_etat", "rendre_etat_html", "rendre_etat_json"):
+            with self.subTest(introuvable=nom):
+                renommee = source.replace("def {}(".format(nom), "def x_{}(".format(nom))
+                self.assertTrue(problemes_adresse_client(renommee))
+        renommee = source.replace("def repondre_etat(", "def x_repondre_etat(")
+        self.assertTrue(problemes_adresse_client(renommee))
+
+    def test_etat_construit_avant_send_response(self):
+        # L'état se construit avant send_response(), qui journalise donc prend
+        # le verrou des journaux (non réentrant) que la lecture de la queue
+        # prend aussi.
+        arbre = ast.parse(self.source_serveur())
+        methode = [n for c in arbre.body
+                   if isinstance(c, ast.ClassDef) and c.name == "Gestionnaire"
+                   for n in c.body
+                   if isinstance(n, ast.FunctionDef) and n.name == "repondre_etat"]
+        self.assertEqual(len(methode), 1)
+        lignes = {}
+        for noeud in ast.walk(methode[0]):
+            if isinstance(noeud, ast.Call):
+                f = noeud.func
+                nom = f.attr if isinstance(f, ast.Attribute) else getattr(f, "id", None)
+                lignes.setdefault(nom, []).append(noeud.lineno)
+        for nom in ("authentifie", "construire_etat", "send_response"):
+            self.assertIn(nom, lignes)
+        self.assertLess(max(lignes["authentifie"]), min(lignes["construire_etat"]))
+        self.assertLess(max(lignes["construire_etat"]), min(lignes["send_response"]))
+
+    def test_aucun_import_hors_bibliotheque_standard_ajoute(self):
+        # Garde du critère 16, jouable sur toute version : le serveur
+        # n'importe que des modules fournis avec Python.
+        arbre = ast.parse(self.source_serveur())
+        modules = set()
+        for noeud in ast.walk(arbre):
+            if isinstance(noeud, ast.Import):
+                modules.update(a.name.split(".")[0] for a in noeud.names)
+            elif isinstance(noeud, ast.ImportFrom) and noeud.module:
+                modules.add(noeud.module.split(".")[0])
+        standard = getattr(sys, "stdlib_module_names", None)
+        if standard is None:
+            self.skipTest("sys.stdlib_module_names absent avant Python 3.10")
+        self.assertEqual(sorted(modules - set(standard)), [])

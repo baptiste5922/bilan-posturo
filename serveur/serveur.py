@@ -24,10 +24,13 @@ import datetime
 import getpass
 import hashlib
 import hmac
+import html
+import ipaddress
 import json
 import os
 import re
 import secrets
+import shutil
 import socket
 import socketserver
 import ssl
@@ -132,8 +135,9 @@ if EVENEMENT_ROTATION not in EVENEMENTS_TECHNIQUES:
 # Classes de route fermées : jamais un chemin brut, contrôlé par le client,
 # n'atteint le journal technique (décision D3). "cabinet" (C2-T1, décision
 # D5) permet de distinguer, à distance, « la tablette n'a jamais demandé
-# l'identité » de « elle l'a demandée et a reçu 401 ».
-ROUTES_TECHNIQUES = frozenset({"depot", "sante", "formulaire", "cabinet", "autre"})
+# l'identité » de « elle l'a demandée et a reçu 401 ». "etat" (C4-T3) fait de
+# même pour la page de diagnostic.
+ROUTES_TECHNIQUES = frozenset({"depot", "sante", "formulaire", "cabinet", "etat", "autre"})
 
 # Motifs de refus de dépôt, fermés eux aussi : un motif hors de cet ensemble
 # devient "motif-inconnu" (detail_refus_depot).
@@ -145,6 +149,43 @@ MOTIFS_REFUS_DEPOT = frozenset({
 # Interrupteur de retour arrière (étape 8) : à False, le journal technique
 # n'est jamais écrit. Positionné depuis la configuration dans demarrer().
 JOURNAL_TECHNIQUE_ACTIF = True
+
+# Page d'état (C4-T3) : la liste fermée des neuf informations, dans l'ordre où
+# la page les présente. Source dont les tests se dérivent, jamais recopiée ;
+# C3-T2 y ajoutera son champ le jour venu.
+CLES_ETAT = (
+    "version", "demarre_le", "dernier_depot", "disque_libre_octets",
+    "certificat_expire_le", "certificat_empreinte", "certificat_adresse",
+    "identite_cabinet", "journal_technique",
+)
+# Les seuls champs dont la valeur est un horodatage : les tests anti-adresse
+# en font l'exception exprimable, car « 12:34:56 » ressemble à une adresse
+# IPv6 pour le motif laxiste.
+CHAMPS_ETAT_HORODATES = frozenset({
+    "demarre_le", "dernier_depot", "certificat_expire_le"})
+if not CHAMPS_ETAT_HORODATES <= set(CLES_ETAT):
+    # Levée explicite, jamais `assert` (voir EVENEMENT_ROTATION plus haut).
+    raise AssertionError(
+        "CHAMPS_ETAT_HORODATES doit être inclus dans CLES_ETAT")
+# Verdict de concordance entre le certificat chargé et les adresses du PC :
+# jamais une adresse, seulement un de ces trois mots (décision n°1, voie A).
+VERDICTS_ADRESSE = frozenset({"conforme", "adresse changée", "indéterminé"})
+# Bornes de la lecture de technique.log par la page : une page qui circule
+# n'a pas besoin de plus, et la lecture reste de durée constante.
+LIGNES_ETAT = 30
+QUEUE_ETAT_OCTETS = 64 * 1024
+# Sous ce nombre de jours restants, la page ajoute « à renouveler ».
+JOURS_CERTIFICAT_A_RENOUVELER = 30
+
+# État du processus lu par la page d'état. Posés dans demarrer() ; None tant
+# qu'il n'a pas tourné (tests unitaires).
+VERSION_EN_COURS = None
+DEMARRE_LE = None
+# En mémoire seulement (D7) : perdu au redémarrage, sans fichier d'état.
+DERNIER_DEPOT = None
+# Ce que le serveur a CHARGÉ au démarrage (D6) : un fichier remplacé sans
+# redémarrage ne doit pas faire mentir la page sur ce qui est servi.
+CERTIFICAT_CHARGE = None
 
 # Seuls ces fichiers sont servis. Le filtre double la séparation des dossiers :
 # même si la racine web venait à contenir autre chose, rien d'autre ne sortirait.
@@ -161,6 +202,11 @@ CONFIG_DEFAUT = {
     "certificat": "certificat.pem",
     "cle_privee": "cle.pem",
     "journal_technique": True,
+    # Page de diagnostic GET /etat (C4-T3). Retour arrière niveau 1 : à false,
+    # la route retombe exactement dans le comportement d'avant la tâche (401
+    # sans identifiants, 403 avec). Seul `true` l'active : une fonction
+    # facultative échoue fermée.
+    "page_etat": True,
     # Durée de conservation des deux journaux, en mois de 30 jours (C4-T2).
     "conservation_journaux_mois": CONSERVATION_MOIS_DEFAUT,
     # Identité du cabinet (C2-T1) : chaînes vides par défaut, jamais un
@@ -820,7 +866,7 @@ def verdict_certificat(empreinte):
 
 
 def classe_route(chemin):
-    """Classe un chemin canonique en une des quatre catégories fermées.
+    """Classe un chemin canonique en une des catégories fermées.
 
     Jamais un chemin brut, contrôlé par le client, n'atteint le journal
     technique (décision D3) : une tentative de traversée ou un nom de
@@ -833,6 +879,8 @@ def classe_route(chemin):
         return "sante"
     if chemin == "/cabinet":
         return "cabinet"
+    if chemin == "/etat":
+        return "etat"
     if chemin in ("/", ""):
         return "formulaire"
     extension = os.path.splitext(chemin)[1].lower()
@@ -899,6 +947,371 @@ def journaliser_technique(evenement, detail=""):
                 EVENEMENT_ROTATION))
         _ajouter_ligne_technique("{} {} {}\n".format(
             horodatage, evenement, detail))
+
+
+# --------------------------------------------------------------------------
+# Page d'état (C4-T3) — lecture seule, conçue pour circuler comme technique.log
+# --------------------------------------------------------------------------
+
+# Rien de ce qui suit ne reçoit le gestionnaire de requête : ces fonctions
+# n'ont structurellement pas accès à l'adresse du client (une garde statique
+# de tests/test_serveur.py le vérifie sur l'arbre syntaxique).
+
+def identite_renseignee(config):
+    """Vrai quand le praticien est nommé dans la configuration.
+
+    Même critère que le formulaire (formulaire/script.js) : sans lui l'export
+    est refusé. Isolé ici pour que le démarrage et la page d'état ne
+    puissent pas diverger.
+    """
+    return bool(config["cabinet"]["praticien"].strip())
+
+
+# Étiquettes de l'ASN.1 DER utilisées par lire_certificat.
+_DER_SEQUENCE = 0x30
+_DER_UTCTIME = 0x17
+_DER_GENERALIZEDTIME = 0x18
+_DER_VERSION = 0xA0
+_DER_EXTENSIONS = 0xA3
+_DER_ADRESSE_IP = 0x87
+_DER_OCTETS = 0x04
+# 2.5.29.17, subjectAltName.
+_OID_NOMS_ALTERNATIFS = bytes((0x55, 0x1D, 0x11))
+
+
+def _element_der(donnees, debut, fin):
+    """(étiquette, début du contenu, fin du contenu) de l'élément DER qui
+    commence à `debut`. Lève ValueError si l'élément dépasse `fin`.
+
+    Toute longueur lue est confrontée à la borne avant d'être suivie, et
+    chaque appel avance d'au moins deux octets : aucune boucle de l'appelant
+    ne peut tourner sans fin sur un fichier abîmé.
+    """
+    if fin - debut < 2:
+        raise ValueError("élément DER tronqué")
+    etiquette = donnees[debut]
+    if etiquette & 0x1F == 0x1F:
+        raise ValueError("étiquette DER à plusieurs octets non gérée")
+    longueur = donnees[debut + 1]
+    position = debut + 2
+    if longueur & 0x80:
+        nombre = longueur & 0x7F
+        # 0x80 (longueur indéfinie) est interdite en DER ; plus de quatre
+        # octets de longueur dépasse de loin un certificat.
+        if nombre == 0 or nombre > 4 or position + nombre > fin:
+            raise ValueError("longueur DER invalide")
+        longueur = int.from_bytes(donnees[position:position + nombre], "big")
+        position += nombre
+    if position + longueur > fin:
+        raise ValueError("élément DER plus long que son conteneur")
+    return etiquette, position, position + longueur
+
+
+def _enfants_der(donnees, debut, fin):
+    """Les éléments successifs de donnees[debut:fin], en triplets."""
+    enfants = []
+    while debut < fin:
+        element = _element_der(donnees, debut, fin)
+        enfants.append(element)
+        debut = element[2]
+    return enfants
+
+
+def _temps_der(etiquette, contenu):
+    """Un UTCTime (AAMMJJhhmmssZ) ou un GeneralizedTime (AAAAMMJJhhmmssZ).
+
+    Pour l'UTCTime, une année inférieure à 50 est en 20AA, sinon en 19AA
+    (RFC 5280, 4.1.2.5.1). Les formes sans secondes ou avec décalage, que la
+    RFC interdit, sont refusées plutôt que devinées.
+    """
+    texte = contenu.decode("ascii")
+    if etiquette == _DER_UTCTIME:
+        modele = r"([0-9]{2})([0-9]{2})([0-9]{2})([0-9]{2})([0-9]{2})([0-9]{2})Z"
+    elif etiquette == _DER_GENERALIZEDTIME:
+        modele = r"([0-9]{4})([0-9]{2})([0-9]{2})([0-9]{2})([0-9]{2})([0-9]{2})Z"
+    else:
+        raise ValueError("étiquette de date inattendue")
+    trouve = re.fullmatch(modele, texte)
+    if trouve is None:
+        raise ValueError("date DER mal formée")
+    nombres = [int(n) for n in trouve.groups()]
+    if etiquette == _DER_UTCTIME:
+        nombres[0] += 2000 if nombres[0] < 50 else 1900
+    return datetime.datetime(*nombres, tzinfo=datetime.timezone.utc)
+
+
+def _adresses_alternatives(der, debut, fin):
+    """Adresses IP du subjectAltName, parmi les extensions de [3]."""
+    etiquette, debut, fin = _element_der(der, debut, fin)
+    if etiquette != _DER_SEQUENCE:
+        raise ValueError("extensions : séquence attendue")
+    adresses = []
+    for etiquette, debut, fin in _enfants_der(der, debut, fin):
+        if etiquette != _DER_SEQUENCE:
+            continue
+        # Extension : OID, criticité facultative, valeur en OCTET STRING.
+        parties = _enfants_der(der, debut, fin)
+        _, debut_oid, fin_oid = parties[0]
+        if der[debut_oid:fin_oid] != _OID_NOMS_ALTERNATIFS:
+            continue
+        etiquette, debut, fin = parties[-1]
+        if etiquette != _DER_OCTETS:
+            raise ValueError("subjectAltName : octets attendus")
+        etiquette, debut, fin = _element_der(der, debut, fin)
+        if etiquette != _DER_SEQUENCE:
+            raise ValueError("subjectAltName : séquence attendue")
+        for etiquette, debut, fin in _enfants_der(der, debut, fin):
+            if etiquette == _DER_ADRESSE_IP:
+                adresses.append(ipaddress.ip_address(der[debut:fin]))
+    return tuple(adresses)
+
+
+def _analyser_certificat(der):
+    """(expiration, adresses IP) du certificat DER ; lève sur tout défaut."""
+    etiquette, debut, fin = _element_der(der, 0, len(der))
+    if etiquette != _DER_SEQUENCE:
+        raise ValueError("certificat : séquence attendue")
+    etiquette, debut, fin = _element_der(der, debut, fin)
+    if etiquette != _DER_SEQUENCE:
+        raise ValueError("tbsCertificate : séquence attendue")
+    champs = _enfants_der(der, debut, fin)
+
+    # version [0] facultative, puis serialNumber, signature, issuer, validity,
+    # subject, subjectPublicKeyInfo ; ensuite les facultatifs, dont [3].
+    rang = 1 if champs[0][0] == _DER_VERSION else 0
+    etiquette, debut, fin = champs[rang + 3]
+    if etiquette != _DER_SEQUENCE:
+        raise ValueError("validity : séquence attendue")
+    dates = _enfants_der(der, debut, fin)
+    etiquette, debut, fin = dates[1]
+    expire_le = _temps_der(etiquette, der[debut:fin])
+
+    adresses = ()
+    for etiquette, debut, fin in champs[rang + 6:]:
+        if etiquette == _DER_EXTENSIONS:
+            adresses = _adresses_alternatives(der, debut, fin)
+    return expire_le, adresses
+
+
+def lire_certificat(chemin):
+    """Date d'expiration (UTC) et adresses IP du subjectAltName du certificat.
+
+    Rend {"expire_le": datetime | None, "adresses": tuple d'ipaddress} et ne
+    lève jamais : un fichier absent, tronqué ou qui n'est pas un certificat
+    donne une réponse vide, que la page d'état affiche comme « inconnue ».
+
+    Parseur DER minimal plutôt que ssl._ssl._test_decode_cert : celle-ci est
+    privée et préfixée « _test », donc retirable sans dépréciation (D4). La
+    bibliothèque standard n'expose rien de public pour lire ces champs.
+    """
+    vide = {"expire_le": None, "adresses": ()}
+    try:
+        with open(chemin, encoding="ascii") as f:
+            pem = f.read()
+        der = ssl.PEM_cert_to_DER_cert(pem)
+        expire_le, adresses = _analyser_certificat(der)
+    except (OSError, ValueError, IndexError, ssl.SSLError):
+        return vide
+    return {"expire_le": expire_le, "adresses": adresses}
+
+
+def adresse_portee(adresse):
+    """Vrai si cette adresse est portée par une interface de ce PC.
+
+    Demande au système plutôt que de deviner (D5) : un bind sur le port 0
+    réussit si et seulement si l'adresse est locale. Aucun paquet n'est émis,
+    aucune résolution de nom n'a lieu (voir le piège getfqdn de
+    ServeurBilan.server_bind), la socket n'écoute pas et se ferme aussitôt.
+    """
+    try:
+        adresse = ipaddress.ip_address(adresse)
+        famille = socket.AF_INET6 if adresse.version == 6 else socket.AF_INET
+        with socket.socket(famille, socket.SOCK_STREAM) as essai:
+            essai.bind((str(adresse), 0))
+    except (OSError, ValueError):
+        return False
+    return True
+
+
+def verdict_adresse(adresses, est_portee=adresse_portee):
+    """Le certificat couvre-t-il encore une adresse de ce PC ?
+
+    Rend toujours un membre de VERDICTS_ADRESSE, jamais une adresse. Les
+    adresses de boucle sont ignorées : le PC les porte toujours, elles ne
+    disent rien d'un changement de box. Recalculé à chaque requête, car
+    l'incident survient serveur en marche.
+    """
+    candidates = [a for a in adresses if not a.is_loopback]
+    if not candidates:
+        return "indéterminé"
+    if any(est_portee(a) for a in candidates):
+        return "conforme"
+    return "adresse changée"
+
+
+def dernieres_lignes_techniques():
+    """Au plus LIGNES_ETAT dernières lignes de technique.log courant, ou None
+    quand le journal technique est désactivé.
+
+    Jamais d'archive, jamais journal.log : seul le fichier conçu pour
+    circuler. Lue sous le verrou des journaux pour ne pas tenir le fichier
+    ouvert pendant une rotation, qui le renomme. Ce verrou n'est pas
+    réentrant : surtout ne pas appeler cette fonction d'un point qui le tient.
+    """
+    if not JOURNAL_TECHNIQUE_ACTIF:
+        return None
+    try:
+        with _verrou_journal:
+            with open(TECHNIQUE, "rb") as f:
+                taille = f.seek(0, os.SEEK_END)
+                debut = max(0, taille - QUEUE_ETAT_OCTETS)
+                f.seek(debut)
+                brut = f.read(QUEUE_ETAT_OCTETS)
+    except OSError:
+        return []
+    # Seul le saut de ligne sépare les lignes : splitlines() couperait aussi
+    # sur des caractères que le texte d'une erreur TLS peut porter.
+    lignes = [l.rstrip("\r") for l in brut.decode("utf-8", errors="replace").split("\n")]
+    if lignes and lignes[-1] == "":
+        lignes.pop()
+    # La lecture a pu commencer au milieu d'une ligne.
+    if debut > 0 and lignes:
+        lignes = lignes[1:]
+    return lignes[-LIGNES_ETAT:]
+
+
+def construire_etat(config, dossier_pdf):
+    """Les neuf informations de CLES_ETAT, et rien d'autre.
+
+    Dictionnaire écrit en clair, clé par clé : ni la configuration, ni le
+    dossier des PDF ne s'y sérialisent. Le chemin du dossier peut porter le
+    nom de session du praticien et str(OSError) porte un chemin complet
+    (décision D4 de C4-T1) : seul l'espace libre en sort, ou None.
+    """
+    charge = CERTIFICAT_CHARGE or {}
+    expire_le = charge.get("expire_le")
+    try:
+        libre = shutil.disk_usage(dossier_pdf).free
+    except (OSError, ValueError):
+        libre = None
+    return {
+        "version": VERSION_EN_COURS or VERSION_INCONNUE,
+        "demarre_le": DEMARRE_LE,
+        "dernier_depot": DERNIER_DEPOT,
+        "disque_libre_octets": libre,
+        "certificat_expire_le": (
+            expire_le.strftime("%Y-%m-%dT%H:%M:%SZ") if expire_le else None),
+        "certificat_empreinte": charge.get("empreinte", "indisponible"),
+        "certificat_adresse": verdict_adresse(charge.get("adresses", ())),
+        "identite_cabinet": identite_renseignee(config),
+        "journal_technique": dernieres_lignes_techniques(),
+    }
+
+
+def rendre_etat_json(etat):
+    return json.dumps(etat, ensure_ascii=False)
+
+
+# Phrase affichée par verdict : le mot seul ne dit pas quoi faire. Les clés
+# se dérivent de VERDICTS_ADRESSE (un test le vérifie), sans adresse.
+EXPLICATIONS_ADRESSE = {
+    "conforme": "le certificat couvre une adresse portée par ce PC.",
+    "adresse changée": (
+        "le certificat ne couvre plus aucune adresse de ce PC : le réémettre "
+        "(mode d'emploi, « L'adresse du PC a changé »)."),
+    "indéterminé": (
+        "le certificat ne porte aucune adresse de réseau à comparer."),
+}
+
+
+def _go(octets):
+    """Octets en Go (1 Go = 2^30 octets, comme l'Explorateur), une décimale,
+    virgule française."""
+    return "{:.1f} Go".format(octets / 1024 ** 3).replace(".", ",")
+
+
+def _texte_certificat(etat, maintenant):
+    expire = etat["certificat_expire_le"]
+    if expire is None:
+        return "inconnue"
+    texte = expire.replace("T", " ").replace("Z", " UTC")
+    try:
+        fin = datetime.datetime.strptime(
+            expire, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc)
+    except ValueError:
+        return texte
+    jours = (fin - maintenant).days
+    if jours < 0:
+        return "{} — expiré".format(texte)
+    reste = "dans {} jour{}".format(jours, "s" if jours > 1 else "")
+    if jours < JOURS_CERTIFICAT_A_RENOUVELER:
+        return "{} — {}, à renouveler".format(texte, reste)
+    return "{} — {}".format(texte, reste)
+
+
+def rendre_etat_html(etat, maintenant=None):
+    """Page autonome : aucun script, aucune ressource externe. Chaque valeur
+    passe par html.escape — les lignes de technique.log portent des chaînes
+    d'origine externe (TLS_REFUSE raison=...). Le dossier des PDF n'est
+    nommé que par son rôle, jamais par son chemin."""
+    if maintenant is None:
+        maintenant = datetime.datetime.now(datetime.timezone.utc)
+
+    def date(valeur):
+        return "aucun depuis le démarrage" if valeur is None else valeur.replace("T", " ")
+
+    verdict = etat["certificat_adresse"]
+    explication = EXPLICATIONS_ADRESSE.get(verdict, "")
+    lignes_journal = etat["journal_technique"]
+    if lignes_journal is None:
+        journal = "<p>Désactivé (réglage <code>journal_technique</code>).</p>"
+    elif not lignes_journal:
+        journal = "<p>Aucune ligne.</p>"
+    else:
+        journal = "<pre>{}</pre>".format(
+            html.escape("\n".join(lignes_journal)))
+
+    lignes = [
+        ("Version", etat["version"]),
+        ("Serveur démarré le", "inconnu" if etat["demarre_le"] is None
+         else etat["demarre_le"].replace("T", " ")),
+        ("Dernier bilan reçu", date(etat["dernier_depot"])),
+        ("Espace libre (dossier des PDF)", "inconnu"
+         if etat["disque_libre_octets"] is None
+         else _go(etat["disque_libre_octets"])),
+        ("Certificat valable jusqu'au", _texte_certificat(etat, maintenant)),
+        ("Empreinte du certificat", etat["certificat_empreinte"]),
+        ("Adresse du PC et certificat", "{} — {}".format(verdict, explication)),
+        ("Identité du cabinet", "renseignée" if etat["identite_cabinet"]
+         else "non renseignée : l'export des bilans est refusé"),
+    ]
+    rangees = "\n".join(
+        "<tr><th>{}</th><td>{}</td></tr>".format(
+            html.escape(str(libelle)), html.escape(str(valeur)))
+        for libelle, valeur in lignes)
+    return """<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>État du serveur — bilan posturologique</title>
+<style>
+body {{ font-family: sans-serif; margin: 1.5em; color: #222; }}
+table {{ border-collapse: collapse; }}
+th, td {{ text-align: left; padding: .4em .8em; border-bottom: 1px solid #ccc; vertical-align: top; }}
+pre {{ background: #f4f4f4; padding: .8em; overflow-x: auto; white-space: pre-wrap; }}
+</style>
+</head>
+<body>
+<h1>État du serveur</h1>
+<table>
+{rangees}
+</table>
+<h2>Dernières lignes du journal technique</h2>
+{journal}
+</body>
+</html>
+""".format(rangees=rangees, journal=journal)
 
 
 # --------------------------------------------------------------------------
@@ -980,6 +1393,9 @@ class ServeurBilan(ThreadingHTTPServer):
 class Gestionnaire(SimpleHTTPRequestHandler):
     config = None
     dossier_pdf = None
+    # Interrupteur de la page d'état (C4-T3), posé dans demarrer(). Fermé par
+    # défaut : une page facultative échoue fermée.
+    page_etat = False
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=FORMULAIRE, **kwargs)
@@ -1117,6 +1533,9 @@ class Gestionnaire(SimpleHTTPRequestHandler):
         if self.chemin_demande() == "/cabinet":
             self.repondre_cabinet(avec_corps=True)
             return
+        if self.chemin_demande() == "/etat" and self.page_etat:
+            self.repondre_etat(avec_corps=True)
+            return
         if self.autorise_lecture():
             super().do_GET()
 
@@ -1126,6 +1545,9 @@ class Gestionnaire(SimpleHTTPRequestHandler):
             return
         if self.chemin_demande() == "/cabinet":
             self.repondre_cabinet(avec_corps=False)
+            return
+        if self.chemin_demande() == "/etat" and self.page_etat:
+            self.repondre_etat(avec_corps=False)
             return
         if self.autorise_lecture():
             super().do_HEAD()
@@ -1178,6 +1600,39 @@ class Gestionnaire(SimpleHTTPRequestHandler):
         self.send_header("Content-Length", str(len(corps)))
         # Pas de Cache-Control ici : end_headers() l'émet déjà, un second
         # appel produirait l'en-tête en double.
+        self.end_headers()
+        if avec_corps:
+            self.wfile.write(corps)
+
+    # --- page d'état (C4-T3) -------------------------------------------------
+
+    def repondre_etat(self, avec_corps):
+        """Répond l'état de l'installation, en HTML ou, sur demande, en JSON.
+
+        Authentifiée comme /cabinet, sans l'exception de /sante (D1). Tout
+        l'état et le corps sont construits AVANT send_response() : celle-ci
+        journalise donc prend le verrou des journaux, que
+        dernieres_lignes_techniques() prend aussi, et qui n'est pas réentrant.
+        """
+        if not self.authentifie():
+            self.exiger_authentification()
+            return
+
+        etat = construire_etat(self.config, self.dossier_pdf)
+        if "application/json" in self.headers.get("Accept", "").lower():
+            type_contenu = "application/json; charset=utf-8"
+            corps = rendre_etat_json(etat).encode("utf-8")
+        else:
+            type_contenu = "text/html; charset=utf-8"
+            corps = rendre_etat_html(etat).encode("utf-8")
+
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", type_contenu)
+        if type_contenu.startswith("text/html"):
+            self.send_header("Content-Security-Policy",
+                             "default-src 'none'; style-src 'unsafe-inline'")
+        self.send_header("Content-Length", str(len(corps)))
+        # Pas de Cache-Control ici : end_headers() l'émet déjà.
         self.end_headers()
         if avec_corps:
             self.wfile.write(corps)
@@ -1255,6 +1710,9 @@ class Gestionnaire(SimpleHTTPRequestHandler):
         self.log_message("DEPOT %s (%d octets)",
                          os.path.basename(destination), len(contenu))
         journaliser_technique("DEPOT", detail_depot_ok(len(contenu)))
+        # Indépendant de l'interrupteur du journal technique (D7).
+        global DERNIER_DEPOT
+        DERNIER_DEPOT = datetime.datetime.now().isoformat(timespec="seconds")
         self.repondre_json(HTTPStatus.OK, {
             "ok": True,
             "fichier": os.path.basename(destination),
@@ -1285,7 +1743,7 @@ def demarrer():
     # identité : ce n'est pas un refus de démarrer (le formulaire reste
     # utile pour tout sauf l'export), mais un bilan ne pourra pas sortir
     # (D7) tant que l'identité manque. L'avertissement nomme le geste.
-    identite_absente = not config["cabinet"]["praticien"].strip()
+    identite_absente = not identite_renseignee(config)
 
     dossier_pdf = config["dossier_pdf"]
     if not os.path.isabs(dossier_pdf):
@@ -1294,6 +1752,7 @@ def demarrer():
 
     Gestionnaire.config = config
     Gestionnaire.dossier_pdf = dossier_pdf
+    Gestionnaire.page_etat = config.get("page_etat") is True
 
     global JOURNAL_TECHNIQUE_ACTIF
     JOURNAL_TECHNIQUE_ACTIF = config["journal_technique"]
@@ -1337,10 +1796,13 @@ def demarrer():
 
     serveur.socket = contexte.wrap_socket(serveur.socket, server_side=True)
 
+    global VERSION_EN_COURS
+    VERSION_EN_COURS = lire_version()
+
     print("Bilan posturologique — serveur démarré")
     print("  sur ce PC     : https://localhost:{}".format(config["port"]))
     print("  tablette      : https://<ip-du-pc>:{}".format(config["port"]))
-    print("  version       : {}".format(lire_version()))
+    print("  version       : {}".format(VERSION_EN_COURS))
     print("  identifiant   : {}".format(config["utilisateur"]))
     print("  dépôt des PDF : {}".format(dossier_pdf))
     print("  journal       : {}".format(JOURNAL))
@@ -1354,9 +1816,13 @@ def demarrer():
     _, arret_purge = demarrer_purge_periodique()
 
     empreinte = empreinte_certificat(certificat)
+    global CERTIFICAT_CHARGE
+    CERTIFICAT_CHARGE = dict(lire_certificat(certificat), empreinte=empreinte)
     journaliser_technique("DEMARRAGE", "version={} port={} certificat={} {}".format(
-        lire_version(), config["port"], empreinte, verdict_certificat(empreinte)))
+        VERSION_EN_COURS, config["port"], empreinte, verdict_certificat(empreinte)))
 
+    global DEMARRE_LE
+    DEMARRE_LE = datetime.datetime.now().isoformat(timespec="seconds")
     motif_arret = "autre"
     try:
         serveur.serve_forever()
