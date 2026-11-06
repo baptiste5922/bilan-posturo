@@ -477,6 +477,15 @@ l'en-tête ; le moteur de rendu, identique chez tous les clients, produit le DOM
 
 ### C1-T5 — Bibliothèque de blocs et templates de départ
 
+> **État : implémentée le 6 novembre 2026** sur la branche `c1-t5-blocs`
+> (contrat `docs/contrats/C1-T5.md`), **pas encore livrée** : le critère A13,
+> la mesure chronométrée par l'opérateur d'atelier (Baptiste), reste à faire
+> (protocole : `docs/essais/C1-T5-client-fictif.md`). Neuf fragments `blocs/*.json`
+> tranchés dans le schéma du pilote, deux templates (`podologue-complet`, qui
+> redonne `clients/cabinet-01/schema.json` à l'octet, et `podologue-court`),
+> `outils/composer-schema.js` (Node nu), suite `tests/test_blocs.js`, garde
+> « ni `blocs/` ni `templates/` dans le paquet ». Rien ne part au cabinet.
+
 - **Effort :** M
 - **Process :** Allégé — bibliothèque de départ, rien en production.
 - **Dépendances :** C1-T4a (le schéma du cabinet dans le dépôt ; la livraison
