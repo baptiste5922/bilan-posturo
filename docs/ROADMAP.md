@@ -413,7 +413,9 @@ l'en-tête ; le moteur de rendu, identique chez tous les clients, produit le DOM
 >   tests. **Aucune livraison.** Process Complet. Dépendances : C1-T3b.
 >   **État : livrée le 6 novembre 2026** sur la branche `c1-t4a-schema-cabinet`
 >   (contrat `docs/contrats/C1-T4a.md`, mises en échec
->   `docs/audits/C1-T4a-mises-en-echec.md`). `clients/cabinet-01/schema.json` est
+>   `docs/audits/C1-T4a-mises-en-echec.md`, audit `docs/audits/C1-T4a.md`
+>   CONFORME après réaudit, revue `docs/revues/C1-T4a.md` À LIVRER après
+>   corrections). `clients/cabinet-01/schema.json` est
 >   le schéma du cabinet, gardé égal à son miroir `formulaire/schema.json` ;
 >   `faire-paquet.sh <client>` le livre ; la fidélité est mesurée contre
 >   `d43350a`, pas contre la seule fiche de secours.

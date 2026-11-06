@@ -215,3 +215,128 @@ compris, fait rougir le test.
 - Des répertoires `bilan-conservation-*` et `tmp*/bilan.pdf` (fictifs, vides)
   traînent dans `$TMPDIR` depuis les 3 et 4 novembre : un test antérieur ne
   nettoie pas derrière lui. Ils ne viennent pas de cette tâche.
+
+## Réaudit après revue
+
+**Date :** 2026-11-06  **Plage :** `2cbafa3..b3c6a3e` (2 commits, 13 fichiers ;
+CI 42236920584 annoncée verte sur 7 jobs à `f907c6d`)
+**Verdict : CONFORME.** Les trois constats faibles sont levés, sans constat
+nouveau. Deux observations s'ajoutent, sans correction exigée.
+
+Chaque garde a été éprouvée dans un clone jetable sans `origin`
+(`git remote | wc -l` → 0). Le code de sortie relevé est toujours celui du
+test lui-même, et chaque mutation a son témoin sur l'arbre sain.
+
+### Constat 1 (sortie de `produire.js`) : levé
+
+`.gitignore` et la barrière fonctionnent ensemble :
+- **`.gitignore`.** Un `git add -A` n'indexe **rien** sous
+  `outils/reference-visuelle/sortie/`, ni de `.png` posé directement dans
+  `docs/references-visuelles/` (0 fichier indexé).
+- **Barrière CI.** Le pas extrait de `tests.yml` et lancé par `bash -e` sort
+  **0** sur l'arbre sain, et **1** dans chacun des cas suivants :
+  - `sortie/V1.pdf` forcé par `git add -f` ;
+  - `sortie/note.md` forcé : rien n'est admis dans `sortie/`, même un `.md` ;
+  - `x.png` forcé dans `docs/references-visuelles/` ;
+  - un `.DS_Store` forcé dans le même dossier ;
+  - un `PNG` en majuscules dans un sous-dossier ;
+  - un `.pdf` au nom accentué ;
+  - un nom qui contient un saut de ligne pour se faire passer pour un `.md`
+    de `docs/`.
+
+Le motif est désormais ancré sur `^docs/references-visuelles/`, si bien
+qu'un `.md` ou un `.json` ne passe que dans ce dossier. Le `.gitignore` ne
+couvre que `*.png` et `*.pdf` en minuscules à la racine du dossier. Ce n'est
+pas un trou : la barrière CI rattrape tout le reste, comme le montre le cas
+du sous-dossier, qu'un `git add -A` indexe et que la barrière refuse.
+
+Limite inchangée : la barrière juge l'extension, pas le contenu (un PNG
+renommé `.md` passerait).
+
+### Constat 2 (archive incomplète) : levé
+
+Le `rm -f "$PAQUET.zip"` ajouté à `outils/faire-paquet.sh` vise un nom fixe,
+`BilanPosturo-<date du jour>.zip`, dans la racine où le script s'est placé.
+Aucune entrée utilisateur n'y entre.
+
+Essai : sans `formulaire/version.json`, le script rend **1** et efface
+l'archive du jour. Un `BilanPosturo-2020-01-01.zip` et un `autre.zip` posés à
+côté restent **intacts**.
+
+`tests.test_paquet` est vert, aussi sous `python3 -O`, avec le nouveau cas
+`test_piece_absente_de_l_archive_efface_l_archive`.
+
+### Constat 3 (G1) : levé
+
+Essais de mutation, chacun avec son témoin sain (0) :
+
+| Mutation | Code | Cas en échec |
+|---|---|---|
+| fichier à plat `clients/notes.txt` | 1 | G1 |
+| lien `clients/cabinet-02 → ../formulaire` | 1 | G1 |
+| lien `clients/cabinet-03 → cabinet-01` | 1 | G1 |
+| `clients/LISEZMOI.md` remplacé par un dossier | 1 | G1 et G2 |
+
+**L'exemption `.DS_Store` ne crée pas de trou exploitable.** Elle porte sur le
+nom seul : un **dossier** ou un **lien** nommé `.DS_Store` passe aussi G1
+(code 0, essayé). Il reste pourtant sans effet :
+- `faire-paquet.sh` refuse `.DS_Store` comme client, car le motif est ancré ;
+- `.gitignore` l'exclut ;
+- rien ne le lit.
+
+Voir l'observation ci-dessous.
+
+### G4 lit un SHA complet : correct, et échoue toujours bruyamment
+
+`REFERENCE_PRODUCTION` est le SHA complet `d43350a0cf20fef5672eadc7bcb6f67e156dc977`.
+Un SHA ne se déplace pas, contrairement à l'étiquette que
+`docs/production/cabinet-01.md` prévoit de déplacer. Ce commit est un ancêtre
+de `main` et de la branche (`git merge-base --is-ancestor`), donc atteignable
+en CI avec `fetch-depth: 0`.
+
+Essai dans un clone `--depth 1 --no-tags` où le commit est absent : code
+**1**, quatre cas G4 en échec avec le remède, quatre verts (G1 à G3),
+**aucun saut**. La sortie d'échec, passée au détecteur d'identité, ne contient
+rien.
+
+### Identité réelle : rien de nouveau
+
+Le détecteur est le même qu'au premier audit, déjà éprouvé sur le blob, et
+n'affiche jamais les valeurs. Résultat :
+- **0** occurrence dans les 14 blobs de la plage et dans les 2 messages de
+  commit ;
+- **0** dans les fichiers temporaires de la session postérieurs au premier
+  audit ;
+- **0** dans les sorties d'échec des mutations ci-dessus.
+
+Le nom de la ville a disparu de `tests/test_paquet.py` et du journal des
+mutations (`git grep` → 0). `tests.test_identite_absente` est vert.
+
+### Production inchangée
+
+- `git diff --stat 0f33cc0..b3c6a3e -- formulaire serveur docs/production`
+  est vide.
+- L'étiquette `production-cabinet-01^{}` et `maintenance-cabinet-01` valent
+  `d43350a0…`, en local comme sur `origin` (`git ls-remote`).
+- Aucun `serveur.py`, `generer_autorite.py` ni Chrome piloté ne reste en
+  cours d'exécution.
+
+Les autres changements ne relèvent pas de la sécurité :
+- `empreintes-pages.js` rend 2 sur un fichier illisible ;
+- `partager-paquet.sh` n'a changé que dans son message ;
+- le constat a été reformulé, et F9 complétée.
+
+### Observations du réaudit
+
+- **Exemption `.DS_Store` plus large que son besoin.** Elle exempte le nom,
+  quel que soit le type d'entrée. La réserver aux fichiers ordinaires suffirait
+  à garder la promesse « ni lien ni fichier à plat » sans exception. Aucun
+  effet aujourd'hui.
+- **G1 ne regarde pas l'intérieur d'un dossier client.** Un fichier
+  supplémentaire dans `clients/cabinet-01/`, lien compris, passe (code 0,
+  essayé). Il ne part pas dans le paquet, qui ne copie que `schema.json`, et
+  `test_identite_absente` lit son texte s'il est suivi. Ce n'est donc qu'un
+  écart avec « son `schema.json`, rien d'autre » de `clients/LISEZMOI.md`.
+- **La revue non suivie cite deux fois la ville.**
+  `docs/revues/C1-T4a.md`, lignes 33 et 116, en dehors de la plage : c'est
+  une information déjà publique. À garder en tête avant de l'indexer.
