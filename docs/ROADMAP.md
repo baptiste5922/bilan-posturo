@@ -1498,8 +1498,33 @@ détermine le prix du setup **et** le plafond de croissance.
 
 ### C9-T2 — Outil d'atelier de composition
 
+> **État : implémentée le 7 novembre 2026** sur la branche `c9-t2-atelier`
+> (contrat `docs/contrats/C9-T2.md`), **pas encore fusionnée**, mesure à faire.
+> `outils/atelier/atelier.js` (`ouvrir`, `composer`, `verifier`, `apercu`),
+> auxiliaire `outils/atelier/lire_serveur.py` (importe le serveur avec `-I -B`,
+> ne le lance jamais), procédure `outils/atelier/LISEZMOI.md`, suite
+> `tests/test_atelier.js` (32 cas, branchée dans `npm test` et la CI). Neuf
+> mises en échec (M1 à M6 du contrat, plus M7 à M9) consignées dans
+> `docs/audits/C9-T2-mises-en-echec.md`. Constat de rendu réel dans Chrome
+> piloté : aucune erreur, quatre images chargées, sept requêtes toutes `file://`
+> (`docs/essais/C9-T2-fabrication.md`). **Process monté à « Allégé + audit »** :
+> l'outil écrit des fichiers, dont l'identité et le logo d'un client réel ; point
+> nommé de l'audit, le confinement des écritures hors du dépôt. Audit et revue
+> restent à passer.
+> **Ne cocher « livrée » qu'avec la mesure de Baptiste** (M-A, M-B : deux cas,
+> strictement moins de trois heures chacun), protocole dans
+> `docs/essais/C9-T2-fabrication.md`.
+> **Deux décisions ouvertes bloquent la livraison d'un vrai client, pas cette
+> tâche** : **D-O1** — où vit le schéma d'un client hors pilote ? (dépôt public ;
+> `clients/LISEZMOI.md`, risque de `docs/contrats/C1-T4a.md`) ; l'atelier ne verse
+> rien dans `clients/`. **D-O2** — palette par client : aucun mécanisme ne livre les
+> cinq couleurs de la feuille de route (`theme.json` écarté par D3 de C1-T4a) ; la
+> mesure se fait palette du pilote comprise.
+
 - **Effort :** M
-- **Process :** Allégé — outil d'atelier interne, jamais vendu ni installé.
+- **Process :** Allégé + audit — outil d'atelier interne, jamais vendu ni
+  installé ; monté depuis « Allégé » parce qu'il écrit l'identité et le logo d'un
+  client réel (point nommé : le confinement des écritures hors du dépôt).
 - **Dépendances :** C1-T5, C9-T1
 - **Périmètre :** `outils/atelier/`
 - **Travail :** un outil interne — **jamais une fonctionnalité vendue** — qui

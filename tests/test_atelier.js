@@ -682,7 +682,8 @@ cas("T9 : l'aperçu exécuté ne fait aucun fetch et retire demarrerMoteur ; le 
     page.document.declencher("DOMContentLoaded");
     assert.strictEqual(page.appels.fetch, 0, "aucun fetch ne doit partir");
 
-    const attendu = fs.readFileSync(INSTANTANE, "utf8");
+    // Windows peut extraire le fichier en CRLF (autocrlf) : on compare le contenu, pas les fins de ligne.
+    const attendu = fs.readFileSync(INSTANTANE, "utf8").replace(/\r\n/g, "\n");
     const obtenu = JSON.stringify(dom.serialiser(page.main), null, 1) + "\n";
     assert.ok(obtenu === attendu, "le <main> rendu diffère de tests/donnees/rendu-schema-production.txt");
     assert.strictEqual(page.noeuds["largeur-fenetre"].textContent, "1234", "largeur affichée");
