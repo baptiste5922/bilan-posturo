@@ -74,3 +74,10 @@ qu'un (`/cabinet`).
   rougir, et une fonction introuvable aussi.
 - Aucune mutation résiduelle : en fin de série, la copie est identique à la
   sauvegarde (`cmp`), et le dépôt n'a jamais été touché.
+
+## CI
+
+Run `42198008294` (`workflow_dispatch` sur `c4-t3-etat`, commit `9de935e`) :
+7 jobs sur 7 verts (lint, scripts-windows, et `test` sur ubuntu, macOS et
+Windows en 3.13, ubuntu et Windows en 3.9).
+https://github.com/baptiste5922/bilan-posturo/actions/runs/42198008294
