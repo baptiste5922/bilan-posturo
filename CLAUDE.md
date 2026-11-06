@@ -8,11 +8,11 @@ août 2026 par une pédicure-podologue à Morlaix, pour la totalité de ses bila
 **Dernière mise à jour :** 6 novembre 2026, par `/cloture-projet`
 **Version :** V1 en production au cabinet ; `main` porte la 1.1.0
 (`formulaire/version.json`), sous **BUSL 1.1** depuis le 14 octobre 2026
-**Jalon en cours :** V2 — 18 tâches livrées ; rien de la V2 n'est au cabinet,
-qui tourne sur **`d43350a` (26 août)**, étiquette `production-cabinet-01`,
-fiche `docs/production/cabinet-01.md`. **`main` est poussé** (`48e3c43`) ;
-**`c1-t4a-schema-cabinet`**, livrée, attend d'y être fusionnée. **Premier
-prospect hors pilote :** un formateur en posturologie (fiche hors dépôt).
+**Jalon en cours :** V2 — 19 tâches livrées, C1-T5 fusionnée en attente de sa
+mesure ; rien de la V2 n'est au cabinet, qui tourne sur **`d43350a`
+(26 août)**, étiquette `production-cabinet-01`, fiche
+`docs/production/cabinet-01.md`. **`main` est poussé** (`af6e7ee`), CI verte.
+**Premier prospect hors pilote :** un formateur en posturologie (fiche hors dépôt).
 
 ## Architecture en bref
 
@@ -40,7 +40,8 @@ prospect hors pilote :** un formateur en posturologie (fiche hors dépôt).
 | `installer-demarrage.ps1` | Tâche planifiée SYSTEM + pare-feu ; `-Verifier` contrôle sans rien modifier |
 | `clients/cabinet-01/schema.json` | Schéma du client, **fait foi** ; `formulaire/schema.json` en est le miroir gardé à l'octet |
 | `outils/faire-paquet.sh <client>` | Paquet d'un client, argument obligatoire ; le serveur ne voit jamais `clients/` |
-| `tests/` | 319 tests Python + 13 suites Node (branche `c1-t4a-schema-cabinet`) |
+| `blocs/`, `templates/`, `outils/composer-schema.js` | Neuf fragments du pilote, recettes de départ, composition validée par le moteur (atelier, hors paquet) |
+| `tests/` | 368 tests Python + 15 suites Node |
 
 Le PDF est produit **côté navigateur** : le serveur ne reçoit qu'un fichier déjà
 assemblé, et n'a aucune dépendance Python.
@@ -54,6 +55,8 @@ conçu pour **circuler**, celui que le support peut lire. L'interrupteur
 rotation mensuelle, purge à l'écriture et toutes les 6 h, clé
 `conservation_journaux_mois`). L'identité du cabinet vit dans `config.json`,
 jamais dans le dépôt, servie par `GET /cabinet` ; sans elle, l'export est refusé.
+Son logo, seule exception, vit dans `formulaire/images/cabinet/`, hors dépôt et
+hors paquet, validé au démarrage (C2-T2, `docs/configuration.md` §7).
 
 ## Contraintes non négociables
 
@@ -83,12 +86,12 @@ une image et non une donnée.
 | Chantier | Intitulé | État |
 |---|---|---|
 | C0 | Cadre juridique et licence | T1 **livré** ; T2 (contrat RGPD, modèles génériques) à faire |
-| C1 | Moteur de formulaire à schéma | T1, T2, T3, T3b, T6 (`grille`), T6b, **T4a livrés** ; T4b à la visite ; T5 |
-| C2 | Identité du cabinet en configuration | T1 **livré** ; T2 (logo) à faire |
+| C1 | Moteur de formulaire à schéma | T1, T2, T3, T3b, T4a, T6, T6b **livrés** ; **T5 fusionnée**, mesure A13 à faire ; T4b à la visite |
+| C2 | Identité du cabinet en configuration | T1, **T2 (logo) livrés** |
 | C3 | Adressage, certificat et installateur | T1, **T3a livrés** (T3a : VM Windows à faire) ; T2, T3, T4 |
 | C4 | Observabilité et support | T1, T2, **T3 (`/etat`)**, T4 **livrés** ; T5 **sortie de la V2** ; T6 |
 | C5 | Mises à jour signées | à faire (tirées par le PC, signées : décidé) |
-| C6 | Durcissement de sécurité | **T4 livré** ; T1, T2, T3, T5 |
+| C6 | Durcissement de sécurité | **T4 livré** ; T1, T2, T3, T5, T6 (liens symboliques suivis) |
 | C7 | Filet de tests | **T1, T5 livrés** ; T2, T3, T4 |
 | C8 | Mécanisme de licence d'abonnement | à faire (grâce de 30 j puis export bloqué : décidé) |
 | C9 | Atelier de fabrication d'un client | **T1 livré** ; T3 décidé (révision annuelle) ; T2 |
@@ -147,10 +150,12 @@ une semaine de bilans réels. Il faut l'appareil, **pas avant janvier 2027**.
 D'ici là rien ne part au cabinet ; un correctif d'urgence part de
 `maintenance-cabinet-01`, jamais de `main`.
 
-**Tests :** 319 Python (2 sautés hors Windows) et 13 suites Node, tous verts
+**Tests :** 368 Python (2 sautés hors Windows) et 15 suites Node, tous verts
 au 6 novembre 2026, aussi sous `python3 -O`, et en CI sur Linux, Windows et
-macOS, Python 3.9 et 3.13 — CI jouée sur les branches de tâche, pas sur `main`.
+macOS, Python 3.9 et 3.13, sur les branches de tâche comme sur `main`.
 `npm test` dépasse le délai de 2 min d'une commande : le lancer en arrière-plan.
+
+**C1-T5 attend la mesure de Baptiste** : `docs/essais/C1-T5-client-fictif.md`.
 
 **Une grille n'entre dans un schéma client** qu'aux trois conditions de
 `docs/schema-formulaire.md`, dont un export d'essai **sur la tablette du
@@ -163,6 +168,8 @@ pilote que l'historique de `journal.log` partira en bloc vers février 2027.
 
 ## Dernières sessions
 
+- [2026-11-06 (3) — Une bibliothèque de blocs, et le logo du client](docs/resumes/2026-11-06-blocs-templates-et-logo.md) :
+  C1-T4a et C1-T5 fusionnées ; C2-T2 livrée ; C6-T6 ouverte.
 - [2026-11-06 (2) — La production archivée, et le schéma du cabinet mesuré contre elle](docs/resumes/2026-11-06-production-archivee-et-schema-cabinet.md) :
   production nommée (`d43350a`) ; C1-T4 scindée ; C1-T4a livrée.
 - [2026-11-06 — `main` publié, et une page d'état qui peut circuler](docs/resumes/2026-11-06-page-etat.md) :
@@ -171,8 +178,6 @@ pilote que l'historique de `journal.log` partira en bloc vers février 2027.
   C1-T6b livrée. La garde lit tout l'historique de la plage ; seuil de 735 px.
 - [2026-11-05 — Le type `grille`, et la grille qu'on ne voyait pas rognée](docs/resumes/2026-11-05-type-grille.md) :
   C1-T6 livrée (format v2, amendement A1 : réduire puis refuser). C1-T6b ouverte.
-- [2026-11-04 — Un premier prospect, et huit tâches livrées](docs/resumes/2026-11-04-premier-prospect-et-huit-taches.md) :
-  C2-T1, C6-T4, C9-T1, C7-T1, C4-T4, C7-T5, C3-T3a, C4-T2. Décisions métier.
 
 ## Comment on travaille ici
 
@@ -219,25 +224,20 @@ Ils ont déjà coûté du temps ; ils le recoûteront.
   d'adresse IP est restée active dans le code**. Sauvegarder hors du dépôt avant
   toute mutation, restaurer par `cp` ; au retour d'un agent interrompu, vérifier
   l'absence de mutation résiduelle **avant** toute autre question.
-- **TLS** — sans `set_alpn_protocols`, Chrome ferme sans un octet
-  (`ERR_EMPTY_RESPONSE`, aucune trace) ; et `socketserver` avale l'`OSError` de
-  la négociation dans `get_request()`, surchargée pour la faire remonter.
-- **`SO_REUSEADDR`** — sous Windows, deux processus sur le même port, l'ancien
-  répondant encore : drapeau conditionné à `os.name`.
-- **`hmac.compare_digest`** lève `TypeError` sur une chaîne non ASCII : un
-  identifiant accentué tuait le fil d'exécution. Comparaison sur des octets.
-- **Double pile** — `localhost` résout en `::1` d'abord : écoute IPv6 avec
-  `IPV6_V6ONLY` désactivé, repli IPv4.
-- **Palette** — cinq couleurs sur `:root` seulement ; le PDF les lit par
-  `getComputedStyle` **dans** la génération (au niveau module, les tests `vm`
-  de la file d'attente cassent).
+- **Serveur** — sans `set_alpn_protocols`, Chrome ferme sans un octet, et
+  `get_request()` est surchargée pour ne pas avaler l'`OSError` TLS ;
+  `SO_REUSEADDR` conditionné à `os.name` (Windows) ; `compare_digest` sur des
+  octets (accents) ; double pile IPv6 avec `IPV6_V6ONLY` désactivé.
+- **Palette** — cinq couleurs sur `:root` ; le PDF les lit par
+  `getComputedStyle` **dans** la génération, jamais au niveau module.
+- **Une garde d'écriture s'éprouve dans une racine jetable**, jamais dans le
+  dépôt : un `finally` ne protège pas d'une interruption (C1-T5).
 - **Les clés de brouillon sont gelées.** Les `id` du formulaire *sont* les clés
   du brouillon `localStorage` (`cleChamp()`). Les renommer — même pour corriger
   `familliaux`, `spécialistes`, `symétrique`, `pédieux` — perd le bilan d'une
   consultation en cours. La tentation de « nettoyer » est le risque de C1-T4.
-- **Le rendu ne doit pas démarrer après `DOMContentLoaded`** : `initDessin()` exige
-  les quatre images dans le DOM, sinon le stylet ne répond plus. D'où
-  `demarrerApplication()`, appelée **par le moteur, après rendu**.
+- **`initDessin()` exige les quatre images dans le DOM** : `demarrerApplication()`
+  est appelée **par le moteur, après rendu**, jamais sur `DOMContentLoaded`.
 - **`dossier_pdf` et le compte SYSTEM** — un lecteur réseau de la session du
   praticien n'existe pas pour la tâche planifiée : chemin local ou UNC. Et
   `TerminateProcess` saute le `finally` : pas de ligne `ARRET` au cabinet.
@@ -283,8 +283,8 @@ Ils ont déjà coûté du temps ; ils le recoûteront.
   elle est gardée par `tests/test_confidentialite_prospect.py` : fichiers,
   messages de commit, noms de référence et **tout blob de la plage** — sur le
   seul poste qui détient la fiche. Restent hors garde : messages d'étiquettes
-  annotées, image commitée en binaire. Les deux exemptions visent des SHA de
-  `c1-t6-grille` : une fusion qui réécrit l'historique les rend sans objet.
+  annotées, image commitée en binaire. Elle mord aussi sur du vocabulaire
+  médical ordinaire : reformuler, et **effacer le brouillon refusé** du bloc-notes.
 
 ## Fichiers à ne jamais toucher
 

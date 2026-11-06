@@ -485,6 +485,9 @@ l'en-tête ; le moteur de rendu, identique chez tous les clients, produit le DOM
 > redonne `clients/cabinet-01/schema.json` à l'octet, et `podologue-court`),
 > `outils/composer-schema.js` (Node nu), suite `tests/test_blocs.js`, garde
 > « ni `blocs/` ni `templates/` dans le paquet ». Rien ne part au cabinet.
+> Audit `docs/audits/C1-T5.md` (CONFORME, faible corrigé), revue
+> `docs/revues/C1-T5.md` (À LIVRER) ; **fusionnée sur `main`** (`715c0b1`).
+> Ne cocher « livrée » qu'avec la mesure officielle consignée.
 
 - **Effort :** M
 - **Process :** Allégé — bibliothèque de départ, rien en production.
