@@ -252,6 +252,9 @@ bilan-posturo/
 │   └── images/             skeletal diagrams, footprints, logo
 ├── clients/                one folder per client: its form schema (C1-T4a)
 │   └── cabinet-01/schema.json   mirrored by formulaire/schema.json, kept equal by a test
+├── blocs/                  reusable schema fragments, cut from cabinet-01 (C1-T5)
+├── templates/              starting recipes for a new client (C1-T5), composed by
+│                           `node outils/composer-schema.js templates/<name>.json`
 ├── serveur/
 │   ├── serveur.py          HTTPS server and delivery endpoint
 │   └── generer_autorite.py certificate authority + server certificate
@@ -259,7 +262,8 @@ bilan-posturo/
 ├── outils/
 │   ├── faire-paquet.sh     builds the archive to install at the practice:
 │   │                       `sh outils/faire-paquet.sh cabinet-01` (client is required)
-│   └── partager-paquet.sh  serves that archive over the local network
+│   ├── partager-paquet.sh  serves that archive over the local network
+│   └── composer-schema.js  workshop tool: composes and checks a client schema
 ├── tests/                  Python for the server, Node for the delivery queue
 ├── demarrer-serveur.bat    manual Windows launcher, useful to see errors
 ├── installer-demarrage.ps1 registers the scheduled task and firewall rule

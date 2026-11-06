@@ -71,8 +71,12 @@ date '+%Y-%m-%d %H:%M:%S'      # DÉBUT : à lancer en ouvrant la feuille de rou
 
 ```
 node outils/composer-schema.js --verifier "$TRAVAIL/schema.json"; echo "code $?"
-date '+%Y-%m-%d %H:%M:%S'      # FIN : dès que --verifier rend 0 (le premier qui rend 0)
+date '+%Y-%m-%d %H:%M:%S'      # FIN : premier --verifier à 0 APRÈS la modification 8
 ```
+
+Le schéma composé à l'étape 2 passe déjà `--verifier` : une vérification faite
+en cours de route n'arrête pas le chronomètre. Seul compte le premier
+`--verifier` rendant 0 une fois les huit modifications faites.
 
 Puis, **hors chronomètre** :
 
