@@ -106,6 +106,35 @@ class FormeLogo(unittest.TestCase):
             with self.subTest(chemin=chemin):
                 self.assertEqual(serveur.forme_logo(chemin), "forme-invalide")
 
+    def test_seul_images_cabinet_ou_le_defaut_sont_admis(self):
+        # Constat d'audit : un logo client posé ailleurs que sous
+        # images/cabinet/ serait servi, non ignoré par Git et emballé par
+        # faire-paquet.sh. Les deux seuls emplacements admis sont ce dossier,
+        # sur un seul niveau, et exactement le logo par défaut.
+        defaut = serveur.CONFIG_DEFAUT["cabinet"]["logo"]
+        for chemin in ("images/cabinet/l.png", "images/cabinet/L.JPG",
+                       "images/cabinet/a_b-c.d.jpeg", defaut):
+            with self.subTest(admis=chemin):
+                self.assertIsNone(serveur.forme_logo(chemin))
+        for chemin in ("images/logo-client.png", "images/cabinet/sous/l.png",
+                       "l.png", "logo.jpg", "images/cabinet.png",
+                       "images/cabinet/", "Images/cabinet/l.png",
+                       "images/Cabinet/l.png", "images/cabinet/../l.png",
+                       "formulaire/images/cabinet/l.png",
+                       "images/favicon.png", "images/favicon2.jpeg",
+                       "images/squelette_dos.png", "images/empreintes_pieds.png",
+                       "x/images/cabinet/l.png"):
+            with self.subTest(refuse=chemin):
+                self.assertIn(serveur.forme_logo(chemin),
+                              ("forme-invalide", "hors-racine"))
+        # Le motif est celui de la forme, pas un nouveau.
+        self.assertEqual(serveur.forme_logo("images/logo-client.png"),
+                         "forme-invalide")
+        self.assertEqual(serveur.forme_logo("images/cabinet/sous/l.png"),
+                         "forme-invalide")
+        self.assertEqual(serveur.valider_logo("images/logo-client.png"),
+                         ("", "forme-invalide"))
+
     def test_non_chaine_est_forme_invalide(self):
         for valeur in (None, 42, ["images/l.png"], {"a": 1}, True, b"l.png"):
             with self.subTest(valeur=valeur):
@@ -125,7 +154,7 @@ class FormeLogo(unittest.TestCase):
 
     def test_formes_admises(self):
         for chemin in ("images/favicon.jpeg", "images/cabinet/enseigne.png",
-                       "l.png", "a_b-c/d.e.f/L.JPG", "images/cabinet/L.PNG"):
+                       "images/cabinet/L.PNG"):
             with self.subTest(chemin=chemin):
                 self.assertIsNone(serveur.forme_logo(chemin))
 
@@ -145,7 +174,7 @@ class FormeLogo(unittest.TestCase):
                                         side_effect=AssertionError("disque")), \
              unittest.mock.patch.object(serveur.os.path, "exists",
                                         side_effect=AssertionError("disque")):
-            self.assertIsNone(serveur.forme_logo("images/l.png"))
+            self.assertIsNone(serveur.forme_logo("images/cabinet/l.png"))
             self.assertEqual(serveur.forme_logo("../l.png"), "hors-racine")
 
 
@@ -168,18 +197,18 @@ class ConfinementLogo(RacineTemporaire):
         self.assertEqual(absolu, os.path.realpath(chemin))
 
     def test_lien_vers_l_exterieur(self):
-        self.lier(self.hors, os.path.join(self.racine, "images", "lien.png"))
-        self.assertEqual(serveur.confiner_logo("images/lien.png", self.racine),
+        self.lier(self.hors, os.path.join(self.racine, "images", "cabinet", "lien.png"))
+        self.assertEqual(serveur.confiner_logo("images/cabinet/lien.png", self.racine),
                          ("", "lien-symbolique"))
-        self.assertEqual(serveur.valider_logo("images/lien.png", self.racine),
+        self.assertEqual(serveur.valider_logo("images/cabinet/lien.png", self.racine),
                          ("", "lien-symbolique"))
 
     def test_lien_vers_l_interieur(self):
-        reel = self.poser("images/reel.png")
-        self.lier(reel, os.path.join(self.racine, "images", "lien.png"))
-        self.assertEqual(serveur.confiner_logo("images/lien.png", self.racine),
+        reel = self.poser("images/cabinet/reel.png")
+        self.lier(reel, os.path.join(self.racine, "images", "cabinet", "lien.png"))
+        self.assertEqual(serveur.confiner_logo("images/cabinet/lien.png", self.racine),
                          ("", "lien-symbolique"))
-        self.assertEqual(serveur.valider_logo("images/lien.png", self.racine),
+        self.assertEqual(serveur.valider_logo("images/cabinet/lien.png", self.racine),
                          ("", "lien-symbolique"))
 
     def test_dossier_parent_lie(self):
@@ -257,6 +286,22 @@ class ValidationLogo(RacineTemporaire):
                 self.assertEqual(serveur.valider_logo(chemin, self.racine),
                                  (chemin, None))
 
+    def test_logo_hors_emplacement_refuse_meme_s_il_existe(self):
+        # Un vrai PNG valide sous formulaire/ mais hors images/cabinet/ n'est
+        # jamais proposé : il serait servi, non ignoré par Git, et emballé.
+        self.poser("images/logo-client.png")
+        self.poser("images/cabinet/sous/l.png")
+        self.poser("l.png")
+        for chemin in ("images/logo-client.png", "images/cabinet/sous/l.png", "l.png"):
+            with self.subTest(chemin=chemin):
+                self.assertEqual(serveur.valider_logo(chemin, self.racine),
+                                 ("", "forme-invalide"))
+        # Témoin : le même fichier, sous images/cabinet/, est accepté.
+        self.poser("images/cabinet/logo-client.png")
+        self.assertEqual(
+            serveur.valider_logo("images/cabinet/logo-client.png", self.racine),
+            ("images/cabinet/logo-client.png", None))
+
     def test_pas_de_logo_est_un_choix(self):
         for vide in ("", " ", "\t\n"):
             with self.subTest(vide=vide):
@@ -264,44 +309,48 @@ class ValidationLogo(RacineTemporaire):
                                  ("", None))
 
     def test_absent_et_dossier(self):
-        self.assertEqual(serveur.valider_logo("images/absent.png", self.racine),
+        self.assertEqual(serveur.valider_logo("images/cabinet/absent.png", self.racine),
                          ("", "absent"))
-        self.assertEqual(serveur.valider_logo("rien/absent.png", self.racine),
+        # Dossier parent absent.
+        shutil.rmtree(os.path.join(self.racine, "images", "cabinet"))
+        self.assertEqual(serveur.valider_logo("images/cabinet/absent.png", self.racine),
                          ("", "absent"))
-        os.mkdir(os.path.join(self.racine, "images", "d.png"))
-        self.assertEqual(serveur.valider_logo("images/d.png", self.racine),
+        # Un dossier à la place du fichier.
+        os.makedirs(os.path.join(self.racine, "images", "cabinet", "d.png"))
+        self.assertEqual(serveur.valider_logo("images/cabinet/d.png", self.racine),
                          ("", "absent"))
-        # Un fichier au milieu du chemin : NotADirectoryError, pas une levée.
-        self.poser("images/fichier.png")
+        # Un fichier à la place du dossier : NotADirectoryError, pas une levée.
+        shutil.rmtree(os.path.join(self.racine, "images", "cabinet"))
+        ecrire(os.path.join(self.racine, "images", "cabinet"), PNG)
         self.assertEqual(
-            serveur.valider_logo("images/fichier.png/x.png", self.racine),
+            serveur.valider_logo("images/cabinet/l.png", self.racine),
             ("", "absent"))
 
     def test_vide_est_illisible(self):
-        self.poser("images/vide.png", b"", taille=0)
-        self.assertEqual(serveur.valider_logo("images/vide.png", self.racine),
+        self.poser("images/cabinet/vide.png", b"", taille=0)
+        self.assertEqual(serveur.valider_logo("images/cabinet/vide.png", self.racine),
                          ("", "illisible"))
 
     def test_taille(self):
         limite = serveur.LOGO_TAILLE_MAX
-        self.poser("images/pile.png", PNG, limite)
-        self.poser("images/trop.png", PNG, limite + 1)
+        self.poser("images/cabinet/pile.png", PNG, limite)
+        self.poser("images/cabinet/trop.png", PNG, limite + 1)
         # Exactement la limite est accepté, un octet de plus ne l'est pas.
-        self.assertEqual(serveur.valider_logo("images/pile.png", self.racine),
-                         ("images/pile.png", None))
-        self.assertEqual(serveur.valider_logo("images/trop.png", self.racine),
+        self.assertEqual(serveur.valider_logo("images/cabinet/pile.png", self.racine),
+                         ("images/cabinet/pile.png", None))
+        self.assertEqual(serveur.valider_logo("images/cabinet/trop.png", self.racine),
                          ("", "trop-volumineux"))
 
     def test_signature(self):
         # PNG sous une extension .jpg, et l'inverse.
-        self.poser("images/faux.jpg", PNG)
-        self.poser("images/faux.png", JPEG)
+        self.poser("images/cabinet/faux.jpg", PNG)
+        self.poser("images/cabinet/faux.png", JPEG)
         # Un fichier renommé : du texte sous une extension d'image.
-        self.poser("images/page.png", b"<html>")
+        self.poser("images/cabinet/page.png", b"<html>")
         # Trop court pour porter une signature.
-        self.poser("images/court.png", b"\x89P", taille=2)
-        for chemin in ("images/faux.jpg", "images/faux.png",
-                       "images/page.png", "images/court.png"):
+        self.poser("images/cabinet/court.png", b"\x89P", taille=2)
+        for chemin in ("images/cabinet/faux.jpg", "images/cabinet/faux.png",
+                       "images/cabinet/page.png", "images/cabinet/court.png"):
             with self.subTest(chemin=chemin):
                 self.assertEqual(serveur.valider_logo(chemin, self.racine),
                                  ("", "illisible"))
@@ -309,10 +358,10 @@ class ValidationLogo(RacineTemporaire):
     @unittest.skipIf(os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0),
                      "droits de lecture non restreignables ici")
     def test_illisible_sans_droit_de_lecture(self):
-        chemin = self.poser("images/ferme.png")
+        chemin = self.poser("images/cabinet/ferme.png")
         os.chmod(chemin, 0)
         self.addCleanup(os.chmod, chemin, 0o600)
-        self.assertEqual(serveur.valider_logo("images/ferme.png", self.racine),
+        self.assertEqual(serveur.valider_logo("images/cabinet/ferme.png", self.racine),
                          ("", "illisible"))
 
     def test_racine_par_defaut_est_formulaire(self):

@@ -340,7 +340,7 @@ def verifier_mot_de_passe(mot_de_passe, stocke):
 # Logo du cabinet (C2-T2)
 # --------------------------------------------------------------------------
 
-# Forme admise d'un chemin de logo : segments de lettres, chiffres, « _ », « - »
+# Alphabet admis d'un chemin de logo : segments de lettres, chiffres, « _ », « - »
 # et « . » (jamais en tête), séparés par « / ». Tout le reste est refusé d'un
 # bloc : schéma d'URL (« : »), « //hôte », « % », « ? », « # », « \ » (donc
 # aussi les flux alternatifs NTFS et les noms courts), espaces, accents et
@@ -348,6 +348,15 @@ def verifier_mot_de_passe(mot_de_passe, stocke):
 # attribut `src` côté tablette.
 FORME_CHEMIN_LOGO = re.compile(
     r"(?:[A-Za-z0-9_-][A-Za-z0-9._-]*/)*[A-Za-z0-9_-][A-Za-z0-9._-]*")
+
+# Emplacement admis d'un logo (constat d'audit C2-T2) : un seul niveau sous
+# images/cabinet/, le dossier que Git ignore et que faire-paquet.sh refuse
+# d'emballer — ou exactement le logo par défaut, dérivé de CONFIG_DEFAUT et
+# jamais recopié. Un logo client posé ailleurs sous formulaire/ serait servi,
+# non ignoré, et emballé pour le client suivant.
+LOGO_PAR_DEFAUT = CONFIG_DEFAUT["cabinet"]["logo"]
+FORME_LOGO_CLIENT = re.compile(
+    r"images/cabinet/[A-Za-z0-9_-][A-Za-z0-9._-]*")
 
 
 def forme_logo(chemin):
@@ -369,6 +378,8 @@ def forme_logo(chemin):
         return "forme-invalide"
     if os.path.splitext(chemin)[1].lower() not in EXTENSIONS_LOGO:
         return "extension-non-servie"
+    if chemin != LOGO_PAR_DEFAUT and not FORME_LOGO_CLIENT.fullmatch(chemin):
+        return "forme-invalide"
     return None
 
 

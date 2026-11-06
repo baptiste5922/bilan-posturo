@@ -144,6 +144,11 @@ chemin **une fois** ; un chemin refusé n'est jamais proposé à la tablette.
 
 - relatif à `formulaire/`, avec des `/` : lettres sans accent, chiffres,
   `_`, `-` et `.` (jamais en tête de nom), pas d'espace ;
+- **sous `images/cabinet/`, sur un seul niveau** (`images/cabinet/<nom>.png`),
+  **ou exactement** le logo par défaut `images/favicon.jpeg`. Tout autre chemin
+  sous `formulaire/` est refusé (`forme-invalide`) : seul ce dossier est ignoré
+  par Git et refusé par `outils/faire-paquet.sh`, un logo posé ailleurs serait
+  emballé pour le client suivant ;
 - PNG ou JPEG (`.png`, `.jpg`, `.jpeg`), dont le contenu est bien celui d'une
   telle image ;
 - 512 Kio au plus : le logo s'affiche en 130 × 130 px ;

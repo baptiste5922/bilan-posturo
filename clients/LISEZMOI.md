@@ -19,7 +19,8 @@ unique ; ce qui change d'un client à l'autre vit ici.
   sur son PC, jamais dans le dépôt. Cela vaut pour tout fichier de ce dossier,
   documentation comprise.
 - **Pas de logo ici** : il identifie le cabinet ; il se pose sur son PC, sous
-  `formulaire/images/cabinet/`.
+  `formulaire/images/cabinet/` — et nulle part ailleurs sous `formulaire/` : le
+  serveur refuse tout autre emplacement.
 - **Le dépôt est public** : le schéma d'un client y est publié. Un client dont la
   structure de formulaire ne doit pas l'être n'a pas sa place ici avant que la
   question soit tranchée (C9).
