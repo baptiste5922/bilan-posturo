@@ -334,6 +334,9 @@ async function exporterBilanPDF() {
             annoncer(MESSAGE_GRILLE_TROP_LARGE, "erreur", true);
             return;
         }
+        // Le logo est dans #form-bilan, donc dans la capture : on attend qu'il
+        // soit chargé (borné, ne rejette jamais).
+        await logoPret();
         // La lecture des couleurs est dans le try : hors de lui, une
         // défaillance remonterait sans passer par le catch, donc sans
         // message, et la praticienne verrait un bouton qui ne fait rien.
@@ -1019,6 +1022,68 @@ function appliquerCabinet() {
         const paragraphe = document.createElement("p");
         paragraphe.textContent = texte;
         section.appendChild(paragraphe);
+    });
+
+    // Après la garde d'identité : sans identité, l'image reste dans l'état du
+    // HTML, et l'export est refusé de toute façon.
+    appliquerLogo();
+}
+
+/**
+ * Applique le logo que le serveur a validé (C2-T2). Le serveur ne rend jamais
+ * que le chemin d'un fichier de la racine web, ou "" pour « pas de logo » :
+ * un logo refusé donne l'absence de logo, jamais l'emblème par défaut, qui
+ * est celui d'une autre profession pour un autre cabinet.
+ *
+ * Le `src` n'est réécrit que s'il diffère de celui du HTML : avec la
+ * configuration par défaut, le DOM au moment de la capture reste exactement
+ * celui d'avant cette tâche (la fiche de secours charge ce même script).
+ * `getAttribute`, jamais `image.src`, que le navigateur rend absolu ; et
+ * `style.display`, parce que la règle `#logo { display: block }` de la feuille
+ * l'emporterait sur l'attribut `hidden`.
+ */
+function appliquerLogo() {
+    const image = document.getElementById("logo");
+    if (!image) return;
+
+    const logo = (cabinet && typeof cabinet.logo === "string") ? cabinet.logo : "";
+    if (logo === "") {
+        image.style.display = "none";
+        return;
+    }
+    if (image.style.display !== "") image.style.display = "";
+    if (image.getAttribute("src") !== logo) {
+        image.setAttribute("src", logo);
+    }
+}
+
+const DELAI_LOGO = 3000;   // ms : un logo de 512 Kio au plus, sur le réseau local
+
+/**
+ * Attend que le logo soit chargé avant la capture : html2canvas lit l'image
+ * telle qu'elle est à cet instant, et un logo qui vient de changer de `src`
+ * ne serait pas encore là. Se résout aussitôt s'il n'y a rien à attendre
+ * (pas d'image, image masquée, image déjà complète). Ne rejette jamais, et
+ * l'attente est bornée : un logo qui n'arrive pas ne doit pas bloquer
+ * l'export d'une consultation.
+ */
+function logoPret() {
+    const image = document.getElementById("logo");
+    if (!image || image.style.display === "none" || image.complete) {
+        return Promise.resolve();
+    }
+    return new Promise(function (resoudre) {
+        let termine = false;
+        let minuterie = null;
+        function fin() {
+            if (termine) return;
+            termine = true;
+            clearTimeout(minuterie);
+            resoudre();
+        }
+        minuterie = setTimeout(fin, DELAI_LOGO);
+        image.addEventListener("load", fin, { once: true });
+        image.addEventListener("error", fin, { once: true });
     });
 }
 
