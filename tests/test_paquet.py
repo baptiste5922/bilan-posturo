@@ -43,7 +43,7 @@ OUTILS_DISPONIBLES = all(_outil_disponible(n) for n in ("sh", "zip", "unzip"))
 def _copier_le_depot():
     """Copie temporaire du strict nécessaire au script ; l'appelant la supprime."""
     dossier = tempfile.mkdtemp(prefix="bilan-paquet-")
-    for nom in ("formulaire", "serveur", "outils", "docs", "clients"):
+    for nom in ("formulaire", "serveur", "outils", "docs", "clients", "blocs", "templates"):
         shutil.copytree(
             RACINE / nom, Path(dossier) / nom,
             ignore=shutil.ignore_patterns(".DS_Store", "__pycache__"),
@@ -171,6 +171,26 @@ class ClientDuPaquet(unittest.TestCase):
             self.assertEqual(archive.read(livres[0]), octets_client)
             self.assertEqual([n for n in archive.namelist() if "/clients/" in n], [],
                              "le dossier clients/ ne doit jamais voyager")
+
+    def test_ni_blocs_ni_templates_dans_l_archive(self):
+        # La bibliothèque est un outil d'atelier (C1-T5) : la copie du dépôt la
+        # contient désormais, et l'archive, qui ne copie qu'une liste fermée, ne
+        # doit en porter aucune entrée. Préalable : sans lui, le test serait vert
+        # à vide sur une copie qui ne contiendrait pas les dossiers.
+        for nom in ("blocs", "templates"):
+            contenu = [p for p in (Path(self.dossier) / nom).rglob("*") if p.is_file()]
+            self.assertTrue(contenu, "la copie du dépôt ne contient pas " + nom + "/ : test vert à vide")
+
+        resultat = self._lancer("cabinet-01")
+        self.assertEqual(resultat.returncode, 0, resultat.stderr)
+        archives = list(Path(self.dossier).glob("BilanPosturo-*.zip"))
+        self.assertEqual(len(archives), 1, resultat.stdout)
+        with zipfile.ZipFile(archives[0]) as archive:
+            noms = archive.namelist()
+        self.assertGreater(len(noms), 0, "archive vide")
+        for dossier in ("blocs", "templates"):
+            self.assertEqual([n for n in noms if "/" + dossier + "/" in n], [],
+                             "le dossier " + dossier + "/ ne doit jamais voyager")
 
 
 if __name__ == "__main__":

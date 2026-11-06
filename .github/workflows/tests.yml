@@ -87,6 +87,9 @@ jobs:
       - name: Run client schema tests
         run: node tests/test_schema_client.js
 
+      - name: Run block library tests
+        run: node tests/test_blocs.js
+
   lint:
     runs-on: ubuntu-latest
     steps:
