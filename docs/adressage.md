@@ -260,8 +260,11 @@ déjà des tâches de la feuille de route :
 
 - le réseau privé de support (**C4-T5**) ne dépend pas de l'adresse du LAN : il
   reste joignable précisément quand l'adresse locale a changé ;
-- la page de diagnostic (**C4-T3**) affiche l'adresse courante et la validité du
-  certificat, donc l'incident se nomme en une minute au lieu de se deviner.
+- la page de diagnostic (**C4-T3**) affiche si le certificat couvre encore une
+  adresse du PC, et sa validité, donc l'incident se nomme en une minute au
+  lieu de se deviner. Elle n'écrit aucune adresse (décision du 6 novembre 2026,
+  voie A) : l'adresse nouvelle ne sert qu'au geste de réparation, fait dans la
+  même séance, où `ipconfig` est à portée de main.
 
 Avec ces deux-là, l'intervention est : refixer le bail, réémettre le certificat
 (automatique après C3-T2), vérifier le favori. **Sans elles**, c'est un

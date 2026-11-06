@@ -249,6 +249,46 @@ To switch it off (there should be no reason to, but the fallback exists): open
 `false`, save, restart the server. The file already written can stay as is;
 it simply stops being fed.
 
+### The status page
+
+A read-only diagnostic page, to name an incident within a minute during a
+support session. On the practice PC, in a browser: `https://localhost:8000/etat`
+(replace `8000` with the port in `config.json`), with the usual username and
+password. Without them the page answers "unauthorised" like everything else:
+only the health probe `/sante` is open to everyone.
+
+It tells, line by line:
+
+- **Version** — the same as the form footer and `technique.log`;
+- **Server started on** — the date of the last start (the `ARRET` log line is
+  almost never written: this date replaces it);
+- **Last assessment received** — "none since startup" until one arrives; the
+  value is lost at every restart;
+- **Free space** on the disk that holds the PDF folder;
+- **Certificate valid until** — with the days left, and the mention "to be
+  renewed" under 30 days (see "The server certificate is expiring");
+- **Certificate fingerprint** — the same as the `DEMARRAGE` lines of
+  `technique.log`;
+- **PC address and certificate** — `conforme` (the certificate covers an
+  address the PC carries), `adresse changée` (it covers none any more: follow
+  "The PC's address has changed" above) or `indéterminé` (the certificate only
+  carries `localhost`, nothing to compare);
+- **Practice identity** — "not filled in" means assessment export is refused:
+  run `python serveur/serveur.py --config`;
+- the **last 30 lines of `technique.log`**.
+
+Nothing it shows identifies a patient, a file or an address: it can be
+photographed or pasted into an email, like `technique.log`. It writes nothing
+and triggers nothing.
+
+To read it from a program, request it with the header
+`Accept: application/json`.
+
+To switch it off: in `config.json`, add or set the `"page_etat"` line to
+`false`, then stop and restart the scheduled task. `/etat` then answers as it
+did before it existed ("unauthorised" without credentials, "file type not
+served" with them).
+
 ### Files that must never be shared
 
 - `autorite-cle.pem` — allows forging trusted certificates

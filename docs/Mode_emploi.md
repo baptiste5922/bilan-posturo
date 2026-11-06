@@ -263,6 +263,47 @@ arrière existe) : ouvrir `config.json` à la racine, ajouter ou mettre à
 `false` la ligne `"journal_technique"`, enregistrer, relancer le serveur. Le
 fichier déjà écrit peut rester tel quel ; il n'est simplement plus alimenté.
 
+### La page d'état
+
+Une page de diagnostic, en lecture seule, pour nommer un incident en une
+minute pendant une séance d'assistance. Sur le PC du cabinet, dans un
+navigateur : `https://localhost:8000/etat` (remplacer `8000` par le port de
+`config.json`), avec l'identifiant et le mot de passe habituels. Sans eux, la
+page répond « non autorisé » comme tout le reste : seule la sonde de santé
+`/sante` est ouverte à tous.
+
+Elle dit, ligne à ligne :
+
+- **Version** — la même que celle du pied de formulaire et de `technique.log` ;
+- **Serveur démarré le** — la date du dernier démarrage (la ligne `ARRET` du
+  journal n'est presque jamais écrite : cette date la remplace) ;
+- **Dernier bilan reçu** — « aucun depuis le démarrage » tant que rien n'est
+  arrivé ; la valeur est perdue à chaque redémarrage ;
+- **Espace libre** du disque qui porte le dossier des PDF ;
+- **Certificat valable jusqu'au** — avec les jours restants, et la mention
+  « à renouveler » sous 30 jours (voir « Le certificat serveur expire ») ;
+- **Empreinte du certificat** — la même que celle des lignes `DEMARRAGE` de
+  `technique.log` ;
+- **Adresse du PC et certificat** — `conforme` (le certificat couvre une
+  adresse que le PC porte), `adresse changée` (il n'en couvre plus aucune :
+  suivre « L'adresse du PC a changé » plus haut) ou `indéterminé` (le
+  certificat ne porte que `localhost`, rien à comparer) ;
+- **Identité du cabinet** — « non renseignée » signifie que l'export des
+  bilans est refusé : lancer `python serveur/serveur.py --config` ;
+- les **30 dernières lignes de `technique.log`**.
+
+Rien de ce qui s'y lit n'identifie une patiente, un patient, un fichier ou une
+adresse : elle peut être photographiée ou copiée dans un courriel, comme
+`technique.log`. Elle n'écrit rien et ne déclenche rien.
+
+Pour la lire par un programme, la demander avec l'en-tête
+`Accept: application/json`.
+
+Pour la désactiver : dans `config.json`, ajouter ou mettre à `false` la ligne
+`"page_etat"`, puis arrêter et relancer la tâche planifiée. `/etat` répond
+alors comme avant son existence (« non autorisé » sans identifiants, « type de
+fichier non servi » avec).
+
 ### Fichiers à ne jamais diffuser
 
 - `autorite-cle.pem` — permet de fabriquer de faux certificats

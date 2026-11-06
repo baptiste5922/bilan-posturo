@@ -155,6 +155,7 @@ exist for SYSTEM.
 | `mot_de_passe` | PBKDF2 digest, never the password itself |
 | `certificat` / `cle_privee` | Paths to the TLS files |
 | `journal_technique` | `true` by default; `false` turns off the second, non-identifying log (see below) |
+| `page_etat` | `true` by default; `false` switches off the authenticated diagnostic page `GET /etat`, which then answers as if it did not exist. Only `true` enables it |
 | `conservation_journaux_mois` | Retention of both logs, in months of 30 days: an integer from 1 to 120, `6` by default (anything else falls back to 6). Each log is archived past 5 MB or one month; an archive is deleted once its first line is older than this minus one day; checked at startup, at each rotation, at most once a day on write, and every six hours while the server runs |
 | `cabinet` | Practice identity (name, address, email, phone, logo path, file-naming template), set by `--config`, served by `GET /cabinet` (authenticated). Details: `docs/configuration.md` |
 
