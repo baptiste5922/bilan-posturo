@@ -1503,7 +1503,8 @@ détermine le prix du setup **et** le plafond de croissance.
 > `outils/atelier/atelier.js` (`ouvrir`, `composer`, `verifier`, `apercu`),
 > auxiliaire `outils/atelier/lire_serveur.py` (importe le serveur avec `-I -B`,
 > ne le lance jamais), procédure `outils/atelier/LISEZMOI.md`, suite
-> `tests/test_atelier.js` (32 cas, branchée dans `npm test` et la CI). Neuf
+> `tests/test_atelier.js` (32 cas, branchée dans `npm test` et la CI ; CI verte
+> sur les 7 jobs, run 42314279390, après un correctif CRLF sous Windows). Neuf
 > mises en échec (M1 à M6 du contrat, plus M7 à M9) consignées dans
 > `docs/audits/C9-T2-mises-en-echec.md`. Constat de rendu réel dans Chrome
 > piloté : aucune erreur, quatre images chargées, sept requêtes toutes `file://`
