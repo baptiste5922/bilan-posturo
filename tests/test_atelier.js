@@ -146,6 +146,10 @@ function lancer(args, env) {
     return { code: resultat.status, erreur: resultat.stderr, sortie: resultat.stdout };
 }
 
+// L'état de serveur/ AVANT le premier appel à l'auxiliaire : sans `-B`, ce premier
+// import écrirait un __pycache__ neuf (sur un clone frais, où il n'existe pas encore).
+const serveurAvant = JSON.stringify(listerAvecDates(path.join(RACINE, "serveur")));
+
 const python = atelier.trouverPython();
 assert.ok(python.commande, "aucun interpréteur Python utilisable : " + (python.refus || []).join(" "));
 const DEFAUTS = python.defauts;
@@ -239,13 +243,12 @@ cas("T1 : ouvrir refuse un dossier existant, une recette illisible et un parent 
 });
 
 cas("T1 : l'auxiliaire n'écrit rien sous serveur/ et n'appelle ni main, ni demarrer, ni charger_config", () => {
-    const avant = JSON.stringify(listerAvecDates(path.join(RACINE, "serveur")));
     childProcess.spawnSync(python.commande, ["-I", "-B", CHEMIN_AUXILIAIRE, "defauts"], { encoding: "utf8" });
     const racine = racineJetable("t1c");
     ecrireIdentiteBrute(racine, identiteComplete());
     childProcess.spawnSync(python.commande, ["-I", "-B", CHEMIN_AUXILIAIRE, "identite",
         path.join(racine, "identite-cabinet.json"), racine], { encoding: "utf8" });
-    assert.strictEqual(JSON.stringify(listerAvecDates(path.join(RACINE, "serveur"))), avant,
+    assert.strictEqual(JSON.stringify(listerAvecDates(path.join(RACINE, "serveur"))), serveurAvant,
         "serveur/ a changé (un __pycache__ écrit ?)");
     const source = fs.readFileSync(CHEMIN_AUXILIAIRE, "utf8");
     assert.ok(!/\b(main|demarrer|charger_config)\(/.test(source), "l'auxiliaire ne doit appeler ni main, ni demarrer, ni charger_config");
