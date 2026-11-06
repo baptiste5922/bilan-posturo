@@ -360,7 +360,7 @@ function principal(argv) {
     process.stderr.write("Schéma composé (" + resume(resultat.schema) + ").\n");
 }
 
-module.exports = { composer: composer, verifier: verifier, lireFragment: lireFragment };
+module.exports = { composer: composer, verifier: verifier, lireFragment: lireFragment, estSousFormulaire: estSousFormulaire };
 
 if (require.main === module) {
     principal(process.argv.slice(2));

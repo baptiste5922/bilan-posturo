@@ -32,7 +32,9 @@ chemin), sans doublon.
 ## Créer un client
 
 Tout se passe dans un dossier de travail **hors du dépôt** (`$TRAVAIL`) jusqu'à
-la dernière étape.
+la dernière étape. L'outil d'atelier `outils/atelier/atelier.js` enchaîne les
+étapes 1 à 4 ci-dessous et y ajoute l'identité, le logo et un aperçu : voir
+`outils/atelier/LISEZMOI.md`.
 
 1. Copier la recette la plus proche : `cp templates/podologue-court.json "$TRAVAIL/recette.json"`.
    Ajouter ou retirer des fragments dans la copie (jamais dans `templates/`).

@@ -55,3 +55,11 @@ docs/references-visuelles/*.pdf
 # cabinet, donc il l'identifie. Il se pose sur le PC du cabinet, jamais dans le
 # dépôt public ; outils/faire-paquet.sh refuse aussi d'emballer ce dossier.
 formulaire/images/cabinet/
+
+# Atelier de composition (C9-T2) : l'identité d'un client (nom, courriel,
+# téléphone) et l'aperçu de son formulaire vivent dans un dossier de travail
+# HORS du dépôt. Si l'un d'eux y atterrit malgré le refus de l'atelier, Git ne
+# le voit pas ; le pas de CI « Check that no secret is committed » refuse en
+# outre `identite-cabinet.json` s'il était ajouté de force.
+identite-cabinet.json
+apercu-atelier.html

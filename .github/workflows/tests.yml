@@ -91,6 +91,11 @@ jobs:
       - name: Run block library tests
         run: node tests/test_blocs.js
 
+      # Les écritures de l'atelier restent hors du dépôt ; l'aperçu est rendu
+      # par le vrai moteur. Cherche python3 puis python (amorce du Store).
+      - name: Run workshop tool tests
+        run: node tests/test_atelier.js
+
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -103,7 +108,7 @@ jobs:
         run: python -m pip install --upgrade pip pyflakes
 
       - name: Check for unused imports and undefined names
-        run: python -m pyflakes serveur/ tests/
+        run: python -m pyflakes serveur/ tests/ outils/atelier/
 
       - name: Check that no secret is committed
         run: |
@@ -117,6 +122,9 @@ jobs:
           # chemins accentués, et un motif ancré par ^ ne les voit plus.
           motif='\.pem$|autorite\.crt$|^config\.json$|^journal\.log|^technique\.log|^bilans/|^Bilan_entrants/'
           motif="$motif"'|^cles-editeur/|\.key$|\.p12$|\.pfx$|id_ed25519|_privee\.|-privee\.'
+          # L'identité d'un client se fabrique dans un dossier de travail hors
+          # du dépôt (C9-T2) : son fichier n'a rien à faire dans l'index.
+          motif="$motif"'|identite-cabinet\.json$'
           if git -c core.quotePath=false ls-files | grep -Ei "$motif"; then
             echo "::error::Un fichier sensible est versionné."
             exit 1
