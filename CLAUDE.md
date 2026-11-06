@@ -5,12 +5,12 @@ formulaire et annote les schémas au stylet, le PDF est fabriqué dans le
 navigateur et déposé sur le PC du cabinet. Utilisée quotidiennement depuis
 août 2026 par une pédicure-podologue à Morlaix, pour la totalité de ses bilans.
 
-**Dernière mise à jour :** 5 novembre 2026, par `/cloture-projet`
+**Dernière mise à jour :** 6 novembre 2026, par `/cloture-projet`
 **Version :** V1 en production au cabinet ; `main` porte la 1.1.0
 (`formulaire/version.json`), sous **BUSL 1.1** depuis le 14 octobre 2026
-**Jalon en cours :** V2 — 16 tâches livrées ; rien de la V2 n'est au cabinet.
-**`main` local n'est pas poussé** ; **`c1-t6-grille` puis `c1-t6b-outillage`**,
-livrées, attendent d'y être fusionnées. **Premier prospect hors pilote :** un
+**Jalon en cours :** V2 — 17 tâches livrées ; rien de la V2 n'est au cabinet.
+**`main` est poussé** (`a9b3676`, C1-T6 et C1-T6b comprises) ; **`c4-t3-etat`**,
+livrée, attend d'y être fusionnée. **Premier prospect hors pilote :** un
 formateur en posturologie. Sa fiche (hors dépôt) est faisable : type `grille`.
 
 ## Architecture en bref
@@ -28,7 +28,7 @@ formateur en posturologie. Sa fiche (hors dépôt) est faisable : type `grille`.
 
 | Composant | Rôle |
 |---|---|
-| `serveur/serveur.py` (~1 300 l.) | HTTPS, dépôt, authentification, `/sante`, `/cabinet`, deux journaux purgés à six mois |
+| `serveur/serveur.py` (~1 860 l.) | HTTPS, dépôt, authentification, `/sante`, `/cabinet`, `/etat`, deux journaux purgés à six mois |
 | `serveur/generer_autorite.py` | Autorité de certification locale + certificat serveur |
 | `formulaire/script.js` | PDF, stylet, brouillon, dépôt, file d'attente, tokens de couleur |
 | `formulaire/index.html` | Coquille de 118 l. que le moteur remplit ; V1 gelée dans `index-v1.html` |
@@ -37,7 +37,7 @@ formateur en posturologie. Sa fiche (hors dépôt) est faisable : type `grille`.
 | `formulaire/style.css` | La palette du cabinet : cinq tokens sur `:root`, **source unique** |
 | `formulaire/version.json` | Numéro de version, **source unique** (serveur, pied de page, `technique.log`) |
 | `installer-demarrage.ps1` | Tâche planifiée SYSTEM + pare-feu ; `-Verifier` contrôle sans rien modifier |
-| `tests/` | 241 tests Python + 12 suites Node (branche `c1-t6b-outillage`) |
+| `tests/` | 314 tests Python + 12 suites Node (branche `c4-t3-etat`) |
 
 Le PDF est produit **côté navigateur** : le serveur ne reçoit qu'un fichier déjà
 assemblé, et n'a aucune dépendance Python.
@@ -63,8 +63,10 @@ jamais dans le dépôt, servie par `GET /cabinet` ; sans elle, l'export est refu
 - **La racine web est `formulaire/`** et ne contient que le formulaire. Clés,
   configuration, journaux et code Python vivent un niveau au-dessus. Le filtre
   d'extensions est la seconde barrière : les deux se conservent.
-- **`/sante` est la seule route non authentifiée.** Elle ne divulgue rien de
-  plus que l'existence du port, et reste muette dans les **deux** journaux.
+- **`/sante` est la seule route non authentifiée** (garde dérivée de l'AST
+  depuis C4-T3). Elle ne divulgue que l'existence du port, muette dans les
+  **deux** journaux. **`/etat` ne montre aucune adresse ni nom de fichier** :
+  la page circule en capture, comme `technique.log`.
 - **Code, commentaires et messages en français**, accents compris.
 - **Un seul utilisateur en production** : toute modification du formulaire peut
   casser une consultation le lendemain matin. Prévoir le retour arrière.
@@ -81,7 +83,7 @@ une image et non une donnée.
 | C1 | Moteur de formulaire à schéma | T1, T2, T3, T3b, **T6 (`grille`), T6b livrés** ; T4 bloqué par le favori ; T5 |
 | C2 | Identité du cabinet en configuration | T1 **livré** ; T2 (logo) à faire |
 | C3 | Adressage, certificat et installateur | T1, **T3a livrés** (T3a : VM Windows à faire) ; T2, T3, T4 |
-| C4 | Observabilité et support | T1, **T2, T4 livrés** ; T5 **sortie de la V2** ; T3, T6 |
+| C4 | Observabilité et support | T1, T2, **T3 (`/etat`)**, T4 **livrés** ; T5 **sortie de la V2** ; T6 |
 | C5 | Mises à jour signées | à faire (tirées par le PC, signées : décidé) |
 | C6 | Durcissement de sécurité | **T4 livré** ; T1, T2, T3, T5 |
 | C7 | Filet de tests | **T1, T5 livrés** ; T2, T3, T4 |
@@ -142,8 +144,8 @@ emprunte est éprouvé. **Tant qu'il n'est pas fait, rien ne part au cabinet et
 C1-T4 ne peut pas commencer** — son critère d'acceptation est une semaine de
 bilans réels sans régression.
 
-**Tests :** 241 Python (2 sautés hors Windows) et 12 suites Node, tous verts
-au 5 novembre 2026, aussi sous `python3 -O`, et en CI sur Linux, Windows et
+**Tests :** 314 Python (2 sautés hors Windows) et 12 suites Node, tous verts
+au 6 novembre 2026, aussi sous `python3 -O`, et en CI sur Linux, Windows et
 macOS, Python 3.9 et 3.13 — CI jouée sur les branches de tâche, pas sur `main`.
 `npm test` dépasse le délai de 2 min d'une commande : le lancer en arrière-plan.
 
@@ -158,6 +160,8 @@ pilote que l'historique de `journal.log` partira en bloc vers février 2027.
 
 ## Dernières sessions
 
+- [2026-11-06 — `main` publié, et une page d'état qui peut circuler](docs/resumes/2026-11-06-page-etat.md) :
+  C1-T6 et C1-T6b fusionnées et poussées ; C4-T3 livrée (voie A, neuf clés).
 - [2026-11-05 (2) — Fiabiliser l'outillage et les gardes de la grille](docs/resumes/2026-11-05-outillage-et-gardes-grille.md) :
   C1-T6b livrée. La garde lit tout l'historique de la plage ; seuil de 735 px.
 - [2026-11-05 — Le type `grille`, et la grille qu'on ne voyait pas rognée](docs/resumes/2026-11-05-type-grille.md) :
@@ -166,8 +170,6 @@ pilote que l'historique de `journal.log` partira en bloc vers février 2027.
   C2-T1, C6-T4, C9-T1, C7-T1, C4-T4, C7-T5, C3-T3a, C4-T2. Décisions métier.
 - [2026-10-20 — L'adressage tranché, et un journal que l'éditeur peut lire](docs/resumes/2026-10-20-adressage-et-journal-technique.md) :
   C3-T1 et C4-T1 livrées. Le garde-fou qui ne garde rien, quatre fois.
-- [2026-10-19 — La bascule, et ce que le rendu réel a révélé](docs/resumes/2026-10-19-bascule-et-fidelite.md) :
-  C1-T3b livrée. Cinq écarts de rendu trouvés dans un vrai navigateur.
 
 ## Comment on travaille ici
 
@@ -228,11 +230,9 @@ Ils ont déjà coûté du temps ; ils le recoûteront.
 - **Double pile** — `localhost` résout d'abord en `::1` : un serveur lié au seul
   `0.0.0.0` y est injoignable. On écoute en IPv6 avec `IPV6_V6ONLY` désactivé,
   avec repli IPv4.
-- **Palette — piège refermé par C1-T2.** Les cinq couleurs vivent **uniquement**
-  sur `:root` dans `style.css` ; le PDF les lit par `getComputedStyle` à chaque
-  génération, et la lecture doit rester **dans** la génération — au niveau module
-  elle casse les tests de la file d'attente, dont le contexte `vm` n'a pas
-  `getComputedStyle`.
+- **Palette** — cinq couleurs sur `:root` seulement ; le PDF les lit par
+  `getComputedStyle` **dans** la génération (au niveau module, les tests `vm`
+  de la file d'attente cassent).
 - **Les clés de brouillon sont gelées.** Les `id` du formulaire *sont* les clés
   du brouillon `localStorage` (`cleChamp()`). Les renommer — même pour corriger
   `familliaux`, `spécialistes`, `symétrique`, `pédieux` — perd le bilan d'une
