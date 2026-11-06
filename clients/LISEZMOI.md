@@ -18,6 +18,8 @@ unique ; ce qui change d'un client à l'autre vit ici.
   téléphone, ni mot de passe : l'identité d'un cabinet vit dans son `config.json`,
   sur son PC, jamais dans le dépôt. Cela vaut pour tout fichier de ce dossier,
   documentation comprise.
+- **Pas de logo ici** : il identifie le cabinet ; il se pose sur son PC, sous
+  `formulaire/images/cabinet/`.
 - **Le dépôt est public** : le schéma d'un client y est publié. Un client dont la
   structure de formulaire ne doit pas l'être n'a pas sa place ici avant que la
   question soit tranchée (C9).
