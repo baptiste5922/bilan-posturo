@@ -156,3 +156,8 @@ l'archive) ; 13 suites Node ; les chiffres de fin sont ci-dessous.
 `scripts-windows`), dont le pas « Run client schema tests » (Linux, Python 3.9)
 et le pas « Check that no image or PDF is versioned… » (lint).
 Run : https://github.com/baptiste5922/bilan-posturo/actions/runs/42212161381
+
+**Après la reprise de la revue** : run
+https://github.com/baptiste5922/bilan-posturo/actions/runs/42236920584, sur
+`f907c6d` : **7 jobs sur 7 verts** (le job macOS est resté en file d'attente
+quelques minutes faute de machine, puis a réussi).
