@@ -8,10 +8,11 @@ août 2026 par une pédicure-podologue à Morlaix, pour la totalité de ses bila
 **Dernière mise à jour :** 6 novembre 2026, par `/cloture-projet`
 **Version :** V1 en production au cabinet ; `main` porte la 1.1.0
 (`formulaire/version.json`), sous **BUSL 1.1** depuis le 14 octobre 2026
-**Jalon en cours :** V2 — 17 tâches livrées ; rien de la V2 n'est au cabinet.
-**`main` est poussé** (`a9b3676`, C1-T6 et C1-T6b comprises) ; **`c4-t3-etat`**,
-livrée, attend d'y être fusionnée. **Premier prospect hors pilote :** un
-formateur en posturologie. Sa fiche (hors dépôt) est faisable : type `grille`.
+**Jalon en cours :** V2 — 18 tâches livrées ; rien de la V2 n'est au cabinet,
+qui tourne sur **`d43350a` (26 août)**, étiquette `production-cabinet-01`,
+fiche `docs/production/cabinet-01.md`. **`main` est poussé** (`48e3c43`) ;
+**`c1-t4a-schema-cabinet`**, livrée, attend d'y être fusionnée. **Premier
+prospect hors pilote :** un formateur en posturologie (fiche hors dépôt).
 
 ## Architecture en bref
 
@@ -37,7 +38,9 @@ formateur en posturologie. Sa fiche (hors dépôt) est faisable : type `grille`.
 | `formulaire/style.css` | La palette du cabinet : cinq tokens sur `:root`, **source unique** |
 | `formulaire/version.json` | Numéro de version, **source unique** (serveur, pied de page, `technique.log`) |
 | `installer-demarrage.ps1` | Tâche planifiée SYSTEM + pare-feu ; `-Verifier` contrôle sans rien modifier |
-| `tests/` | 314 tests Python + 12 suites Node (branche `c4-t3-etat`) |
+| `clients/cabinet-01/schema.json` | Schéma du client, **fait foi** ; `formulaire/schema.json` en est le miroir gardé à l'octet |
+| `outils/faire-paquet.sh <client>` | Paquet d'un client, argument obligatoire ; le serveur ne voit jamais `clients/` |
+| `tests/` | 319 tests Python + 13 suites Node (branche `c1-t4a-schema-cabinet`) |
 
 Le PDF est produit **côté navigateur** : le serveur ne reçoit qu'un fichier déjà
 assemblé, et n'a aucune dépendance Python.
@@ -80,7 +83,7 @@ une image et non une donnée.
 | Chantier | Intitulé | État |
 |---|---|---|
 | C0 | Cadre juridique et licence | T1 **livré** ; T2 (contrat RGPD, modèles génériques) à faire |
-| C1 | Moteur de formulaire à schéma | T1, T2, T3, T3b, **T6 (`grille`), T6b livrés** ; T4 bloqué par le favori ; T5 |
+| C1 | Moteur de formulaire à schéma | T1, T2, T3, T3b, T6 (`grille`), T6b, **T4a livrés** ; T4b à la visite ; T5 |
 | C2 | Identité du cabinet en configuration | T1 **livré** ; T2 (logo) à faire |
 | C3 | Adressage, certificat et installateur | T1, **T3a livrés** (T3a : VM Windows à faire) ; T2, T3, T4 |
 | C4 | Observabilité et support | T1, T2, **T3 (`/etat`)**, T4 **livrés** ; T5 **sortie de la V2** ; T6 |
@@ -130,21 +133,21 @@ n'admettent pas l'installation d'une autorité, avec son protocole d'essai :
 favori « Formulaire — secours V1 », et le témoin qui garde les clés de brouillon
 dans les tests.
 
-Le rendu a été comparé page à page dans Chrome piloté et le repli éprouvé contre
-un vrai serveur en bac à sable le 19 octobre : six pages identiques au pixel
-près, une saisie commencée sur le moteur se reprend sur la fiche de secours, PDF
-déposé compris. Cinq écarts de rendu avaient été trouvés et corrigés à cette
-occasion — aucun n'était visible des 115 tests d'alors. Détail :
-`docs/references-visuelles/CONSTAT-2026-10-19.md` ; outillage rejouable :
-`outils/reference-visuelle/`.
+Le 19 octobre, moteur et fiche de secours ont été comparés au pixel dans Chrome
+piloté, repli éprouvé contre un vrai serveur (`CONSTAT-2026-10-19.md`, outillage
+`outils/reference-visuelle/`).
 
-**Reste un seul geste avant de livrer au cabinet** : poser le favori de secours
-sur la tablette et l'ouvrir une fois. Il demande l'appareil ; le chemin qu'il
-emprunte est éprouvé. **Tant qu'il n'est pas fait, rien ne part au cabinet et
-C1-T4 ne peut pas commencer** — son critère d'acceptation est une semaine de
-bilans réels sans régression.
+**Mais la fiche de secours n'est pas la production** : le cabinet tourne sur
+`d43350a`. C1-T4a a mesuré le moteur contre elle (brouillon repris sans perte,
+pages identiques une fois restaurées) et listé ce que la praticienne verra
+changer : `docs/references-visuelles/CONSTAT-2026-11-06-C1-T4a.md`.
 
-**Tests :** 314 Python (2 sautés hors Windows) et 12 suites Node, tous verts
+**Livrer au cabinet, c'est C1-T4b** : poser le favori de secours, l'ouvrir, puis
+une semaine de bilans réels. Il faut l'appareil, **pas avant janvier 2027**.
+D'ici là rien ne part au cabinet ; un correctif d'urgence part de
+`maintenance-cabinet-01`, jamais de `main`.
+
+**Tests :** 319 Python (2 sautés hors Windows) et 13 suites Node, tous verts
 au 6 novembre 2026, aussi sous `python3 -O`, et en CI sur Linux, Windows et
 macOS, Python 3.9 et 3.13 — CI jouée sur les branches de tâche, pas sur `main`.
 `npm test` dépasse le délai de 2 min d'une commande : le lancer en arrière-plan.
@@ -160,6 +163,8 @@ pilote que l'historique de `journal.log` partira en bloc vers février 2027.
 
 ## Dernières sessions
 
+- [2026-11-06 (2) — La production archivée, et le schéma du cabinet mesuré contre elle](docs/resumes/2026-11-06-production-archivee-et-schema-cabinet.md) :
+  production nommée (`d43350a`) ; C1-T4 scindée ; C1-T4a livrée.
 - [2026-11-06 — `main` publié, et une page d'état qui peut circuler](docs/resumes/2026-11-06-page-etat.md) :
   C1-T6 et C1-T6b fusionnées et poussées ; C4-T3 livrée (voie A, neuf clés).
 - [2026-11-05 (2) — Fiabiliser l'outillage et les gardes de la grille](docs/resumes/2026-11-05-outillage-et-gardes-grille.md) :
@@ -168,8 +173,6 @@ pilote que l'historique de `journal.log` partira en bloc vers février 2027.
   C1-T6 livrée (format v2, amendement A1 : réduire puis refuser). C1-T6b ouverte.
 - [2026-11-04 — Un premier prospect, et huit tâches livrées](docs/resumes/2026-11-04-premier-prospect-et-huit-taches.md) :
   C2-T1, C6-T4, C9-T1, C7-T1, C4-T4, C7-T5, C3-T3a, C4-T2. Décisions métier.
-- [2026-10-20 — L'adressage tranché, et un journal que l'éditeur peut lire](docs/resumes/2026-10-20-adressage-et-journal-technique.md) :
-  C3-T1 et C4-T1 livrées. Le garde-fou qui ne garde rien, quatre fois.
 
 ## Comment on travaille ici
 
@@ -216,20 +219,15 @@ Ils ont déjà coûté du temps ; ils le recoûteront.
   d'adresse IP est restée active dans le code**. Sauvegarder hors du dépôt avant
   toute mutation, restaurer par `cp` ; au retour d'un agent interrompu, vérifier
   l'absence de mutation résiduelle **avant** toute autre question.
-- **ALPN** — sans `set_alpn_protocols`, Chrome ferme la connexion sans envoyer
-  un octet, là où curl retombe sur HTTP/1.1. Symptôme : `ERR_EMPTY_RESPONSE`
-  sans aucune trace serveur.
-- **Erreurs TLS invisibles** — la négociation a lieu dans `get_request()`, et
-  `socketserver` y avale l'`OSError` sans rien journaliser. La méthode est
-  surchargée pour les faire remonter.
-- **`SO_REUSEADDR`** — sous Windows, laisse deux processus se lier au même port,
-  l'ancien répondant encore pendant que le nouveau annonce un démarrage réussi.
-  Le drapeau est conditionné à `os.name`.
+- **TLS** — sans `set_alpn_protocols`, Chrome ferme sans un octet
+  (`ERR_EMPTY_RESPONSE`, aucune trace) ; et `socketserver` avale l'`OSError` de
+  la négociation dans `get_request()`, surchargée pour la faire remonter.
+- **`SO_REUSEADDR`** — sous Windows, deux processus sur le même port, l'ancien
+  répondant encore : drapeau conditionné à `os.name`.
 - **`hmac.compare_digest`** lève `TypeError` sur une chaîne non ASCII : un
   identifiant accentué tuait le fil d'exécution. Comparaison sur des octets.
-- **Double pile** — `localhost` résout d'abord en `::1` : un serveur lié au seul
-  `0.0.0.0` y est injoignable. On écoute en IPv6 avec `IPV6_V6ONLY` désactivé,
-  avec repli IPv4.
+- **Double pile** — `localhost` résout en `::1` d'abord : écoute IPv6 avec
+  `IPV6_V6ONLY` désactivé, repli IPv4.
 - **Palette** — cinq couleurs sur `:root` seulement ; le PDF les lit par
   `getComputedStyle` **dans** la génération (au niveau module, les tests `vm`
   de la file d'attente cassent).
@@ -237,9 +235,8 @@ Ils ont déjà coûté du temps ; ils le recoûteront.
   du brouillon `localStorage` (`cleChamp()`). Les renommer — même pour corriger
   `familliaux`, `spécialistes`, `symétrique`, `pédieux` — perd le bilan d'une
   consultation en cours. La tentation de « nettoyer » est le risque de C1-T4.
-- **Le rendu ne doit pas démarrer après `DOMContentLoaded`.** `initDessin()`
-  exige que les quatre images soient déjà dans le DOM ; sinon le stylet ne
-  répond plus et les traits d'un brouillon restauré tombent dans le vide. D'où
+- **Le rendu ne doit pas démarrer après `DOMContentLoaded`** : `initDessin()` exige
+  les quatre images dans le DOM, sinon le stylet ne répond plus. D'où
   `demarrerApplication()`, appelée **par le moteur, après rendu**.
 - **`dossier_pdf` et le compte SYSTEM** — un lecteur réseau de la session du
   praticien n'existe pas pour la tâche planifiée : chemin local ou UNC. Et
@@ -279,6 +276,9 @@ Ils ont déjà coûté du temps ; ils le recoûteront.
   plan ; ce n'est pas un test instable.
 - **La fiche de secours charge `script.js`.** Toute modification de ce fichier
   doit prouver que le PDF de `index-v1.html` reste identique au pixel.
+- **Un export n'est pas déterministe sous `serveur.py`** : comparer des
+  ensembles d'exports, jamais un contre un. **G4 lit le SHA `d43350a`**, pas
+  l'étiquette `production-cabinet-01`, qui bouge à chaque installation.
 - **Le dépôt est public, la fiche du prospect ne l'est pas.** Ignorée par Git,
   elle est gardée par `tests/test_confidentialite_prospect.py` : fichiers,
   messages de commit, noms de référence et **tout blob de la plage** — sur le
