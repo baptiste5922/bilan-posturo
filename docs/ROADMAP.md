@@ -399,6 +399,24 @@ l'en-tête ; le moteur de rendu, identique chez tous les clients, produit le DOM
 
 ### C1-T4 — Rendre le formulaire de production depuis un schéma
 
+> **Scindée le 6 novembre 2026** (décision de Baptiste) : le favori de secours
+> ne pourra pas être posé sur la tablette avant deux mois environ. La version
+> du cabinet est archivée (`production-cabinet-01` sur `d43350a`, branche
+> `maintenance-cabinet-01`, fiche `docs/production/cabinet-01.md`), et le
+> développement continue sans elle :
+> - **C1-T4a — Écrire le schéma du cabinet dans le dépôt.** Travail 1 :
+>   `clients/cabinet-01/` complet, rendu par le moteur **identique au pixel**
+>   à la V1 (outillage `outils/reference-visuelle/`), brouillon et PDF compris,
+>   tests. **Aucune livraison.** Process Complet. Dépendances : C1-T3b.
+> - **C1-T4b — Livrer au cabinet.** Travaux 2 et 3 et les deux critères
+>   ci-dessous : favori posé et ouvert, une semaine de bilans réels, puis
+>   suppression du HTML écrit à la main. Dépendances : C1-T4a et la visite au
+>   cabinet. La version installée étant celle du 26 août, cette livraison
+>   franchit tout l'écart jusqu'à `main` (voir la fiche de production).
+>
+> C1-T5 et C9-T2 ne dépendent plus que de C1-T4a. **Rien ne part au cabinet
+> avant C1-T4b.** Le texte d'origine est conservé ci-dessous.
+
 - **Effort :** M
 - **Process :** Complet — touche le formulaire de production, celui d'une consultation du lendemain.
 - **Dépendances :** C1-T3
@@ -421,7 +439,8 @@ l'en-tête ; le moteur de rendu, identique chez tous les clients, produit le DOM
 
 - **Effort :** M
 - **Process :** Allégé — bibliothèque de départ, rien en production.
-- **Dépendances :** C1-T4
+- **Dépendances :** C1-T4a (le schéma du cabinet dans le dépôt ; la livraison
+  C1-T4b n'est pas requise)
 - **Périmètre :** `blocs/` (fragments de schéma réutilisables),
   `templates/podologue-complet.json`, `templates/podologue-court.json`
 - **Travail :** extraire de C1-T4 les blocs réutilisables (anamnèse, examen
@@ -1437,7 +1456,8 @@ C4-T1 journal  ├─ chantiers courts, en parallèle
 C4-T4 version  │
 C6-T4 dépôt  ──┘
 C3-T1 adressage (étude) ──────────────────────┤ (décision, bloque C3)
-C1-T1 vocabulaire ──► C1-T3 moteur ──► C1-T4 production ──► C1-T5 blocs
+C1-T1 vocabulaire ──► C1-T3 moteur ──► C1-T4a schéma ──► C1-T5 blocs
+                                       └─► C1-T4b livraison (à la visite au cabinet)
 C2-T1 identité ───────────────────────────────┤
 C4-T3 /etat ──► C4-T5 Tailscale
 C3-T2 certificat ──► C3-T3 installateur ──► C3-T4 recette
