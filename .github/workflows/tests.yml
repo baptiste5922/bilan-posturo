@@ -83,7 +83,8 @@ jobs:
       - name: Run Chrome driver refusal tests
         run: node tests/test_cdp.js
 
-      # Lit l'étiquette production-cabinet-01 : d'où le fetch-depth: 0 plus haut.
+      # Lit le commit de référence de la production (d43350a0cf20…) par son SHA
+      # complet, non par l'étiquette : d'où le fetch-depth: 0 plus haut.
       - name: Run client schema tests
         run: node tests/test_schema_client.js
 

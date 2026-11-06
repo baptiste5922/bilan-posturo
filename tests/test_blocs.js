@@ -391,20 +391,14 @@ function lancer(args, options) {
 }
 
 function dossierTemporaire() {
-    return fs.mkdtempSync(path.join(os.tmpdir(), "bilan-blocs-"));
+    // realpath : sous macOS, /var est un lien vers /private/var ; un dossier non résolu
+    // ferait rougir une garde « par chaînes » sur le chemin direct plutôt que sur
+    // le sous-cas du lien, qui est celui qu'elle doit manquer.
+    return fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "bilan-blocs-")));
 }
 
 function nettoyer(dossier) {
     fs.rmSync(dossier, { recursive: true, force: true });
-}
-
-/** Un fichier laissé sous formulaire/ par une garde défaillante est supprimé, puis signalé. */
-function retirerIntrus(chemin) {
-    if (fs.existsSync(chemin)) {
-        fs.unlinkSync(chemin);
-        return true;
-    }
-    return false;
 }
 
 cas("B8 : la sortie standard est, octet pour octet, le schéma du pilote", () => {
@@ -463,36 +457,51 @@ cas("B8 : --sortie crée un fichier neuf égal à la composition, et refuse d'é
     }
 });
 
-cas("B8 : --sortie sous formulaire/ est refusée, directement et par un lien symbolique", () => {
-    const intrusDirect = path.join(DOSSIER_FORMULAIRE, "zz-essai-composer-schema.json");
+// Ces sous-cas se jouent dans une RACINE TEMPORAIRE (script, moteur et fragments
+// copiés) et jamais dans le dépôt : une garde défaillante, ou un test interrompu
+// entre l'écriture et le nettoyage, ne peut laisser aucun fichier sous le vrai
+// formulaire/, que `faire-paquet.sh` livrerait au cabinet avec le reste.
+cas("B8 : --sortie sous formulaire/ est refusée : directement, sous un sous-dossier, par un lien, par la casse", () => {
     const dossier = dossierTemporaire();
     try {
-        const direct = lancer([TEMPLATE_COURT, "--sortie", intrusDirect]);
-        const ecrit = retirerIntrus(intrusDirect);
-        assert.ok(!ecrit, "un fichier a été écrit sous formulaire/ (il a été supprimé)");
-        assert.notStrictEqual(direct.status, 0, "--sortie sous formulaire/ doit échouer");
+        const script = racineMinimale(dossier);
+        const recette = path.join(dossier, "templates", "podologue-court.json");
+        const formulaire = path.join(dossier, "formulaire");
+        const options = { script: script, cwd: dossier };
+        const refuse = function (cible, etiquette) {
+            const r = lancer([recette, "--sortie", cible], options);
+            const ecrit = fs.existsSync(path.join(formulaire, "zz-essai.json")) ||
+                fs.existsSync(path.join(formulaire, "moteur", "zz-essai.json"));
+            assert.ok(!ecrit, etiquette + " : un fichier a été écrit sous formulaire/ (de la racine temporaire)");
+            assert.notStrictEqual(r.status, 0, etiquette + " : --sortie sous formulaire/ doit échouer");
+        };
 
+        // Témoin : la même racine accepte une sortie hors de formulaire/. Sans lui,
+        // un refus pourrait venir d'une racine incomplète et non de la garde.
+        const temoin = lancer([recette, "--sortie", path.join(dossier, "neutre.json")], options);
+        assert.strictEqual(temoin.status, 0, "témoin : sortie hors de formulaire/ refusée (" + temoin.erreur + ")");
+
+        refuse(path.join(formulaire, "zz-essai.json"), "chemin direct");
         // Le dossier moteur, sous-dossier de formulaire/ : la remontée d'ancêtres doit le voir.
-        const sousDossier = path.join(DOSSIER_FORMULAIRE, "moteur", "zz-essai-composer-schema.json");
-        const imbrique = lancer([TEMPLATE_COURT, "--sortie", sousDossier]);
-        const ecritImbrique = retirerIntrus(sousDossier);
-        assert.ok(!ecritImbrique, "un fichier a été écrit sous formulaire/moteur/ (il a été supprimé)");
-        assert.notStrictEqual(imbrique.status, 0, "--sortie sous formulaire/moteur/ doit échouer");
+        refuse(path.join(formulaire, "moteur", "zz-essai.json"), "sous-dossier formulaire/moteur/");
 
         const lien = path.join(dossier, "vers-formulaire");
         let lienCree = true;
-        try { fs.symlinkSync(DOSSIER_FORMULAIRE, lien, "dir"); } catch (erreur) { lienCree = false; }
+        try { fs.symlinkSync(formulaire, lien, "dir"); } catch (erreur) { lienCree = false; }
         if (lienCree) {
-            const parLien = lancer([TEMPLATE_COURT, "--sortie", path.join(lien, "zz-essai-composer-schema.json")]);
-            const ecritLien = retirerIntrus(intrusDirect);
-            assert.ok(!ecritLien, "un fichier a été écrit sous formulaire/ par le lien (il a été supprimé)");
-            assert.notStrictEqual(parLien.status, 0, "--sortie via un lien vers formulaire/ doit échouer");
+            refuse(path.join(lien, "zz-essai.json"), "lien symbolique");
         } else {
             saute("B8 : --sortie via un lien symbolique vers formulaire/", "lien symbolique impossible ici");
         }
+
+        // Une autre casse désigne le même dossier sur un disque insensible à la casse
+        // (macOS, Windows) ; sur un disque sensible, elle ne désigne rien du tout.
+        if (fs.existsSync(path.join(dossier, "FORMULAIRE"))) {
+            refuse(path.join(dossier, "FORMULAIRE", "zz-essai.json"), "autre casse");
+        } else {
+            saute("B8 : --sortie sous formulaire/ par une autre casse", "système de fichiers sensible à la casse");
+        }
     } finally {
-        retirerIntrus(intrusDirect);
-        retirerIntrus(path.join(DOSSIER_FORMULAIRE, "moteur", "zz-essai-composer-schema.json"));
         nettoyer(dossier);
     }
 });

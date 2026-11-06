@@ -47,9 +47,10 @@ autre chose.
 | M11 | B9 | `images/inexistante.png` dans un fragment orphelin | **B9** « chaque image des fragments existe » seul | |
 | M11b | B9 | `images/inexistante.png` dans `blocs/ortheses.json` | **B9**, plus B3, B4, B5 et trois cas B8 par ricochet | l'outil lui-même refuse l'image |
 | M12 | B1 | `blocs/chaussage.json` réindenté à 4 espaces | **B1** (forme canonique) seul | B4 reste vert : il compare le JSON composé, pas la mise en page des fragments |
-| M13 | B8 | garde `formulaire/` neutralisée (`if (false)`) | **B8** « `--sortie` sous `formulaire/` » seul | le fichier d'essai est écrit dans la **copie** et supprimé par le test |
-| M13b | B8 | garde réduite à une comparaison de chaînes de chemins | **B8** « sous `formulaire/` », au sous-cas **lien symbolique** (« écrit par le lien ») | prouve que le sous-cas du lien mord, séparément du cas direct |
-| M13c | B8 | garde sans remontée des ancêtres (seul le dossier exact est comparé) | **B8**, au sous-cas `formulaire/moteur/` | prouve le sous-cas du sous-dossier |
+| M13 | B8 | garde `formulaire/` neutralisée (`if (false)`) | **B8** « `--sortie` sous `formulaire/` », sous-cas **chemin direct** | les sous-cas se jouent dans une **racine temporaire** (script, moteur et fragments copiés) : plus aucun cas de test n'écrit dans le dépôt ; témoin vert (une sortie hors de `formulaire/` est acceptée dans la même racine) |
+| M13b | B8 | garde réduite à une comparaison de chaînes de chemins | **B8**, sous-cas **lien symbolique** (« écrit sous formulaire/ ») | le dossier temporaire est passé par `realpath` pour que ce soit le lien, et non `/var` -> `/private/var` de macOS, qui trahisse la garde |
+| M13c | B8 | garde sans remontée des ancêtres (seul le dossier exact est comparé) | **B8**, sous-cas **`formulaire/moteur/`** | |
+| M13d | B8 | garde réduite à une comparaison de `realpath` (chaînes) | **B8**, sous-cas **autre casse** (`FORMULAIRE/`), joué sur disque insensible à la casse | sur un disque sensible à la casse le sous-cas s'annonce `SAUTÉ`, jamais en silence |
 | M14a | A7 | attribut inconnu dans un fragment (`blocs/chaussage.json`) | **B3**, **B4**, **B5** ; B8 par ricochet | |
 | M14b | A7, B8 | avertissement du moteur toléré dans `composer-schema.js` | **B8** « un attribut inconnu dans un fragment est un refus » et **B8** « `--verifier` rend 1 sur un attribut inconnu » | l'avertissement n'est un refus que par cette ligne |
 | M15 | B8 | motif des noms de fragment neutralisé (`/^.+$/`) | **B8** « nom de fragment avec chemin » seul | le cas exige que le refus vienne du motif, pas de la lecture du fichier visé |
@@ -64,6 +65,10 @@ autre chose.
   première mutation.
 - **B7 sous `python3 -O`** : le test est écrit en `self.assertEqual` /
   `self.assertTrue` (aucun `assert` nu), donc il mord sous `-O` (M9).
+- **Rien n'est écrit dans le dépôt par B8** (revue de l'audit) : après chacune des
+  mutations M13 à M13d, jouées dans une copie, aucun fichier `zz-*` n'existe sous
+  le `formulaire/` de la copie, ni sous celui du dépôt réel
+  (`ls formulaire | grep -c zz` rend 0).
 - **Le préalable de B7** (« la copie du dépôt contient `blocs/` et `templates/` »)
   est un `assertTrue` sur des fichiers réellement présents : sans lui, un
   `_copier_le_depot()` qui oublierait les deux dossiers rendrait le test vert à
