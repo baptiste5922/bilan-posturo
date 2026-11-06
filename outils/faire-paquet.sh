@@ -63,6 +63,17 @@ if [ ! -f "clients/$CLIENT/schema.json" ]; then
     exit 2
 fi
 
+# Un logo client est une donnée identifiante : il se pose sur le PC du cabinet,
+# sous formulaire/images/cabinet/, jamais dans le paquet (C2-T2). `cp -R
+# formulaire` copie tout le dossier de travail, fichiers non suivis compris :
+# un logo oublié ici partirait chez tous les clients suivants. Refus AVANT la
+# première copie, et avant d'effacer un paquet précédent.
+if [ -e formulaire/images/cabinet ]; then
+    echo "ERREUR : formulaire/images/cabinet existe dans l'arbre source." >&2
+    echo "Un logo client se pose au cabinet, jamais dans le paquet : retirez ce dossier de l'atelier, puis recommencez." >&2
+    exit 2
+fi
+
 PAQUET="BilanPosturo-$(date +%Y-%m-%d)"
 rm -rf "$PAQUET" "$PAQUET.zip"
 mkdir -p "$PAQUET"

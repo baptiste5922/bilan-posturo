@@ -50,3 +50,8 @@ fiche_presentation.html
 outils/reference-visuelle/sortie/
 docs/references-visuelles/*.png
 docs/references-visuelles/*.pdf
+
+# Logo d'un cabinet client (C2-T2) : il porte en général le nom ou l'enseigne du
+# cabinet, donc il l'identifie. Il se pose sur le PC du cabinet, jamais dans le
+# dépôt public ; outils/faire-paquet.sh refuse aussi d'emballer ce dossier.
+formulaire/images/cabinet/

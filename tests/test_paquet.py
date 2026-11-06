@@ -192,6 +192,27 @@ class ClientDuPaquet(unittest.TestCase):
             self.assertEqual([n for n in noms if "/" + dossier + "/" in n], [],
                              "le dossier " + dossier + "/ ne doit jamais voyager")
 
+    def test_un_logo_client_dans_l_atelier_est_refuse(self):
+        # C2-T2 : formulaire/images/cabinet/ est l'emplacement d'un logo client,
+        # donnée identifiante qui ne part jamais dans un paquet. `cp -R
+        # formulaire` l'emporterait chez tous les clients suivants.
+        logo = Path(self.dossier) / "formulaire" / "images" / "cabinet" / "x.png"
+        logo.parent.mkdir(parents=True)
+        logo.write_bytes(b"\x89PNG\r\n\x1a\n")
+
+        resultat = self._lancer("cabinet-01")
+        self.assertNotEqual(resultat.returncode, 0, resultat.stdout)
+        self.assertIn("formulaire/images/cabinet", resultat.stderr)
+        self.assertIn("jamais dans le paquet", resultat.stderr)
+        self._aucune_archive()
+
+    def test_sans_logo_client_le_paquet_se_fabrique(self):
+        # Témoin du test précédent : le refus ne tient qu'au dossier.
+        self.assertFalse(
+            (Path(self.dossier) / "formulaire" / "images" / "cabinet").exists())
+        resultat = self._lancer("cabinet-01")
+        self.assertEqual(resultat.returncode, 0, resultat.stderr)
+
 
 if __name__ == "__main__":
     sys.exit(unittest.main())
