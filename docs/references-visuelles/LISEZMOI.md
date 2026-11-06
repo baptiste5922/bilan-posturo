@@ -29,18 +29,24 @@ de vérifier sans navigateur. Résultats détaillés dans `docs/audits/C1-T2.md`
 Il ne reste donc **qu'un seul jeu de fichiers à produire**, sur `main` tel
 qu'il est aujourd'hui, sans aucun changement de branche.
 
-## Les quatre fichiers attendus
+## Les quatre fichiers attendus — un seul entre dans Git
+
+> **Périmé depuis C1-T4a (D4), voir le §4 ci-dessous.** Le PDF et les captures
+> ne s'enregistrent **jamais** dans `docs/references-visuelles/` : ils vont dans
+> un dossier de travail **hors du dépôt**, que l'on supprime ensuite
+> (`ESSAI_SORTIE=<dossier hors dépôt>` pour `outils/reference-visuelle/produire.js`).
+> Seul le brouillon JSON est versionné.
 
 ```
-docs/references-visuelles/bilan-reference.json       le bilan, rejouable
-docs/references-visuelles/V1-reference.pdf           le PDF de la V1
-docs/references-visuelles/V1-reference-ecran-1.png   formulaire, haut de page
-docs/references-visuelles/V1-reference-ecran-2.png   formulaire, bas de page
+docs/references-visuelles/bilan-reference.json       le bilan, rejouable (versionné)
+<dossier de travail>/V1-reference.pdf                le PDF de la V1 (hors dépôt)
+<dossier de travail>/V1-reference-ecran-1.png        formulaire, haut de page (hors dépôt)
+<dossier de travail>/V1-reference-ecran-2.png        formulaire, bas de page (hors dépôt)
 ```
 
 C1-T3 produira plus tard ses homologues (`C1-T3-moteur.pdf`,
-`C1-T3-moteur-ecran-*.png`) pour la comparaison ; ne pas s'en occuper
-maintenant.
+`C1-T3-moteur-ecran-*.png`) pour la comparaison, dans le même dossier de travail ;
+ne pas s'en occuper maintenant.
 
 ## 0. Partir d'un formulaire vide
 
@@ -85,7 +91,8 @@ on clique « Restaurer ». Sans lui, les deux PDF ne sont pas comparables.
 
 ## 3. Produire le PDF et les captures
 
-1. Cliquer « Générer le PDF », enregistrer sous `V1-reference.pdf`.
+1. Cliquer « Générer le PDF », enregistrer sous `V1-reference.pdf` **dans le
+   dossier de travail hors dépôt**.
 2. Capturer le formulaire rempli en deux morceaux, haut puis bas de page :
    `V1-reference-ecran-1.png` et `V1-reference-ecran-2.png`. Le bouton
    « Générer le PDF » doit être visible sur au moins l'une des deux.

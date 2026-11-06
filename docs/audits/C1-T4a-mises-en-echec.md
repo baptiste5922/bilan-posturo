@@ -47,7 +47,7 @@ cas, `diff avant.txt apres.txt` vide et `cmp` à 0 (10 lignes, « Tout est vert.
 | N° | Mutation (clone jetable sans `origin`) | Cas qui rougissent | Code du test | Témoin |
 |---|---|---|---|---|
 | M0 | Les quatre nouveaux tests de `test_paquet.py` rejoués contre le `faire-paquet.sh` de `main` (le code d'avant) | 8 échecs (sans argument, chemins, client inconnu, schéma du client) | 1 | arbre sain : 7 tests, OK, code 0 |
-| M1 | `clients/cabinet-01` renommé `clients/morlaix` | **G1** (nom), puis G3 et G4 par ricochet | 1 | `node tests/test_schema_client.js` : « Tout est vert », code 0 |
+| M1 | `clients/cabinet-01` renommé d'après une ville (le journal d'origine employait le nom réel ; il est remplacé ici par un nom fictif) | **G1** (nom), puis G3 et G4 par ricochet | 1 | `node tests/test_schema_client.js` : « Tout est vert », code 0 |
 | M2 | `"type": "inconnu"` dans `clients/cabinet-01/schema.json` seulement | **G2**, aussi G3 (comme prévu au contrat) | 1 | idem |
 | M3 | une espace de plus dans `formulaire/schema.json` seulement | **G3** seul ; G2 et G4 restent verts | 1 | idem |
 | M4 | `familliaux` → `famillaux` dans les **deux** copies | **G4** « mêmes clés » seul ; **G3 reste vert** ; le message nomme la clé `familliaux` | 1 | idem |
@@ -88,12 +88,13 @@ Observations :
 | un seul PDF | une ligne `page N  <sha256>  <octets>` par page |
 | sans argument | 2 (usage) |
 
-**Mesure du déterminisme.** Il n'est pas total : une page varie entre deux états,
-et seulement quand le formulaire est servi par `serveur.py` en HTTPS
+**Mesure du déterminisme.** Il n'est pas total : une page varie entre deux états
 (M-moteur 2 exports sur 7, M-secours 3 sur 7, `d43350a` sous `serveur.py` 2 sur 6,
-`d43350a` sous `http.server` 0 sur 7). Le détail est au constat, section 3. La
-prémisse du contrat (« un export contre un second export du même brouillon rend
-0 ») est donc vraie sous `http.server` et fausse sous `serveur.py` : c'est un
+`d43350a` sous `http.server` 0 sur 7). Ces effectifs ne séparent pas les deux
+serveurs (p ≈ 0,19) : la cause n'est **pas établie** ; ce qui l'est, c'est que la
+variante existe sur `d43350a` lui-même, donc qu'elle n'est pas due au moteur. Le
+détail est au constat, section 3. La prémisse du contrat (« un export contre un
+second export du même brouillon rend 0 ») n'est donc pas une propriété stable :
 écart au contrat, consigné.
 
 ## Vérifications de fin
@@ -123,6 +124,30 @@ prémisse du contrat (« un export contre un second export du même brouillon re
 5. **Étape 7.2** : le contrôle `diff … | head -1` rend `65,68c65,68` ; un second
    décompte (8 lignes de diff, pas un octet de plus) a confirmé que seuls les
    quatre `<p>` diffèrent, sans rien afficher.
+
+## Reprise après la revue (corrections retenues par le coordinateur)
+
+Mêmes règles (clone jetable sans `origin`, l'état courant de l'arbre recopié par
+`git ls-files -z`, témoin avant, code du test lui-même). Le journal d'origine
+ci-dessus est conservé ; la mutation M5 y portait sur l'**étiquette** : G4 lit
+désormais le **SHA complet** `d43350a0cf20…` (l'étiquette est déplacée à chaque
+installation, `docs/production/cabinet-01.md`), M5 est donc rejouée en M5'.
+
+| N° | Mutation | Résultat | Code | Témoin |
+|---|---|---|---|---|
+| M5' | commit de référence absent : clone `--depth 1 --no-tags` (objet vérifié absent) | **G4**, quatre cas, avec le remède `git fetch` (cité deux fois) : échec bruyant, **jamais un saut** | 1 | clone sain : « Tout est vert », 0 |
+| M5'b | étiquette `production-cabinet-01` **déplacée** sur `HEAD` | G4 **reste vert** : c'est le but du SHA | 0 | — |
+| M12 | lien symbolique `clients/cabinet-02` → `cabinet-01` | **G1** | 1 | idem |
+| M13 | fichier à plat `clients/ville-fictive.json` | **G1** | 1 | idem |
+| M14 | un `.pdf` indexé de force (`git add -f`) dans `outils/reference-visuelle/sortie/` (le `.gitignore` le couvre : `check-ignore` oui) | le pas CI sort **1** et nomme le fichier | 1 | arbre sain : code 0 |
+| M14b | un `.json` indexé de force dans `sortie/` (rien n'y est admis) | pas CI **1** | 1 | idem |
+| M7 rejoué | un `.png` indexé sous `docs/references-visuelles/` | pas CI **1** | 1 | idem |
+| M15 | `rm -f "$PAQUET.zip"` retiré de la boucle des pièces obligatoires de `faire-paquet.sh` | `test_piece_absente_de_l_archive_efface_l_archive` | 1 | `tests.test_paquet` sain : 8 tests, OK |
+| M4 rejoué | `familliaux` → `famillaux` dans les deux copies, avec le SHA épinglé | **G4** « mêmes clés » seul, G3 reste vert | 1 | idem |
+| M16 | `empreintes-pages.js` sur deux fichiers absents | code **2** (et non 1, « différent ») | 2 | — |
+
+Tests après reprise : 319 tests Python (le nouveau : pièce obligatoire absente de
+l'archive) ; 13 suites Node ; les chiffres de fin sont ci-dessous.
 
 ## Intégration continue
 

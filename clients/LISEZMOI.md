@@ -11,7 +11,9 @@ unique ; ce qui change d'un client à l'autre vit ici.
   public.
 - **Chaque dossier contient un `schema.json`**, au format décrit par
   `docs/schema-formulaire.md`. Le test `tests/test_schema_client.js` refuse un
-  dossier mal nommé, un dossier sans schéma, et un schéma que le moteur refuse.
+  dossier mal nommé, un dossier sans schéma, un schéma que le moteur refuse, et
+  tout fichier à plat ou lien symbolique dans `clients/` autre que ce
+  `LISEZMOI.md`.
 - **Aucune identité, aucune configuration.** Ni nom, ni adresse, ni courriel, ni
   téléphone, ni mot de passe : l'identité d'un cabinet vit dans son `config.json`,
   sur son PC, jamais dans le dépôt. Cela vaut pour tout fichier de ce dossier,
@@ -35,10 +37,18 @@ node tests/test_schema_client.js
 ```
 
 Le même test compare aussi les clés de brouillon du schéma à celles du
-formulaire installé au cabinet (étiquette `production-cabinet-01`) : renommer
-une clé, même mal orthographiée, ferait perdre le bilan d'une consultation en
-cours. Si l'étiquette manque, le test échoue en donnant le remède
-(`git fetch --tags`) : il ne se saute jamais.
+formulaire écrit à la main installé au cabinet en août 2026, lu **par le SHA
+complet de son commit** (`d43350a0cf20fef5672eadc7bcb6f67e156dc977`, constante
+`REFERENCE_PRODUCTION`), et non par l'étiquette `production-cabinet-01` : la
+fiche de production déplace cette étiquette à chaque installation, et après la
+livraison du moteur elle ne désignerait plus aucun HTML à comparer. Renommer une
+clé, même mal orthographiée, ferait perdre le bilan d'une consultation en cours.
+
+- **La garde ne s'assouplit pas.** Une nouvelle version livrée s'ajoute comme
+  seconde référence ; elle ne remplace pas celle-ci : un brouillon commencé sur
+  `d43350a` doit toujours se rouvrir.
+- Si ce commit manque (clone peu profond), le test échoue en donnant le remède
+  (`git fetch --all --tags`, ou `--unshallow`) : il ne se saute jamais.
 
 ## Fabriquer le paquet d'un client
 

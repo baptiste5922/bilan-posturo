@@ -42,3 +42,11 @@ cles-editeur/
 # Fiches de démonstration faites pour un prospect : elles reprennent son
 # protocole, qui n'a pas à être publié sans son accord.
 fiche_presentation.html
+
+# Sortie par défaut de outils/reference-visuelle/produire.js (PDF et captures
+# d'écran d'un bilan témoin). Ces fichiers ne sont JAMAIS versionnés (C1-T4a,
+# D4) : une capture montre bien plus que le formulaire. `git add -f` reste
+# possible ; le pas de CI « Check that no image or PDF is versioned… » le voit.
+outils/reference-visuelle/sortie/
+docs/references-visuelles/*.png
+docs/references-visuelles/*.pdf

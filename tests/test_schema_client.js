@@ -11,8 +11,9 @@
  *        sont égaux octet pour octet (le serveur ne sert que `formulaire/`) ;
  *   G4 — le brouillon de production : les clés de brouillon du formulaire
  *        rendu par le moteur sont, dans les deux sens, celles du formulaire
- *        installé au cabinet (étiquette `production-cabinet-01`). Un brouillon
- *        commencé sur la version installée doit se rouvrir sur la suivante.
+ *        écrit à la main installé au cabinet en août 2026 (commit
+ *        `d43350a0…`, lu par son SHA complet). Un brouillon commencé sur cette
+ *        version doit se rouvrir sur la suivante.
  *
  * G4 lit un blob qui porte l'identité réelle du cabinet, et la sortie de cette
  * suite finit dans un journal de CI public. Règle : un message d'échec ne cite
@@ -43,7 +44,17 @@ const CHEMIN_COQUILLE = path.join(RACINE, "formulaire", "index.html");
 const CHEMIN_MOTEUR = path.join(RACINE, "formulaire", "moteur", "rendu.js");
 const CHEMIN_SCRIPT = path.join(RACINE, "formulaire", "script.js");
 
-const ETIQUETTE_PRODUCTION = "production-cabinet-01";
+// Le commit de référence du brouillon de production d'août 2026, lu par son SHA
+// COMPLET et non par l'étiquette `production-cabinet-01` : la fiche
+// docs/production/cabinet-01.md prévoit de DÉPLACER l'étiquette à chaque
+// installation, et après C1-T4b elle désignerait la coquille du moteur, sans
+// HTML de formulaire à comparer — G4 rougirait, et la tentation serait de
+// l'assouplir. Il ne s'assouplit pas : une nouvelle version livrée s'AJOUTE
+// comme seconde référence, elle ne remplace pas celle-ci (un brouillon commencé
+// sur d43350a doit toujours se rouvrir). Le commit est atteignable par la
+// branche maintenance-cabinet-01 et par main ; un clone d'intégration continue
+// se fait en fetch-depth: 0.
+const REFERENCE_PRODUCTION = "d43350a0cf20fef5672eadc7bcb6f67e156dc977";
 const MOTIF_NOM_CLIENT = /^cabinet-[0-9]{2,}$/;
 const CLIENT_DU_MIROIR = "cabinet-01";
 
@@ -53,36 +64,48 @@ function normaliser(texte) {
     return texte.replace(/\r\n/g, "\n");
 }
 
-/** Les sous-dossiers de `clients/`, lus sur le disque : jamais une liste écrite. */
-function dossiersClients() {
+/**
+ * Toutes les entrées de `clients/`, lues sur le disque (jamais une liste
+ * écrite). Seuls `LISEZMOI.md` (fichier) et les VRAIS dossiers sont admis :
+ * un fichier à plat ou un lien symbolique (`clients/cabinet-02` -> ailleurs)
+ * passerait un contrôle qui ne lirait que les dossiers, et `faire-paquet.sh`
+ * suivrait le lien. `.DS_Store` est ignoré par Git et ne compte pas.
+ */
+function entreesClients() {
     return fs.readdirSync(DOSSIER_CLIENTS, { withFileTypes: true })
-        .filter(function (entree) { return entree.isDirectory(); })
-        .map(function (entree) { return entree.name; })
-        .sort();
+        .filter(function (entree) { return entree.name !== ".DS_Store"; })
+        .sort(function (a, b) { return a.name < b.name ? -1 : (a.name > b.name ? 1 : 0); });
+}
+
+function dossiersClients() {
+    return entreesClients()
+        .filter(function (entree) { return entree.isDirectory() && !entree.isSymbolicLink(); })
+        .map(function (entree) { return entree.name; });
 }
 
 /**
- * Un fichier du blob de l'étiquette de production, par `git cat-file`, sans
- * shell. L'étiquette absente est un ÉCHEC et jamais un saut : un test qui se
- * sauterait en silence dans un clone sans étiquettes ne garderait plus rien.
+ * Un fichier du commit de référence de la production, par `git cat-file`, sans
+ * shell. Le commit absent est un ÉCHEC et jamais un saut : un test qui se
+ * sauterait en silence dans un clone peu profond ne garderait plus rien.
  */
 function lireEnProduction(cheminDansLeDepot) {
     try {
-        execFileSync("git", ["rev-parse", "--verify", "--quiet", ETIQUETTE_PRODUCTION + "^{commit}"],
+        execFileSync("git", ["cat-file", "-e", REFERENCE_PRODUCTION + "^{commit}"],
             { cwd: RACINE, stdio: ["ignore", "pipe", "pipe"] });
     } catch (erreur) {
         throw new Error(
-            "l'étiquette « " + ETIQUETTE_PRODUCTION + " » est introuvable dans ce dépôt : la compatibilité " +
-            "des brouillons ne peut pas être vérifiée. Remède : git fetch --tags (un clone d'intégration " +
-            "continue se fait avec fetch-depth: 0). Ce test ne se saute jamais."
+            "le commit de référence de la production (" + REFERENCE_PRODUCTION + ") est introuvable dans ce " +
+            "dépôt : la compatibilité des brouillons ne peut pas être vérifiée. Remède : git fetch --all --tags " +
+            "(un clone peu profond se complète par git fetch --unshallow ; un clone d'intégration continue se " +
+            "fait avec fetch-depth: 0). Ce test ne se saute jamais."
         );
     }
     try {
-        return normaliser(execFileSync("git", ["cat-file", "-p", ETIQUETTE_PRODUCTION + ":" + cheminDansLeDepot],
+        return normaliser(execFileSync("git", ["cat-file", "-p", REFERENCE_PRODUCTION + ":" + cheminDansLeDepot],
             { cwd: RACINE, encoding: "utf8", maxBuffer: 64 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] }));
     } catch (erreur) {
         throw new Error(
-            "« " + cheminDansLeDepot + " » est illisible dans l'objet de l'étiquette " + ETIQUETTE_PRODUCTION +
+            "« " + cheminDansLeDepot + " » est illisible dans le commit de référence " + REFERENCE_PRODUCTION +
             " (code de git : " + erreur.status + ")."
         );
     }
@@ -200,8 +223,16 @@ cas("G1 : clients/ existe et contient au moins un dossier", () => {
         "clients/ ne contient aucun dossier de client : un test vert à vide ne garderait rien");
 });
 
-cas("G1 : chaque dossier est nommé cabinet-NN et porte un schema.json", () => {
+cas("G1 : rien dans clients/ hors LISEZMOI.md et des dossiers cabinet-NN réels portant un schema.json", () => {
     assert.ok(noms.length >= 1, "aucun dossier à contrôler (voir le cas précédent)");
+    const intrus = entreesClients().filter(function (entree) {
+        const vraiDossier = entree.isDirectory() && !entree.isSymbolicLink();
+        const lisezmoi = entree.isFile() && entree.name === "LISEZMOI.md";
+        return !vraiDossier && !lisezmoi;
+    }).map(function (entree) { return entree.name; });
+    assert.deepStrictEqual(intrus, [],
+        "entrée(s) de clients/ qui ne sont ni LISEZMOI.md ni un vrai dossier (fichier à plat ou lien symbolique) : " +
+        intrus.join(", "));
     const mal = noms.filter(function (n) { return !MOTIF_NOM_CLIENT.test(n); });
     assert.deepStrictEqual(mal, [],
         "dossier(s) mal nommé(s) (attendu : " + MOTIF_NOM_CLIENT + ", jamais d'après une ville) : " + mal.join(", "));
@@ -243,7 +274,7 @@ cas("G3 : formulaire/schema.json et clients/cabinet-01/schema.json sont égaux o
 
 let production = null;
 let moteurMesure = null;
-cas("G4 : l'étiquette de production se lit, et les deux formulaires se construisent", () => {
+cas("G4 : le commit de référence de la production se lit, et les deux formulaires se construisent", () => {
     const htmlProduction = lireEnProduction("formulaire/index.html");
     const formProduction = analyserHtml(dom.creerDocument(),
         extraireElement(htmlProduction, '<div id="form-bilan">', "div"))[0];

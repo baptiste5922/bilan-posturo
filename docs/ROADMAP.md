@@ -428,6 +428,23 @@ l'en-tête ; le moteur de rendu, identique chez tous les clients, produit le DOM
 >   et la méthode de comparaison après livraison (ensembles de variantes, pas un
 >   export contre un export). **Aucune décision bloquante** n'en est née : chaque
 >   écart a son document.
+>   **À traiter dans C1-T4b, pour le retour arrière** (consigne F9 complétée par
+>   la revue de C1-T4a) : sur une base IndexedDB passée en version 2, `d43350a`
+>   échoue non seulement à relire la file (les bilans en attente ne partent
+>   plus : **écouler la file avant de revenir**), mais aussi à **écrire** son
+>   réglage — « Choisir le dossier… » affiche « Le dossier n'a pas pu être
+>   enregistré » (`d43350a:formulaire/script.js:775-783, 797-806, 812-833`) :
+>   la praticienne perd son dossier d'enregistrement sans pouvoir le rétablir
+>   tant qu'elle reste sur `d43350a`. Que le dossier mémorisé se retrouve au
+>   retour sur `main` n'est pas vérifié. **Ce qu'il faudrait faire (supprimer la
+>   base de la tablette, ou la ramener en version 1 avec le magasin `reglages`
+>   seul) est à évaluer ici, pas décidé.**
+>   **G4 et l'étiquette mobile.** `tests/test_schema_client.js` lit désormais le
+>   brouillon de production par le **SHA complet** `d43350a0cf20…` et non par
+>   l'étiquette `production-cabinet-01`, que `docs/production/cabinet-01.md`
+>   déplace à chaque installation. Une nouvelle version livrée s'**ajoute**
+>   comme seconde référence de brouillon ; elle ne remplace pas celle-ci, et
+>   **G4 ne doit pas être assoupli**.
 >
 > C1-T5 et C9-T2 ne dépendent plus que de C1-T4a. **Rien ne part au cabinet
 > avant C1-T4b.** Le texte d'origine est conservé ci-dessous.

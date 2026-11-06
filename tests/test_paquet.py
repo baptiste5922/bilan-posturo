@@ -128,11 +128,22 @@ class ClientDuPaquet(unittest.TestCase):
     def test_nom_de_client_hors_motif_refuse(self):
         # Le client entre dans un chemin : ni remontée, ni séparateur, ni saut de ligne.
         for mauvais in ("../formulaire", "cabinet-01/..", "cabinet-1",
-                        "morlaix", "cabinet-01\n../x"):
+                        "ville-fictive", "cabinet-01\n../x"):
             with self.subTest(client=mauvais):
                 resultat = self._lancer(mauvais)
                 self.assertNotEqual(resultat.returncode, 0, resultat.stdout)
                 self._aucune_archive()
+
+    def test_piece_absente_de_l_archive_efface_l_archive(self):
+        # Pièce obligatoire retirée de la source : `cp -R formulaire` ne la livre
+        # pas, le script zippe puis constate l'absence dans l'archive. Il sort en
+        # erreur ET efface l'archive : un paquet incomplet ne doit pas rester sur
+        # le disque sous un nom de paquet valide.
+        (Path(self.dossier) / "formulaire" / "version.json").unlink()
+        resultat = self._lancer("cabinet-01")
+        self.assertNotEqual(resultat.returncode, 0, resultat.stdout)
+        self.assertIn("version.json", resultat.stderr)
+        self._aucune_archive()
 
     def test_client_inexistant_refuse(self):
         resultat = self._lancer("cabinet-99")

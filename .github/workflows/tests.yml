@@ -127,7 +127,10 @@ jobs:
           # favoris, notifications), et une image échappe à
           # tests/test_identite_absente.py ; une donnée publiée ne se reprend
           # pas. Ce pas remplace un simple avertissement que personne ne lisait.
-          # Seuls .md et .json sont admis dans ce dossier.
+          # Deux endroits : docs/references-visuelles/, où seuls .md et .json
+          # sont admis, et outils/reference-visuelle/sortie/, la sortie par
+          # défaut de produire.js, où RIEN ne doit être suivi (le .gitignore la
+          # couvre, mais `git add -f` reste possible : c'est ce pas qui le voit).
           #
           # `-z` et core.quotePath=false : sans eux, git entoure de guillemets
           # les chemins accentués. Un code de grep supérieur à 1 est une erreur
@@ -135,18 +138,18 @@ jobs:
           # du pas « palette »).
           suivis=$(mktemp)
           trap 'rm -f "$suivis"' EXIT
-          git -c core.quotePath=false ls-files -z docs/references-visuelles > "$suivis"
+          git -c core.quotePath=false ls-files -z docs/references-visuelles outils/reference-visuelle/sortie > "$suivis"
           set +e
-          fautifs=$(tr '\0' '\n' < "$suivis" | grep -vE '\.(md|json)$')
+          fautifs=$(tr '\0' '\n' < "$suivis" | grep -vE '^docs/references-visuelles/.*\.(md|json)$')
           code=$?
           set -e
           if [ "$code" -gt 1 ]; then
-            echo "::error::Erreur de lecture de la liste des fichiers de docs/references-visuelles/."
+            echo "::error::Erreur de lecture de la liste des fichiers de références visuelles."
             exit 1
           fi
           if [ "$code" -eq 0 ]; then
             echo "$fautifs"
-            echo "::error::Fichier autre que .md ou .json dans docs/references-visuelles/ : images et PDF de mesure restent hors du dépôt (docs/references-visuelles/LISEZMOI.md, section 4)."
+            echo "::error::Fichier suivi qui n'a pas sa place : seuls .md et .json sont admis dans docs/references-visuelles/, rien dans outils/reference-visuelle/sortie/. Images et PDF de mesure restent hors du dépôt (docs/references-visuelles/LISEZMOI.md, section 4)."
             exit 1
           fi
           echo "Aucune image ni PDF parmi les références visuelles."

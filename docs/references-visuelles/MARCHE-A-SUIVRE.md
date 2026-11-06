@@ -1,5 +1,11 @@
 # Marche à suivre — les trois vérifications de C1-T3b
 
+> **Périmé sur un point depuis C1-T4a (D4).** Les PDF et les captures PNG cités
+> plus bas ne s'enregistrent **plus** dans `docs/references-visuelles/` : ils vont
+> dans un dossier de travail **hors du dépôt**, supprimé ensuite. Seul
+> `bilan-reference.json` est versionné. Voir `LISEZMOI.md`, §4, et le pas de CI
+> qui refuse tout autre fichier que `.md` et `.json`.
+
 Cette fiche couvre **les trois seules choses** que la bascule du formulaire sur
 le moteur ne peut pas vérifier toute seule, parce qu'elles demandent un
 navigateur et un œil. Tant qu'elles ne sont pas faites, C1-T3b n'est pas livrée
@@ -78,8 +84,8 @@ comparables.
 
 ### A.3 Générer le PDF et les captures
 
-1. Cliquer **« Générer le PDF »**, enregistrer sous
-   `docs/references-visuelles/V1-reference.pdf`.
+1. Cliquer **« Générer le PDF »**, enregistrer sous `V1-reference.pdf` **dans le
+   dossier de travail hors dépôt**.
 2. **Noter le nombre de pages obtenu : ______** — c'est la première chose que la
    comparaison vérifiera, et il est à reporter dans
    `docs/contrats/C1-T3b.md`, étape 0.
@@ -87,7 +93,7 @@ comparables.
    `V1-reference-ecran-1.png` et `V1-reference-ecran-2.png`. Le bouton
    « Générer le PDF » doit être visible sur au moins l'une des deux.
 
-### A.4 Relire avant de verser dans Git
+### A.4 Relire le brouillon avant de le verser dans Git (le seul fichier versionné)
 
 **C'est le seul chemin par lequel une donnée de santé réelle pourrait entrer
 dans ce dépôt, qui est public.**
@@ -159,7 +165,7 @@ C'est la propriété qui permet de ne pas perdre une consultation :
    le bon ordre**. Un trait qui apparaît sur la mauvaise planche est un défaut à
    signaler immédiatement.
 4. Cliquer « Générer le PDF », enregistrer sous
-   `docs/references-visuelles/C1-T3-moteur.pdf`, plus deux captures
+   `C1-T3-moteur.pdf` (dossier de travail hors dépôt), plus deux captures
    `C1-T3-moteur-ecran-1.png` et `-2.png`.
 5. Ouvrir `V1-reference.pdf` et `C1-T3-moteur.pdf` **côte à côte, page par
    page**.

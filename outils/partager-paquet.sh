@@ -6,7 +6,7 @@ PARTAGE=$(mktemp -d)
 
 ARCHIVE=$(ls -t BilanPosturo-*.zip 2>/dev/null | head -1)
 if [ -z "$ARCHIVE" ]; then
-    echo "Aucune archive trouvée. Lancez d'abord ./outils/faire-paquet.sh"
+    echo "Aucune archive trouvée. Lancez d'abord ./outils/faire-paquet.sh cabinet-01"
     exit 1
 fi
 

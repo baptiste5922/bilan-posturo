@@ -118,8 +118,13 @@ for obligatoire in "$PAQUET/LICENSE" "$PAQUET/TIERS.md" \
                    "$PAQUET/formulaire/moteur/rendu.js" "$PAQUET/formulaire/schema.json" \
                    "$PAQUET/formulaire/version.json"; do
     if ! unzip -l "$PAQUET.zip" "$obligatoire" > /dev/null 2>&1; then
+        # L'archive incomplète est effacée, comme pour le contrôle du schéma plus
+        # bas : un BilanPosturo-*.zip laissé sur le disque a l'air d'un paquet
+        # valide, et c'est celui que l'on emporterait au cabinet.
+        rm -f "$PAQUET.zip"
         echo "ERREUR : $obligatoire manque dans l'archive." >&2
         echo "Le paquet ne doit pas partir incomplet : ni sans licence, ni sans moteur de rendu ni schéma." >&2
+        echo "L'archive a été effacée." >&2
         exit 1
     fi
 done

@@ -5,15 +5,20 @@
 //
 //   node empreintes-pages.js reference.pdf candidat.pdf
 //       même nombre de pages exigé, puis même empreinte page à page.
-//       Sortie 0 si tout est égal, 1 sinon, en nommant les pages qui diffèrent.
+//       Sortie 0 si tout est égal, 1 si les pages diffèrent (en les nommant),
+//       2 si l'usage est faux ou si un fichier est absent ou illisible : une
+//       faute de frappe ne doit pas passer pour un écart de rendu.
 //
 // Pourquoi ce programme existe (C1-T4a) : `comparer-pixels.js` rend son verdict
 // sur un écart MOYEN inférieur à 3/255 — une tolérance, qui laisse passer un
 // pixel faux sur une vignette de 64×94. Ici, AUCUN seuil : deux pages sont
-// égales si leurs octets JPEG le sont. Cela suppose que l'export soit
-// déterministe (même navigateur, même largeur, même brouillon, caches
-// désactivés) ; c'est mesuré, pas supposé : un PDF contre un second export du
-// même brouillon doit rendre 0, et un trait de plus doit rendre 1.
+// égales si leurs octets JPEG le sont.
+//
+// L'export n'est PAS toujours déterministe : une page peut exister en deux
+// variantes d'un export à l'autre, à quelques pixels près (voir le constat
+// docs/references-visuelles/CONSTAT-2026-11-06-C1-T4a.md, section 3). Comparer
+// donc des ENSEMBLES d'exports (au moins trois de chaque côté), pas un export
+// contre un export, et localiser tout écart avant de conclure.
 //
 // Comme `comparer-pdf.js`, la page N est la N-ième image dans l'ordre des
 // objets du PDF : jsPDF ajoute une image par page, dans l'ordre. Aucune
@@ -93,4 +98,10 @@ function main(arguments_) {
     return 0;
 }
 
-process.exitCode = main(process.argv.slice(2));
+try {
+    process.exitCode = main(process.argv.slice(2));
+} catch (erreur) {
+    // Fichier absent ou illisible : code 2, distinct de « différent » (1).
+    console.error("Lecture impossible : " + (erreur.code || "") + " " + erreur.message);
+    process.exitCode = 2;
+}
