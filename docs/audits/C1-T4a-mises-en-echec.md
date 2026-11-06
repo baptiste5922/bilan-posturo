@@ -126,4 +126,8 @@ prémisse du contrat (« un export contre un second export du même brouillon re
 
 ## Intégration continue
 
-*(lien du run ajouté après son exécution)*
+`env -u GITHUB_TOKEN gh workflow run tests.yml --ref c1-t4a-schema-cabinet`, sur
+`0b95515` : **7 jobs sur 7 verts** (5 combinaisons du job `test`, `lint`,
+`scripts-windows`), dont le pas « Run client schema tests » (Linux, Python 3.9)
+et le pas « Check that no image or PDF is versioned… » (lint).
+Run : https://github.com/baptiste5922/bilan-posturo/actions/runs/42212161381
