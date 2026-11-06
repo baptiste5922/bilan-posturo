@@ -250,12 +250,15 @@ bilan-posturo/
 │   ├── style.css
 │   ├── lib/                jspdf + html2canvas, committed
 │   └── images/             skeletal diagrams, footprints, logo
+├── clients/                one folder per client: its form schema (C1-T4a)
+│   └── cabinet-01/schema.json   mirrored by formulaire/schema.json, kept equal by a test
 ├── serveur/
 │   ├── serveur.py          HTTPS server and delivery endpoint
 │   └── generer_autorite.py certificate authority + server certificate
 ├── docs/                   practitioner guides, French and English
 ├── outils/
-│   ├── faire-paquet.sh     builds the archive to install at the practice
+│   ├── faire-paquet.sh     builds the archive to install at the practice:
+│   │                       `sh outils/faire-paquet.sh cabinet-01` (client is required)
 │   └── partager-paquet.sh  serves that archive over the local network
 ├── tests/                  Python for the server, Node for the delivery queue
 ├── demarrer-serveur.bat    manual Windows launcher, useful to see errors

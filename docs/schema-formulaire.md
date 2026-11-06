@@ -147,7 +147,7 @@ littéral.
 - `patient_info_title` — porte le `titre` **du schéma** du bloc 2
   (`bloc.titre`, section 5.2 ; voir aussi « Titre de bloc » plus haut), pas un
   texte du thème : seul l'`id` est gelé, le texte qu'il affiche vient de
-  `clients/morlaix/schema.json`, pas de `theme.json` (`style.css:166`).
+  `clients/cabinet-01/schema.json`, pas de `theme.json` (`style.css:166`).
 - `section_squelettes` — bloc 8 (`style.css:203,211`).
 - `section_enregistrement_plateforme` — bloc 19 (`style.css:304,310`).
 - `image_empreintes` — champ du bloc 23, type `image-annotable`
@@ -218,7 +218,7 @@ et non 45 objets plus 4 images : un décompte structurel de contrôle (C7-T2)
 ou de production (C1-T4) qui viserait « 45 champs dans le schéma » échouerait
 à tort sur un schéma pourtant conforme. C'est le nombre de **lignes de cet
 inventaire** qui vaut 45, pas le nombre d'objets JSON du futur
-`clients/morlaix/schema.json`.
+`clients/cabinet-01/schema.json`.
 
 | Bloc | Lignes | Clé | Type retenu | Libellé visible | Valeurs possibles | Largeur observée (CSS) | Groupement | Anomalie |
 |---|---|---|---|---|---|---|---|---|
@@ -864,11 +864,11 @@ vaut que pour le bloc 1 et pour la palette/le logo/l'identité du cabinet. Le
 `titre` d'un bloc **ordinaire** (section 5.2, section 2 « Titre de bloc »)
 n'est pas un texte du thème : c'est une donnée du schéma, au même titre que
 les champs. « Informations Patient » (bloc 2), « Consultation » (bloc 3),
-« Podo » (bloc 10)… relèvent de `clients/morlaix/schema.json`, pas de
+« Podo » (bloc 10)… relèvent de `clients/cabinet-01/schema.json`, pas de
 `theme.json` ; seuls le titre d'en-tête du bloc 1 et les éléments listés
 ci-dessus en sont exemptés.
 
 Sont également hors périmètre de ce document : le moteur de rendu
 (`formulaire/moteur/rendu.js`, C1-T3), le fichier de production
-`clients/morlaix/schema.json` (C1-T4), la bibliothèque de blocs réutilisables
+`clients/cabinet-01/schema.json` (C1-T4), la bibliothèque de blocs réutilisables
 (C1-T5) et le questionnaire commercial (C9-T1).

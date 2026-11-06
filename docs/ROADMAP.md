@@ -393,6 +393,9 @@ l'en-tête ; le moteur de rendu, identique chez tous les clients, produit le DOM
   fuite signalée, pas une fuite empêchée. Une vraie barrière suppose de décider
   si ces images entrent dans le dépôt ou restent hors suivi : à trancher en
   C1-T4, quand les fichiers existeront.
+  **Tranché par C1-T4a (D4, 6 novembre 2026) :** les images et PDF de mesure ne
+  sont **jamais** versionnés ; le pas de CI devient une erreur pour tout fichier
+  autre que `.md` ou `.json` sous `docs/references-visuelles/`.
 - **Risque :** une consultation cassée le lendemain matin. Le retour arrière de
   niveau 1 — un favori, aucune ligne de commande — est la seule parade qui
   compte, et il se vérifie avant la bascule, pas après.
@@ -408,11 +411,23 @@ l'en-tête ; le moteur de rendu, identique chez tous les clients, produit le DOM
 >   `clients/cabinet-01/` complet, rendu par le moteur **identique au pixel**
 >   à la V1 (outillage `outils/reference-visuelle/`), brouillon et PDF compris,
 >   tests. **Aucune livraison.** Process Complet. Dépendances : C1-T3b.
+>   **État : livrée le 6 novembre 2026** sur la branche `c1-t4a-schema-cabinet`
+>   (contrat `docs/contrats/C1-T4a.md`, mises en échec
+>   `docs/audits/C1-T4a-mises-en-echec.md`). `clients/cabinet-01/schema.json` est
+>   le schéma du cabinet, gardé égal à son miroir `formulaire/schema.json` ;
+>   `faire-paquet.sh <client>` le livre ; la fidélité est mesurée contre
+>   `d43350a`, pas contre la seule fiche de secours.
 > - **C1-T4b — Livrer au cabinet.** Travaux 2 et 3 et les deux critères
 >   ci-dessous : favori posé et ouvert, une semaine de bilans réels, puis
 >   suppression du HTML écrit à la main. Dépendances : C1-T4a et la visite au
 >   cabinet. La version installée étant celle du 26 août, cette livraison
 >   franchit tout l'écart jusqu'à `main` (voir la fiche de production).
+>   **Constat de la mesure : `docs/references-visuelles/CONSTAT-2026-11-06-C1-T4a.md`**
+>   — la liste de ce que la praticienne verra changer (E1 à E7, N1), la consigne
+>   de retour arrière (écouler la file d'attente avant de revenir à `d43350a`),
+>   et la méthode de comparaison après livraison (ensembles de variantes, pas un
+>   export contre un export). **Aucune décision bloquante** n'en est née : chaque
+>   écart a son document.
 >
 > C1-T5 et C9-T2 ne dépendent plus que de C1-T4a. **Rien ne part au cabinet
 > avant C1-T4b.** Le texte d'origine est conservé ci-dessous.
@@ -420,9 +435,15 @@ l'en-tête ; le moteur de rendu, identique chez tous les clients, produit le DOM
 - **Effort :** M
 - **Process :** Complet — touche le formulaire de production, celui d'une consultation du lendemain.
 - **Dépendances :** C1-T3
-- **Périmètre :** `clients/cabinet-01/schema.json`, `clients/cabinet-01/theme.json`
+- **Périmètre :** `clients/cabinet-01/schema.json`, suppression du HTML sur mesure
   (décision D8 de C2-T1 : la convention de nommage des clients ne porte jamais
-  un nom de ville), suppression du HTML sur mesure
+  un nom de ville).
+  **Amendement (D3 de C1-T4a, 6 novembre 2026) : pas de `theme.json`.** Aucun
+  code ne le lirait (le moteur ne charge que `schema.json`, décision de Baptiste
+  à C1-T3), et il recopierait les cinq tokens de `:root`, source unique de la
+  palette depuis C1-T2 : une seconde source, le défaut que C1-T2 a fermé. Il
+  naîtra avec son premier consommateur (thème d'un deuxième cabinet, ou C2-T2
+  pour le logo).
 - **Travail :**
   1. Écrire le schéma du cabinet actuel, en totalité.
   2. Basculer la production dessus et faire valider un bilan réel par la

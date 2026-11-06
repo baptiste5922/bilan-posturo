@@ -93,22 +93,31 @@ on clique « Restaurer ». Sans lui, les deux PDF ne sont pas comparables.
 Noter au passage, dans `docs/contrats/C1-T3.md` quand il existera, le nombre de
 pages obtenu : c'est la première chose que la comparaison vérifiera.
 
-## 4. Avant de verser les fichiers dans Git
+## 4. Ce qui entre dans Git, et ce qui n'y entre jamais
 
-**C'est le seul chemin par lequel une donnée de santé réelle pourrait entrer
-dans ce dépôt**, et le dépôt est désormais public sur GitHub, sous BUSL.
+**Décision D4 de C1-T4a, appliquée par l'intégration continue.** Dans ce
+dossier, **seuls les fichiers `.md` et `.json` sont versionnés**. Les images
+(captures d'écran) et les PDF de mesure restent **hors du dépôt**, dans un
+dossier de travail que l'on supprime ensuite. Le pas « Check that no image or
+PDF is versioned among the visual references » de `.github/workflows/tests.yml`
+fait échouer la CI si un autre fichier y est suivi.
 
-- Relire `bilan-reference.json` et ouvrir `V1-reference.pdf` : le nom doit être
-  « Témoin Référence », la date de naissance fictive, et aucune annotation ne
-  doit évoquer un patient réel.
-- **Ouvrir les deux captures PNG et les regarder.** Une capture d'écran montre
-  bien plus que le formulaire : onglets du navigateur, barre de favoris,
-  notification, fenêtre en arrière-plan. C'est le fichier le plus susceptible
-  de contenir ce qu'on n'y cherchait pas.
+Pourquoi : **c'est le seul chemin par lequel une donnée de santé réelle, ou
+l'identité d'un cabinet, pourrait entrer dans ce dépôt**, désormais public sur
+GitHub sous BUSL. Une capture d'écran montre bien plus que le formulaire :
+onglets du navigateur, barre de favoris, notification, fenêtre en arrière-plan,
+logo et en-tête du cabinet. Une image échappe à
+`tests/test_identite_absente.py`, qui ne lit que du texte. Et une donnée
+publiée ne se reprend pas : l'historique Git la conserve même après
+suppression.
 
-En cas de doute sur un seul des quatre fichiers, recommencer la procédure
-plutôt que de verser le fichier douteux. Une donnée de santé publiée ne se
-reprend pas : l'historique Git la conserve même après suppression.
+- Le jeu de référence rejouable est `bilan-reference.json` : un brouillon fictif
+  (« Témoin Référence »), relu avant de le verser.
+- Les constats (`CONSTAT-*.md`) citent des mesures, des noms de champs et des
+  clés ; ils ne contiennent ni image, ni courriel, ni téléphone, ni coordonnée
+  réelle ou fictive.
+- Un PDF ou une capture dont on a besoin pour une revue se garde dans le dossier
+  de travail de la session, jamais dans l'arbre du dépôt.
 
 ## Tolérance, pour mémoire
 

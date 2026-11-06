@@ -321,14 +321,19 @@ async function capturer(chrome, prefixe) {
                 mdc: ((document.getElementById("MDC") || {}).value || "").length,
                 tableau: !!document.querySelector(
                     'input[type=radio][name="test_positif"][value="G"]:checked'),
-                traits: window.zonesDessin
-                    ? window.zonesDessin.reduce((n, z) => n + z.traits.length, 0) : -1
+                // zonesDessin est une constante de script.js : elle vit dans la
+                // portée globale lexicale, pas comme propriété de window
+                // (C1-T4a : l'ancienne lecture rendait toujours -1). Pas de
+                // guillemet inversé ici : on est dans un gabarit de chaîne.
+                traits: typeof zonesDessin !== "undefined"
+                    ? zonesDessin.reduce((n, z) => n + z.traits.length, 0) : -1
             }))()`);
             console.log("restauration : " + JSON.stringify(etat));
 
             const captures = await capturer(chrome, PREFIXE);
             const pdf = await exporterPdf(chrome, PREFIXE + ".pdf");
-            console.log("PDF : " + pdf.fichier + " (" + pdf.octets + " octets)");
+            console.log("PDF : " + pdf.fichier + " (" + pdf.octets + " octets, "
+                + "nom produit par le formulaire : " + pdf.nomOrigine + ")");
             console.log("captures : " + captures.join(", "));
         }
     } catch (erreur) {

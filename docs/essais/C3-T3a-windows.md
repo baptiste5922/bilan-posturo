@@ -19,7 +19,7 @@ Bordeaux** : le paquet ne part pas tant que la partie A n'est pas complète.
 
 - Windows 10 ou 11, sans installation antérieure de l'application.
 - Python 3.9 ou plus, installé avec « Add python.exe to PATH » coché.
-- Paquet produit sur le poste de développement : `sh outils/faire-paquet.sh`.
+- Paquet produit sur le poste de développement : `sh outils/faire-paquet.sh cabinet-01`.
 - Une session **administrateur** pour les étapes (a) à (e).
 
 | Champ | Valeur |
