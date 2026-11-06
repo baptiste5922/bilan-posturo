@@ -115,7 +115,7 @@ CONSERVATION_JOURNAUX_MOIS = CONSERVATION_MOIS_DEFAUT
 # "EVENEMENT_INCONNU" plutôt que de lever (journaliser_technique).
 EVENEMENTS_TECHNIQUES = frozenset({
     "DEMARRAGE", "ARRET", "TLS_REFUSE", "AUTH_REFUSEE",
-    "REPONSE", "DEPOT", "ECHEC_ECRITURE", "ROTATION",
+    "REPONSE", "DEPOT", "ECHEC_ECRITURE", "ROTATION", "LOGO",
 })
 
 # ROTATION échappe de nécessité à journaliser_technique() (interblocage
@@ -193,6 +193,35 @@ CERTIFICAT_CHARGE = None
 # contient que le formulaire, et config.json vit un niveau au-dessus (RACINE,
 # pas FORMULAIRE) — inatteignable même maintenant que l'extension est servie.
 EXTENSIONS_SERVIES = {".html", ".css", ".js", ".json", ".png", ".jpg", ".jpeg", ".svg", ".ico"}
+
+# Logo du cabinet (C2-T2). PNG et JPEG seulement : le SVG est un contenu actif
+# et html2canvas le rend mal, l'ICO n'est pas un logo. Un sous-ensemble de
+# EXTENSIONS_SERVIES, jamais un élargissement du filtre : le logo est servi par
+# le gestionnaire statique, sous ses deux barrières habituelles.
+EXTENSIONS_LOGO = frozenset({".png", ".jpg", ".jpeg"})
+if not EXTENSIONS_LOGO <= EXTENSIONS_SERVIES:
+    # Levée explicite, jamais `assert` (voir EVENEMENT_ROTATION plus haut).
+    raise AssertionError(
+        "EXTENSIONS_LOGO doit être incluse dans EXTENSIONS_SERVIES")
+# Les huit premiers octets d'un vrai fichier de cette extension : un fichier
+# renommé en .png (page HTML, archive) n'est pas proposé à la tablette.
+SIGNATURES_LOGO = {
+    ".png": b"\x89PNG\r\n\x1a\n",
+    ".jpg": b"\xff\xd8\xff",
+    ".jpeg": b"\xff\xd8\xff",
+}
+if set(SIGNATURES_LOGO) != EXTENSIONS_LOGO:
+    raise AssertionError(
+        "SIGNATURES_LOGO doit couvrir exactement EXTENSIONS_LOGO")
+# Le logo s'affiche en 130 x 130 px : au-delà, c'est une photo mal exportée qui
+# ralentit html2canvas sur la tablette.
+LOGO_TAILLE_MAX = 512 * 1024
+# Motifs de refus du logo, fermés comme MOTIFS_REFUS_DEPOT : ce sont les seules
+# valeurs qui atteignent technique.log (le chemin, lui, est une saisie libre).
+MOTIFS_REFUS_LOGO = frozenset({
+    "hors-racine", "forme-invalide", "extension-non-servie", "lien-symbolique",
+    "absent", "trop-volumineux", "illisible",
+})
 
 CONFIG_DEFAUT = {
     "port": 8000,
@@ -307,6 +336,133 @@ def verifier_mot_de_passe(mot_de_passe, stocke):
         return False
 
 
+# --------------------------------------------------------------------------
+# Logo du cabinet (C2-T2)
+# --------------------------------------------------------------------------
+
+# Forme admise d'un chemin de logo : segments de lettres, chiffres, « _ », « - »
+# et « . » (jamais en tête), séparés par « / ». Tout le reste est refusé d'un
+# bloc : schéma d'URL (« : »), « //hôte », « % », « ? », « # », « \ » (donc
+# aussi les flux alternatifs NTFS et les noms courts), espaces, accents et
+# caractères de contrôle. Une liste blanche, parce que ce chemin finit dans un
+# attribut `src` côté tablette.
+FORME_CHEMIN_LOGO = re.compile(
+    r"(?:[A-Za-z0-9_-][A-Za-z0-9._-]*/)*[A-Za-z0-9_-][A-Za-z0-9._-]*")
+
+
+def forme_logo(chemin):
+    """Rend le motif de refus d'un chemin de logo d'après sa seule forme, ou
+    None. Purement textuelle : aucun accès au système de fichiers.
+
+    Première des deux couches (la seconde est confiner_logo, qui tient même si
+    celle-ci était un jour assouplie). Une chaîne et pas autre chose : les deux
+    séparateurs sont examinés, que le chemin ait été saisi sous Windows ou non.
+    """
+    if not isinstance(chemin, str):
+        return "forme-invalide"
+    if (".." in chemin.replace("\\", "/").split("/")
+            or chemin.startswith(("/", "\\"))
+            or re.match(r"[A-Za-z]:", chemin)
+            or os.path.isabs(chemin)):
+        return "hors-racine"
+    if not FORME_CHEMIN_LOGO.fullmatch(chemin):
+        return "forme-invalide"
+    if os.path.splitext(chemin)[1].lower() not in EXTENSIONS_LOGO:
+        return "extension-non-servie"
+    return None
+
+
+def confiner_logo(chemin, racine_web):
+    """Rend (chemin_absolu, None) si le chemin, résolu pour de bon, reste sous
+    racine_web sans passer par aucun lien, sinon ("", motif).
+
+    Suppose la forme déjà validée mais ne s'y fie pas : c'est la seconde
+    couche, qui regarde le disque. Tout lien symbolique est refusé, même vers
+    l'intérieur (décision D5) ; la comparaison des chemins résolus tient aussi
+    contre une jonction Windows, que islink() ne voit pas avant Python 3.12.
+    Aucune exception ne sort.
+    """
+    try:
+        base = os.path.realpath(racine_web)
+        attendu = os.path.normpath(os.path.join(base, *chemin.split("/")))
+
+        # Préfixes de `attendu` strictement sous `base`, du plus profond au
+        # plus haut. Un chemin qui sort de `base` n'en a aucun : c'est la
+        # comparaison de résolution, plus bas, qui le refuse.
+        prefixes = []
+        courant = attendu
+        while courant != base:
+            parent = os.path.dirname(courant)
+            if parent == courant:
+                prefixes = []
+                break
+            prefixes.append(courant)
+            courant = parent
+        for prefixe in prefixes:
+            if os.path.islink(prefixe):
+                return "", "lien-symbolique"
+
+        reel = os.path.realpath(attendu)
+        if os.path.commonpath([base, reel]) != base:
+            return "", "hors-racine"
+        if reel != attendu:
+            return "", "lien-symbolique"
+    except ValueError:
+        # commonpath : lecteurs différents sous Windows, donc hors racine.
+        return "", "hors-racine"
+    except OSError:
+        return "", "illisible"
+    return attendu, None
+
+
+def valider_logo(chemin, racine_web=None):
+    """Valide le chemin du logo configuré. Rend (chemin_servi, motif) :
+    (chemin tel que validé, None) s'il peut être proposé à la tablette,
+    ("", None) quand le cabinet n'a pas de logo (un choix, pas une anomalie),
+    ("", motif) pour tout refus. Jamais de levée.
+
+    Un logo refusé donne « pas de logo », jamais le logo par défaut
+    (décision D7) : l'emblème d'une autre profession n'a rien à faire sur le
+    bilan d'un autre cabinet. Validé une fois, au démarrage (décision D3).
+    """
+    if racine_web is None:
+        racine_web = FORMULAIRE
+    if not isinstance(chemin, str):
+        return "", "forme-invalide"
+    if chemin.strip() == "":
+        return "", None
+
+    motif = forme_logo(chemin)
+    if motif:
+        return "", motif
+    absolu, motif = confiner_logo(chemin, racine_web)
+    if motif:
+        return "", motif
+
+    try:
+        infos = os.lstat(absolu)
+    except (FileNotFoundError, NotADirectoryError):
+        return "", "absent"
+    except OSError:
+        return "", "illisible"
+    if not stat.S_ISREG(infos.st_mode):
+        return "", "absent"
+    if infos.st_size > LOGO_TAILLE_MAX:
+        return "", "trop-volumineux"
+    if infos.st_size == 0:
+        return "", "illisible"
+
+    signature = SIGNATURES_LOGO[os.path.splitext(chemin)[1].lower()]
+    try:
+        with open(absolu, "rb") as f:
+            debut = f.read(8)
+    except OSError:
+        return "", "illisible"
+    if not debut.startswith(signature):
+        return "", "illisible"
+    return chemin, None
+
+
 def saisir_cabinet(config):
     """Demande chaque champ de l'identité du cabinet, valeur courante entre
     crochets ; une saisie vide la conserve. Ne fait aucune entrée-sortie
@@ -348,6 +504,14 @@ def definir_mot_de_passe():
         return 1
 
     config = saisir_cabinet(config)
+
+    # On avertit sans empêcher (décision D11) : l'installateur peut poser le
+    # fichier après avoir saisi la configuration.
+    _, motif_logo = valider_logo(config["cabinet"]["logo"])
+    if motif_logo:
+        print("AVERTISSEMENT : ce logo sera refusé au démarrage ({}). "
+              "Placez le fichier sous formulaire/images/cabinet/ et indiquez "
+              "images/cabinet/<nom>.png.".format(motif_logo))
 
     config["mot_de_passe"] = hacher(premier)
     with open(CONFIG, "w", encoding="utf-8") as f:
@@ -898,6 +1062,15 @@ def detail_refus_depot(motif):
     return "refus motif={}".format(motif)
 
 
+def detail_refus_logo(motif):
+    """Compose le détail d'un logo refusé, sur un vocabulaire fermé : jamais
+    le chemin, qui est une saisie libre (enseigne, nom de session Windows) et
+    n'a pas sa place dans technique.log (décision D8)."""
+    if motif not in MOTIFS_REFUS_LOGO:
+        motif = "motif-inconnu"
+    return "refus motif={}".format(motif)
+
+
 def detail_depot_ok(octets):
     """Compose le détail d'un dépôt réussi : une taille, jamais un nom."""
     return "ok {} octets".format(octets)
@@ -1399,6 +1572,9 @@ class Gestionnaire(SimpleHTTPRequestHandler):
     # Interrupteur de la page d'état (C4-T3), posé dans demarrer(). Fermé par
     # défaut : une page facultative échoue fermée.
     page_etat = False
+    # Le logo validé au démarrage (C2-T2), seul chemin que /cabinet rend. Vide
+    # par défaut : sans demarrer(), aucun logo n'est proposé (échoue fermé).
+    logo = ""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=FORMULAIRE, **kwargs)
@@ -1596,6 +1772,9 @@ class Gestionnaire(SimpleHTTPRequestHandler):
 
         cabinet = self.config.get("cabinet") or {}
         donnees = {cle: cabinet.get(cle, "") for cle in CLES_CABINET}
+        # Jamais la valeur brute du fichier : seul le chemin validé au
+        # démarrage (ou "") est proposé à la tablette.
+        donnees["logo"] = self.logo
         corps = json.dumps(donnees, ensure_ascii=False).encode("utf-8")
 
         self.send_response(HTTPStatus.OK)
@@ -1756,6 +1935,9 @@ def demarrer():
     Gestionnaire.config = config
     Gestionnaire.dossier_pdf = dossier_pdf
     Gestionnaire.page_etat = config.get("page_etat") is True
+    # Posé avant serve_forever() : /cabinet ne rend jamais le chemin brut.
+    logo_servi, motif_logo = valider_logo(config["cabinet"]["logo"])
+    Gestionnaire.logo = logo_servi
 
     global JOURNAL_TECHNIQUE_ACTIF
     JOURNAL_TECHNIQUE_ACTIF = config["journal_technique"]
@@ -1813,6 +1995,9 @@ def demarrer():
         print("\nAVERTISSEMENT : identité du cabinet non configurée — les "
               "bilans ne pourront pas être exportés.")
         print("Lancez :  python3 serveur/serveur.py --config")
+    if motif_logo:
+        print("\nAVERTISSEMENT : logo refusé ({}) — l'en-tête sortira sans "
+              "logo.".format(motif_logo))
     print("\nCtrl+C pour arrêter.\n")
 
     purger_au_demarrage()
@@ -1823,6 +2008,14 @@ def demarrer():
     CERTIFICAT_CHARGE = dict(lire_certificat(certificat), empreinte=empreinte)
     journaliser_technique("DEMARRAGE", "version={} port={} certificat={} {}".format(
         VERSION_EN_COURS, config["port"], empreinte, verdict_certificat(empreinte)))
+    if motif_logo:
+        # !r : le chemin est une saisie libre, qu'un retour à la ligne ou un
+        # caractère de contrôle ne doit pas laisser forger une ligne du
+        # journal nominatif. Il n'entre jamais dans technique.log (D8).
+        journaliser("{} LOGO refusé motif={} chemin={!r}\n".format(
+            datetime.datetime.now().isoformat(timespec="seconds"),
+            motif_logo, config["cabinet"]["logo"]))
+        journaliser_technique("LOGO", detail_refus_logo(motif_logo))
 
     global DEMARRE_LE
     DEMARRE_LE = datetime.datetime.now().isoformat(timespec="seconds")

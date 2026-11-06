@@ -136,11 +136,14 @@ def demarrer_sandbox_court(config_extra=None, attendre_demarrage_technique=False
     dossier = tempfile.mkdtemp(prefix="bilan-test-sandbox-")
     os.mkdir(os.path.join(dossier, "serveur"))
     os.mkdir(os.path.join(dossier, "formulaire"))
+    # Le logo par défaut (C2-T2) : le serveur le valide au démarrage, et son
+    # absence journaliserait « LOGO refus motif=absent » dans chaque bac.
+    os.makedirs(os.path.join(dossier, "formulaire", "images"))
     for nom in ("serveur/serveur.py", "serveur/generer_autorite.py",
                 "formulaire/index.html", "formulaire/index-v1.html",
                 "formulaire/style.css",
                 "formulaire/script.js", "formulaire/schema.json",
-                "formulaire/version.json"):
+                "formulaire/version.json", "formulaire/images/favicon.jpeg"):
         shutil.copy(os.path.join(PROJET, nom), os.path.join(dossier, nom))
 
     sortie = subprocess.run(
@@ -203,11 +206,12 @@ class ServeurEnMarche(unittest.TestCase):
         cls.dossier = tempfile.mkdtemp(prefix="bilan-test-")
         os.mkdir(os.path.join(cls.dossier, "serveur"))
         os.mkdir(os.path.join(cls.dossier, "formulaire"))
+        os.makedirs(os.path.join(cls.dossier, "formulaire", "images"))
         for nom in ("serveur/serveur.py", "serveur/generer_autorite.py",
                     "formulaire/index.html", "formulaire/index-v1.html",
                     "formulaire/style.css",
                     "formulaire/script.js", "formulaire/schema.json",
-                "formulaire/version.json"):
+                    "formulaire/version.json", "formulaire/images/favicon.jpeg"):
             shutil.copy(os.path.join(PROJET, nom),
                         os.path.join(cls.dossier, nom))
 
@@ -601,6 +605,27 @@ class ServeurEnMarche(unittest.TestCase):
         _, entetes, _ = self.requete("GET", "/cabinet")
         occurrences = [v for c, v in entetes if c.lower() == "cache-control"]
         self.assertEqual(occurrences, ["no-store"])
+
+    def test_cabinet_rend_le_logo_par_defaut_servi(self):
+        # C2-T2, critère 11. Le chemin est dérivé de la source, jamais
+        # recopié ; il doit être servi, et rien n'a été journalisé : un logo
+        # valide ne laisse aucune ligne LOGO.
+        defaut = serveur.CONFIG_DEFAUT["cabinet"]["logo"]
+        _, _, corps = self.requete("GET", "/cabinet")
+        self.assertEqual(json.loads(corps.decode("utf-8"))["logo"], defaut)
+
+        statut, entetes, _ = self.requete("GET", "/" + defaut)
+        self.assertEqual(statut, 200)
+        types = [v for c, v in entetes if c.lower() == "content-type"]
+        self.assertEqual(types, ["image/jpeg"])
+
+        with open(self.technique, encoding="utf-8") as f:
+            evenements = [ligne.split(" ", 2)[1]
+                          for ligne in f.read().splitlines() if ligne]
+        self.assertNotIn("LOGO", evenements)
+        journal = os.path.join(self.dossier, "journal.log")
+        with open(journal, encoding="utf-8") as f:
+            self.assertNotIn("LOGO", f.read())
 
     # --- sonde de santé ----------------------------------------------------
 
