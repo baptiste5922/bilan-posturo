@@ -215,12 +215,16 @@ class MotifRefusRacineWeb(Arborescence):
 
 class FormesUnicode(Arborescence):
     """Sous macOS, deux écritures (NFC, NFD) d'un même nom désignent le même
-    dossier, et realpath rend chacune telle qu'écrite. Sous Linux, le système
-    de fichiers les distingue, mais realpath suit le texte d'un lien pendant :
-    le test reste valable, la normalisation ne pouvant que confondre deux
-    noms, donc refuser (échec fermé). Sous Windows, NTFS les distingue aussi
-    et realpath ne suit pas un lien pendant : le lien en NFC ne mène nulle
-    part, il n'y a aucun contournement à refuser, et U9 saute."""
+    dossier, et realpath rend chacune telle qu'écrite. Sous Linux et Windows,
+    le système de fichiers les distingue, mais realpath rend le texte d'un
+    lien pendant : le test reste valable, la normalisation ne pouvant que
+    confondre deux noms, donc refuser (échec fermé).
+
+    Tout part de la forme résolue du dossier temporaire. Sous Windows, celui
+    de la CI passe par un nom court 8.3 (RUNNER~1) : un lien pendant garderait
+    cette forme courte alors que le cabinet, qui existe, se résout en forme
+    longue, et la comparaison échouerait pour une raison sans rapport avec
+    l'Unicode (run 42415504125)."""
 
     NOM_NFC = unicodedata.normalize("NFC", "cabinet-caf\u00e9")
     NOM_NFD = unicodedata.normalize("NFD", NOM_NFC)
@@ -228,9 +232,10 @@ class FormesUnicode(Arborescence):
     def setUp(self):
         super().setUp()
         self.assertNotEqual(self.NOM_NFC, self.NOM_NFD)   # ancrage
+        self.base = os.path.realpath(self.tmp)
 
     def creer(self, *morceaux):
-        chemin = os.path.join(self.tmp, *morceaux)
+        chemin = os.path.join(self.base, *morceaux)
         try:
             os.makedirs(chemin)
         except OSError as erreur:
@@ -239,13 +244,9 @@ class FormesUnicode(Arborescence):
 
     def test_u9_cabinet_en_nfd_racine_web_liee_en_nfc(self):
         cabinet = self.creer(self.NOM_NFD)
-        if os.name == "nt" and not os.path.isdir(
-                os.path.join(self.tmp, self.NOM_NFC)):
-            self.skipTest("NTFS distingue NFC et NFD, et realpath ne suit pas "
-                          "un lien pendant : aucun contournement ici")
         web = os.path.join(cabinet, "formulaire")
         # Le texte du lien est en NFC, le dossier du cabinet est stocké en NFD.
-        lier(self, os.path.join(self.tmp, self.NOM_NFC), web, dossier=True)
+        lier(self, os.path.join(self.base, self.NOM_NFC), web, dossier=True)
         self.assertEqual(
             serveur.motif_refus_racine_web(
                 web, cabinet, os.path.join(cabinet, "bilans")),
@@ -253,7 +254,7 @@ class FormesUnicode(Arborescence):
 
     def test_u9_dossier_des_bilans_ecrit_en_nfd_sous_une_racine_web_en_nfc(self):
         web = self.creer(self.NOM_NFC)
-        bilans = os.path.join(self.tmp, self.NOM_NFD, "bilans")
+        bilans = os.path.join(self.base, self.NOM_NFD, "bilans")
         self.assertEqual(
             serveur.motif_refus_racine_web(web, self.cabinet, bilans),
             "dossier-pdf")
@@ -262,7 +263,7 @@ class FormesUnicode(Arborescence):
         web = self.creer(self.NOM_NFC)
         autre = unicodedata.normalize("NFD", self.NOM_NFC + "-autre")
         self.assertIsNone(serveur.motif_refus_racine_web(
-            web, self.cabinet, os.path.join(self.tmp, autre, "bilans")))
+            web, self.cabinet, os.path.join(self.base, autre, "bilans")))
 
 
 # --------------------------------------------------------------------------
