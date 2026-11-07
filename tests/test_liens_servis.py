@@ -504,7 +504,7 @@ class LiensServis(unittest.TestCase):
             raise
         # Le tube doit être vidé EN CONTINU : sous Windows son tampon est
         # petit, et un tube jamais lu fige toute requête qui journalise
-        # (C7-T5). Le fil garde la sortie pour les messages d'échec.
+        # (C7-T5). Le fil garde la sortie, à lire au débogage d'un échec.
         cls.sortie_serveur = []
         cls.lecteur = threading.Thread(
             target=lambda: cls.sortie_serveur.extend(

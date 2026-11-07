@@ -438,8 +438,8 @@ def confiner_sous_racine(chemin, racine_web, tolerer_casse=False):
             for prefixe in prefixes:
                 infos = os.lstat(prefixe)
                 if (stat.S_ISLNK(infos.st_mode)
-                        or getattr(infos, "st_file_attributes", 0)
-                        & stat.FILE_ATTRIBUTE_REPARSE_POINT):
+                        or (getattr(infos, "st_file_attributes", 0)
+                            & stat.FILE_ATTRIBUTE_REPARSE_POINT)):
                     return "", "lien-symbolique"
             return reel, None
     except ValueError:

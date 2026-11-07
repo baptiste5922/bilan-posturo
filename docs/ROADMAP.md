@@ -1250,6 +1250,8 @@ gratuits.
   suivante répond 200 — et l'appel exige des identifiants valides. `/index%00.html`
   et `/style%00.css` produisent le même effet. Cause : l'extension est calculée
   sur le chemin **non décodé**, la résolution sur le chemin décodé.
+  *Depuis C6-T6 (7 novembre)* : `/x%00.json` rend une 404, plus une connexion
+  fermée ; le calcul de l'extension sur deux formes du chemin reste à unifier.
 - **Travail :** rattraper le cas, répondre un code d'erreur, et calculer
   l'extension et la résolution sur la **même** forme du chemin.
 - **À ajouter (audit de C4-T3, 6 novembre) :** l'en-tête `Server` divulgue la
@@ -1272,8 +1274,11 @@ gratuits.
 > à la main.
 >
 > **État : implémentée le 7 novembre 2026** (contrat `docs/contrats/C6-T6.md`,
-> amendement A1 compris), branche `c6-t6-liens` ; audit de sécurité et revue à
-> faire. Le service statique résout chaque fichier (`confiner_fichier_servi`,
+> amendement A1 compris), fusionnée sur `main` ; audit CONFORME (un faible,
+> pré-existant, versé en C6-T7), revue À LIVRER (`docs/revues/C6-T6.md`) ;
+> **livrée**. Erratum du contrat : `realpath` ne lève pas toujours sur un octet
+> nul (Python 3.9 POSIX), d'où une garde explicite dans `confiner_fichier_servi`.
+> Le service statique résout chaque fichier (`confiner_fichier_servi`,
 > même fonction que le logo) et rend une **404 identique à celle d'un fichier
 > absent** pour tout lien, jonction ou cible hors de `formulaire/` ; une ligne
 > `lecture refusée motif=…` va dans `journal.log` seul. Sous Windows, une casse
@@ -1329,6 +1334,10 @@ gratuits.
 - **À noter (même audit) :** un lien physique NTFS sous `formulaire/` reste
   invisible à tout contrôle de chemin ; quand C6-T5 calculera l'extension sur
   le chemin décodé, revérifier que la page d'index d'un dossier reste fermée.
+  Sous Windows, un fichier absent dans un dossier demandé avec une autre casse
+  est journalisé `illisible` au lieu de passer à la 404 ordinaire (même
+  réponse, ligne de `journal.log` seule différente ; revue de C6-T6) :
+  traiter `FileNotFoundError` dans la boucle `lstat` comme un absent.
 
 ---
 
@@ -1419,6 +1428,15 @@ devient un appel de support, et un appel de support consomme la marge du mois.
 > - **Mesure :** dix exécutions complètes de la CI, toutes vertes (runs
 >   41731416364 à 41731824174). Le critère des trente exécutions consécutives
 >   reste à compléter, au fil des CI suivantes.
+> - **Vu le 7 novembre (CI macOS, run 42388329536, pendant C6-T6), deux
+>   courses de l'outillage, sans lien avec la tâche :**
+>   `test_arret_journalise` reçoit le `KeyboardInterrupt` pendant l'écriture
+>   de `DEMARRAGE`, avant le `try:` de `demarrer()` (la synchronisation par
+>   `attendre_ligne_technique` ne garantit donc pas que le `try:` est franchi) ;
+>   et `port_libre` perd son port au profit d'un autre processus entre la
+>   fermeture et le `bind` (« Address already in use », `LogoDemarrage`).
+>   À traiter ensemble, effort S : signal envoyé après une ligne écrite
+>   *dans* le `try:`, et port choisi par le serveur (port 0) puis relu.
 > - **Reste :** `demarrer_sandbox_court` (`ServeurArret`) garde un `PIPE`
 >   relu par `communicate()`. Son échec d'environ une fois sur soixante est le
 >   même mécanisme : à traiter de la même façon si on le revoit.
