@@ -1304,6 +1304,32 @@ gratuits.
   aucun lien (`realpath` rend la casse du disque). Le refus échoue fermé ; seul
   le motif égare le support. À traiter avec cette tâche.
 
+### C6-T7 — La racine web ne contient jamais la racine du cabinet
+
+> **Ouverte le 7 novembre 2026**, par l'audit de C6-T6 (constat faible,
+> pré-existant, non aggravé). Mesuré en bac à sable : si `formulaire` est
+> lui-même un lien vers la racine du cabinet, `GET /config.json` rend 200.
+
+- **Effort :** S
+- **Process :** Allégé + audit — surface servie.
+- **Dépendances :** C6-T6
+- **Périmètre :** `serveur/serveur.py`, calcul et contrôle de `FORMULAIRE` au
+  démarrage
+- **Constaté :** la décision D2 de C6-T6 accepte une racine web atteinte par
+  un lien (`base = realpath`), sans distinguer un lien qui déplace la racine
+  d'un lien qui lui fait englober le dossier d'installation. Il faut une
+  manipulation locale improbable ; ni le paquet ni l'installateur ne la
+  produisent.
+- **Travail :** au démarrage, refuser de servir si la racine web résolue
+  contient la racine du cabinet résolue (ou lui est égale) ; message clair,
+  rien dans `technique.log` qui nomme un chemin.
+- **Critères d'acceptation :** `formulaire` lié à la racine du cabinet → le
+  serveur refuse de démarrer, ou rend 404 sur `config.json` ; test en bac à
+  sable, mis en échec par mutation.
+- **À noter (même audit) :** un lien physique NTFS sous `formulaire/` reste
+  invisible à tout contrôle de chemin ; quand C6-T5 calculera l'extension sur
+  le chemin décodé, revérifier que la page d'index d'un dossier reste fermée.
+
 ---
 
 ## C7 — Filet de tests
