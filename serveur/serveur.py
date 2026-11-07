@@ -383,15 +383,23 @@ def forme_logo(chemin):
     return None
 
 
-def confiner_logo(chemin, racine_web):
+def confiner_sous_racine(chemin, racine_web, tolerer_casse=False):
     """Rend (chemin_absolu, None) si le chemin, résolu pour de bon, reste sous
     racine_web sans passer par aucun lien, sinon ("", motif).
 
-    Suppose la forme déjà validée mais ne s'y fie pas : c'est la seconde
-    couche, qui regarde le disque. Tout lien symbolique est refusé, même vers
-    l'intérieur (décision D5) ; la comparaison des chemins résolus tient aussi
-    contre une jonction Windows, que islink() ne voit pas avant Python 3.12.
-    Aucune exception ne sort.
+    Sert au logo (C2-T2) et au gestionnaire statique (C6-T6). Suppose la forme
+    déjà validée mais ne s'y fie pas : c'est la seconde couche, qui regarde le
+    disque. Tout lien symbolique est refusé, même vers l'intérieur (décision
+    D5) ; la comparaison des chemins résolus tient aussi contre une jonction
+    Windows, que islink() ne voit pas avant Python 3.12. Aucune exception ne
+    sort.
+
+    tolerer_casse : sous Windows, realpath rend la casse du disque. Une casse
+    seule n'est pas un lien : par défaut (le logo, geste d'installation qui se
+    corrige à froid) le chemin est refusé comme « absent ». Le service statique
+    la tolère, parce que Windows sert aujourd'hui /Index.html et qu'une page
+    blanche en consultation n'achète aucune sécurité ; chaque composante est
+    alors relue par lstat avant d'accepter (C6-T6, amendement A1).
     """
     try:
         base = os.path.realpath(racine_web)
@@ -417,13 +425,58 @@ def confiner_logo(chemin, racine_web):
         if os.path.commonpath([base, reel]) != base:
             return "", "hors-racine"
         if reel != attendu:
-            return "", "lien-symbolique"
+            if os.path.normcase(reel) != os.path.normcase(attendu):
+                return "", "lien-symbolique"
+            # Windows : realpath rend la casse du disque. Une casse seule
+            # n'est pas un lien : aucun fichier ne porte exactement ce nom.
+            if not tolerer_casse:
+                return "", "absent"
+            # Tolérance du service statique. Elle ne doit laisser passer aucun
+            # détour : chaque composante sous la racine est relue par lstat,
+            # qui voit le lien même quand islink est aveugle, et le point de
+            # reparse (jonction) par ses attributs Windows.
+            for prefixe in prefixes:
+                infos = os.lstat(prefixe)
+                if (stat.S_ISLNK(infos.st_mode)
+                        or getattr(infos, "st_file_attributes", 0)
+                        & stat.FILE_ATTRIBUTE_REPARSE_POINT):
+                    return "", "lien-symbolique"
+            return reel, None
     except ValueError:
         # commonpath : lecteurs différents sous Windows, donc hors racine.
         return "", "hors-racine"
     except OSError:
         return "", "illisible"
     return attendu, None
+
+
+# Nom historique de C2-T2, gardé pour valider_logo et tests/test_logo.py. Un
+# alias et non une enveloppe : c'est le même objet, donc les simulations de
+# serveur.os.path et la garde AST des motifs portent sur le code réel.
+confiner_logo = confiner_sous_racine
+
+
+def confiner_fichier_servi(chemin_traduit, racine_web):
+    """Rend le motif de refus d'un fichier statique, ou None s'il peut être
+    ouvert. Un fichier absent rend None : c'est la 404 de la bibliothèque qui
+    répond, comme avant (C6-T6).
+
+    chemin_traduit est celui que send_head ouvrira (translate_path), décodé.
+    Seul appelant à tolérer la casse : voir confiner_sous_racine. Aucune
+    exception ne sort.
+    """
+    # Refus explicite : selon la version de Python et le système, realpath lève
+    # ou laisse passer un octet nul, et open() lèverait alors une ValueError
+    # que send_head ne rattrape pas.
+    if "\0" in chemin_traduit:
+        return "hors-racine"
+    try:
+        relatif = os.path.relpath(chemin_traduit, racine_web)
+    except ValueError:   # lecteurs différents sous Windows
+        return "hors-racine"
+    _, motif = confiner_sous_racine(relatif.replace(os.sep, "/"), racine_web,
+                                    tolerer_casse=True)
+    return motif
 
 
 def valider_logo(chemin, racine_web=None):
@@ -1711,6 +1764,18 @@ class Gestionnaire(SimpleHTTPRequestHandler):
         extension = os.path.splitext(chemin)[1].lower()
         if extension not in EXTENSIONS_SERVIES:
             self.send_error(HTTPStatus.FORBIDDEN, "Type de fichier non servi")
+            return False
+
+        # Le fichier que send_head ouvrira, décodé et normalisé comme lui : le
+        # contrôle porte sur ce chemin-là, non sur le chemin brut (C6-T6).
+        motif = confiner_fichier_servi(self.translate_path(chemin), FORMULAIRE)
+        if motif:
+            journaliser("{} {} lecture refusée motif={} chemin={!r}\n".format(
+                datetime.datetime.now().isoformat(timespec="seconds"),
+                self.address_string(), motif, chemin))
+            # Libellé anglais repris à l'identique de send_head : le refus doit
+            # être indiscernable d'un fichier absent (404, même corps).
+            self.send_error(HTTPStatus.NOT_FOUND, "File not found")
             return False
 
         self.path = chemin
