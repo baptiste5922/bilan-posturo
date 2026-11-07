@@ -116,6 +116,7 @@ CONSERVATION_JOURNAUX_MOIS = CONSERVATION_MOIS_DEFAUT
 EVENEMENTS_TECHNIQUES = frozenset({
     "DEMARRAGE", "ARRET", "TLS_REFUSE", "AUTH_REFUSEE",
     "REPONSE", "DEPOT", "ECHEC_ECRITURE", "ROTATION", "LOGO",
+    "DEMARRAGE_REFUSE",
 })
 
 # ROTATION échappe de nécessité à journaliser_technique() (interblocage
@@ -221,6 +222,13 @@ LOGO_TAILLE_MAX = 512 * 1024
 MOTIFS_REFUS_LOGO = frozenset({
     "hors-racine", "forme-invalide", "extension-non-servie", "lien-symbolique",
     "absent", "trop-volumineux", "illisible",
+})
+
+# Motifs de refus de démarrer quand la racine web englobe le cabinet (C6-T7),
+# fermés comme MOTIFS_REFUS_LOGO : seules valeurs qui atteignent technique.log,
+# les chemins de l'installation n'y entrent jamais.
+MOTIFS_REFUS_DEMARRAGE = frozenset({
+    "racine-cabinet", "dossier-pdf", "indetermine",
 })
 
 CONFIG_DEFAUT = {
@@ -484,6 +492,46 @@ def confiner_fichier_servi(chemin_traduit, racine_web):
     _, motif = confiner_sous_racine(relatif.replace(os.sep, "/"), racine_web,
                                     tolerer_casse=True)
     return motif
+
+
+def chemin_contient(englobant, contenu):
+    """Vrai si `contenu` est `englobant` ou se trouve dessous ; deux formes
+    déjà résolues et normalisées. commonpath et non startswith : /cab-x n'est
+    pas sous /cab."""
+    try:
+        return os.path.commonpath([englobant, contenu]) == englobant
+    except ValueError:   # lecteurs différents sous Windows
+        return False
+
+
+def motif_refus_racine_web(racine_web, racine_cabinet, dossier_pdf):
+    """None si la racine web résolue ne contient ni la racine du cabinet ni le
+    dossier des bilans ; sinon un motif de MOTIFS_REFUS_DEMARRAGE. Jamais de
+    levée.
+
+    Le confinement des fichiers servis (D2 de C6-T6) accepte une racine web
+    atteinte par un lien, indispensable sous macOS et sous une jonction. Il ne
+    distingue pas un lien qui déplace la racine web d'un lien qui lui fait
+    englober le cabinet : config.json (extension servie) ne serait plus
+    protégé par la séparation des dossiers. Ce contrôle porte donc sur la contenance, des formes
+    résolues des deux côtés, jamais sur l'existence d'un lien.
+    """
+    try:
+        web = os.path.normcase(os.path.realpath(racine_web))
+        cabinet = os.path.normcase(os.path.realpath(racine_cabinet))
+        bilans = os.path.normcase(os.path.realpath(dossier_pdf))
+    except (OSError, ValueError):
+        # Échec fermé : mieux vaut un refus visible qu'un serveur qui paraît
+        # marcher, comme pour l'absence de TLS.
+        return "indetermine"
+
+    # Le motif le plus général d'abord : quand formulaire englobe le cabinet,
+    # il englobe aussi les bilans.
+    if chemin_contient(web, cabinet):
+        return "racine-cabinet"
+    if chemin_contient(web, bilans):
+        return "dossier-pdf"
+    return None
 
 
 def valider_logo(chemin, racine_web=None):
@@ -1138,6 +1186,15 @@ def detail_refus_logo(motif):
     le chemin, qui est une saisie libre (enseigne, nom de session Windows) et
     n'a pas sa place dans technique.log (décision D8)."""
     if motif not in MOTIFS_REFUS_LOGO:
+        motif = "motif-inconnu"
+    return "refus motif={}".format(motif)
+
+
+def detail_refus_demarrage(motif):
+    """Compose le détail d'un démarrage refusé, sur un vocabulaire fermé :
+    jamais un chemin, qui peut porter un nom de session Windows et n'a pas sa
+    place dans technique.log."""
+    if motif not in MOTIFS_REFUS_DEMARRAGE:
         motif = "motif-inconnu"
     return "refus motif={}".format(motif)
 
@@ -1997,12 +2054,52 @@ class Gestionnaire(SimpleHTTPRequestHandler):
 # Démarrage
 # --------------------------------------------------------------------------
 
+def signaler_refus_racine_web(motif, dossier_pdf):
+    """Trace le refus de démarrer : journal nominatif (chemins résolus),
+    journal technique (motif seul) et console. Écrit avant toute ouverture de
+    socket ; ne crée rien sous la racine web."""
+    try:
+        web = os.path.realpath(FORMULAIRE)
+        cible = os.path.realpath(RACINE if motif == "racine-cabinet"
+                                 else dossier_pdf)
+    except (OSError, ValueError):
+        web = cible = "?"
+    # !r : un chemin peut porter un retour à la ligne ou un caractère de
+    # contrôle qui forgerait une ligne du journal nominatif.
+    journaliser("{} DEMARRAGE refusé motif={} racine_web={!r} cible={!r}\n"
+                .format(datetime.datetime.now().isoformat(timespec="seconds"),
+                        motif, web, cible))
+    journaliser_technique("DEMARRAGE_REFUSE", detail_refus_demarrage(motif))
+    if motif == "racine-cabinet":
+        print("Refus de démarrer : le dossier formulaire mène à la racine du "
+              "cabinet ou au-dessus ; config.json et les journaux seraient "
+              "servis à la tablette.")
+        print("Remettez à sa place le dossier formulaire du paquet : un vrai "
+              "dossier, ni raccourci ni jonction.")
+    elif motif == "dossier-pdf":
+        print("Refus de démarrer : le dossier des bilans (dossier_pdf) se "
+              "trouve dans le dossier formulaire, servi à la tablette.")
+        print("Choisissez dans config.json un dossier_pdf hors du dossier "
+              "formulaire.")
+    else:
+        print("Refus de démarrer : impossible de vérifier l'emplacement du "
+              "dossier formulaire.")
+        print("Vérifiez les droits sur le dossier d'installation.")
+
+
 def demarrer():
     config = charger_config()
     if config is None or not config.get("mot_de_passe"):
         print("Aucun mot de passe défini.")
         print("Lancez d'abord :  python3 serveur/serveur.py --config")
         return 1
+
+    # Posés avant tout refus : l'interrupteur journal_technique et la durée de
+    # conservation s'appliquent aussi à la ligne de refus (C6-T7).
+    global JOURNAL_TECHNIQUE_ACTIF
+    JOURNAL_TECHNIQUE_ACTIF = config["journal_technique"]
+    global CONSERVATION_JOURNAUX_MOIS
+    CONSERVATION_JOURNAUX_MOIS = config["conservation_journaux_mois"]
 
     # Un cabinet mis à jour sans relancer --config n'a pas encore saisi son
     # identité : ce n'est pas un refus de démarrer (le formulaire reste
@@ -2013,6 +2110,12 @@ def demarrer():
     dossier_pdf = config["dossier_pdf"]
     if not os.path.isabs(dossier_pdf):
         dossier_pdf = os.path.join(RACINE, dossier_pdf)
+    # Avant makedirs : un refus ne crée rien sous la racine web (C6-T7), et
+    # avant toute ouverture de socket.
+    motif = motif_refus_racine_web(FORMULAIRE, RACINE, dossier_pdf)
+    if motif:
+        signaler_refus_racine_web(motif, dossier_pdf)
+        return 1
     os.makedirs(dossier_pdf, exist_ok=True)
 
     Gestionnaire.config = config
@@ -2021,11 +2124,6 @@ def demarrer():
     # Posé avant serve_forever() : /cabinet ne rend jamais le chemin brut.
     logo_servi, motif_logo = valider_logo(config["cabinet"]["logo"])
     Gestionnaire.logo = logo_servi
-
-    global JOURNAL_TECHNIQUE_ACTIF
-    JOURNAL_TECHNIQUE_ACTIF = config["journal_technique"]
-    global CONSERVATION_JOURNAUX_MOIS
-    CONSERVATION_JOURNAUX_MOIS = config["conservation_journaux_mois"]
 
     certificat = os.path.join(RACINE, config["certificat"])
     cle = os.path.join(RACINE, config["cle_privee"])

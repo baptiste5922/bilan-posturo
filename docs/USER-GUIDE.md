@@ -39,6 +39,7 @@ server then runs in a visible window.
 | `Port 8000 indisponible` | The server is already running; nothing to do. |
 | `certificat.pem introuvable` | See the Maintenance section. |
 | `config.json absent` | See the Maintenance section. |
+| `Refus de démarrer : le dossier formulaire mène…` ("Refusing to start: the formulaire folder leads…") | See the Maintenance section; do not move the `formulaire` folder or replace it with a shortcut. |
 
 ---
 
