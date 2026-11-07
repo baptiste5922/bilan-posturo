@@ -1314,6 +1314,17 @@ gratuits.
 > **Ouverte le 7 novembre 2026**, par l'audit de C6-T6 (constat faible,
 > pré-existant, non aggravé). Mesuré en bac à sable : si `formulaire` est
 > lui-même un lien vers la racine du cabinet, `GET /config.json` rend 200.
+>
+> **État : implémentée le 7 novembre 2026** (contrat `docs/contrats/C6-T7.md`),
+> sur la branche `c6-t7-racine` ; audit de sécurité et revue à faire. Le serveur
+> **refuse de démarrer** (code 1) quand la racine web résolue contient la
+> racine du cabinet ou le dossier des bilans : `journal.log` porte les chemins
+> résolus, `technique.log` le seul motif fermé (`DEMARRAGE_REFUSE`), la console
+> le geste à faire. Le contrôle précède `os.makedirs` et toute ouverture de
+> socket. Boucle `lstat` : un préfixe absent passe au suivant, Windows ne
+> journalise plus `illisible` pour un absent. Mises en échec M1 à M10 :
+> `docs/audits/C6-T7-mises-en-echec.md`. **Reste :** W1 (jonction réelle) n'a
+> jamais tourné hors CI Windows.
 
 - **Effort :** S
 - **Process :** Allégé + audit — surface servie.
