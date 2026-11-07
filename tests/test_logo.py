@@ -55,6 +55,31 @@ def ecrire(chemin, debut, taille=64):
         f.write(debut + b"\x00" * max(0, taille - len(debut)))
 
 
+@contextlib.contextmanager
+def windows_simule():
+    """Simule les deux traits de Windows qui comptent ici : normcase ignore la
+    casse, et realpath rend la casse du disque. lstat reste le vrai. Le
+    disque réel, lui, peut être sensible ou non à la casse (Linux, macOS) :
+    realpath relit donc le dossier parent pour retrouver le nom exact."""
+    realpath_reel = os.path.realpath
+
+    def realpath_disque(chemin, *args, **options):
+        reel = realpath_reel(chemin, *args, **options)
+        parent, nom = os.path.split(reel)
+        try:
+            noms = os.listdir(parent)
+        except OSError:
+            return reel
+        for candidat in noms:
+            if candidat.lower() == nom.lower():
+                return os.path.join(parent, candidat)
+        return reel
+
+    with unittest.mock.patch.object(serveur.os.path, "normcase", str.lower), \
+         unittest.mock.patch.object(serveur.os.path, "realpath", realpath_disque):
+        yield
+
+
 class RacineTemporaire(unittest.TestCase):
     """Une racine web jetable `web/`, avec à côté un PNG valide `hors.png`
     hors de la racine : la cible de toute remontée ou de tout lien externe."""
@@ -270,6 +295,26 @@ class ConfinementLogo(RacineTemporaire):
                                         side_effect=ValueError("lecteurs")):
             self.assertEqual(serveur.confiner_logo("images/l.png", self.racine),
                              ("", "hors-racine"))
+
+
+class CasseWindows(RacineTemporaire):
+    """Une différence de casse seule n'est pas un lien (C6-T6) : le logo est
+    refusé comme « absent », le motif qui dirige le support vers le nom du
+    fichier, et non vers un raccourci qui n'existe pas."""
+
+    def test_casse_seule_est_absente_et_non_lien(self):
+        self.poser("images/cabinet/logo.png")
+        with windows_simule():
+            self.assertEqual(
+                serveur.valider_logo("images/cabinet/Logo.png", self.racine),
+                ("", "absent"))
+            self.assertEqual(
+                serveur.confiner_logo("images/cabinet/Logo.png", self.racine),
+                ("", "absent"))
+            # Témoin : la bonne casse reste acceptée dans la même simulation.
+            self.assertEqual(
+                serveur.valider_logo("images/cabinet/logo.png", self.racine),
+                ("images/cabinet/logo.png", None))
 
 
 class ValidationLogo(RacineTemporaire):
