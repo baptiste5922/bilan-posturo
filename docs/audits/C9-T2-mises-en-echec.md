@@ -50,6 +50,31 @@ M1 à M6 sont ceux du contrat (§9) ; M7 à M9 sont ajoutés : ils éprouvent de
 gardes que le contrat exige (refus des liens, source illisible, `-I -B`) sans
 leur donner de numéro.
 
+## Mutations ajoutées après l'audit (constats 1 à 3)
+
+Même méthode : clone jetable sans `origin`, témoin vert (36 cas), une mutation à
+la fois, fichier d'origine réécrit, suite saine rejouée à la fin (code 0).
+
+| N° | Garde visée | Mutation | Cas qui rougissent |
+|---|---|---|---|
+| M10 | Couche « entrée `.git` » (tout arbre de travail Git, constat 1) | `if (dansUnDepotGit(dossier)) {` devient `if (false) {` | **T2** « dossier dans un AUTRE arbre de travail Git (second clone, worktree) », **T2** « un lien vers un autre arbre de travail Git… realpath » |
+| M11 | Validation de la recette avant copie (constat 2) | `if (refusRecette.length > 0) return refusRecette;` retiré d'`ouvrir` | **T1** « ouvrir valide la recette avant toute copie, sans rien citer… » |
+| M12 | Texte des accolades non cité (constat 3) | `refus.push("… marqueur « {" + trouve[1] + "} » inconnu.")` réintroduit dans la boucle | **T5** « convention de nommage… », **T5** « un marqueur inconnu n'est jamais cité… » (courriel assemblé à l'exécution) |
+| M13 | Message brut de `JSON.parse` non repris (constat 2) | `["recette refusée : " + erreur.message]` à la place du message fixe | **T1** « ouvrir valide la recette… » (cas « texte nu » : Node cite alors un extrait) |
+
+- **M13 a d'abord survécu** : avec une recette qui commence par `{`, le message de
+  Node ne cite aucun extrait. Le cas a été durci (variante « texte nu », recherche
+  du préfixe du témoin plutôt que du témoin entier) puis la mutation rejouée : rouge.
+- **M1 rejouée** après l'ajout de la première couche : toujours rouge (deux cas T2).
+  Le cas « la racine réelle du dépôt est reconnue par défaut » ne rougit plus seul
+  dans un clone, car celui-ci a un `.git` que la première couche refuse déjà ; la
+  seconde couche reste gardée par les deux autres cas T2 (racine jetable sans `.git`).
+- **Limite assumée** : le contrôle `.git` s'arrête à la première entrée trouvée sur
+  le chemin résolu ; un dossier de travail dont l'un des ancêtres est un dépôt Git
+  *nu* (sans `.git`, avec `HEAD` et `objects/` à la racine) n'est pas reconnu par
+  cette couche. La seconde couche ne le reconnaît pas non plus s'il n'est pas le
+  dépôt de l'atelier.
+
 ## Épreuve du motif de la CI
 
 Le motif `identite-cabinet\.json$` ajouté au contrôle « aucun secret versionné »
