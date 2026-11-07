@@ -1270,6 +1270,19 @@ gratuits.
 > **pré-existant**, non introduit par C2-T2 ; mais C2-T2 fait de
 > `formulaire/images/cabinet/` un dossier où l'installateur dépose des fichiers
 > à la main.
+>
+> **État : implémentée le 7 novembre 2026** (contrat `docs/contrats/C6-T6.md`,
+> amendement A1 compris), branche `c6-t6-liens` ; audit de sécurité et revue à
+> faire. Le service statique résout chaque fichier (`confiner_fichier_servi`,
+> même fonction que le logo) et rend une **404 identique à celle d'un fichier
+> absent** pour tout lien, jonction ou cible hors de `formulaire/` ; une ligne
+> `lecture refusée motif=…` va dans `journal.log` seul. Sous Windows, une casse
+> seule reste servie (tolérance gardée par `lstat` sur chaque composante) ; le
+> logo la refuse avec le motif `absent`. Mises en échec :
+> `docs/audits/C6-T6-mises-en-echec.md`. Rien ne part au cabinet avant C1-T4b.
+> **Effet de bord (R4) :** `/x%00.json` rend désormais 404 au lieu d'une
+> connexion fermée ; C6-T5 garde le calcul de l'extension sur le chemin non
+> décodé, l'en-tête `Server` et son test.
 
 - **Effort :** S
 - **Process :** Allégé + audit — surface servie.

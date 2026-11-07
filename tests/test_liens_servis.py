@@ -587,6 +587,14 @@ class LiensServis(unittest.TestCase):
         self.assertEqual(sans_horodatage(ajoutees_lien),
                          sans_horodatage(ajoutees_absent))
 
+    def test_i10_octet_nul_encode_rend_404_et_non_une_connexion_fermee(self):
+        # Effet de bord assumé (R4) : /x%00.json fermait la connexion sans
+        # réponse. Le correctif de C6-T5 reste à faire pour le calcul de
+        # l'extension ; ici seul le symptôme change.
+        for chemin in ("/images/x%00.json", "/images/x%00.png", "/x%00.html"):
+            with self.subTest(chemin=chemin):
+                self.assertEqual(self.demander(chemin)[0], 404)
+
     @unittest.skipUnless(os.name == "nt", "casse insensible : Windows seulement")
     def test_i9_la_casse_seule_reste_servie_sous_windows(self):
         statut, _, corps = self.demander("/INDEX.HTML")
