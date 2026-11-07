@@ -170,6 +170,25 @@ A consequence of the SYSTEM account: `dossier_pdf` must be an absolute local
 path or a UNC path. A network drive mapped in the practitioner's session does
 not exist for SYSTEM.
 
+### The server refuses to start
+
+Symptom: the form does not open, and `Get-ScheduledTaskInfo` shows a last
+result of `1`. Under the scheduled task there is no console: the reason is in
+the **last line of `technique.log`**, which can be sent, of the form
+`… DEMARRAGE_REFUSE refus motif=<reason>`. `journal.log`, on site, also gives
+the paths involved; `demarrer-serveur.bat` prints the same message on screen.
+
+| Reason | Cause | Action |
+|---|---|---|
+| `racine-cabinet` | the `formulaire` folder is a shortcut, link or junction leading to the installation folder or above it: `config.json` and the logs would be served to the tablet | delete that `formulaire`, then copy the `formulaire` folder back from the kept package: a real folder |
+| `dossier-pdf` | `dossier_pdf` points to a folder inside `formulaire`: the assessments would be served to the tablet | in `config.json`, set `"dossier_pdf": "bilans"` again (or another path outside `formulaire`) |
+| `indetermine` | the location of `formulaire` could not be checked | check the permissions on the installation folder; failing that, copy back `serveur/serveur.py` from the previous version's kept package |
+
+Then `Start-ScheduledTask -TaskName BilanPosturo`, and check that
+`https://<address>:8000/sante` answers. Assessments made during the outage
+stayed in the tablet's queue: they are sent on their own once the server is
+back.
+
 ### The PC's address has changed
 
 Symptom: the tablet shows `ERR_CONNECTION_TIMED_OUT` or a security warning,

@@ -181,7 +181,10 @@ simply not inside the served tree. On top of that, only the extensions
 `GET` as well as on `HEAD`. Either barrier alone would be enough; a mistake in
 one is caught by the other. A symbolic link or an NTFS junction placed under
 `formulaire/` is never followed: it answers 404, exactly like a missing file
-(C6-T6).
+(C6-T6). And the server refuses to start if `formulaire/` itself resolves to
+the installation folder or above it, or contains `dossier_pdf`: the reason
+goes to `technique.log` as a closed `DEMARRAGE_REFUSE` code, never a path
+(C6-T7).
 
 **File delivery** — sanitised filename (directory traversal neutralised,
 Unicode normalisation, truncation), `%PDF-` signature verified, 30 MB ceiling,

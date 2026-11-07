@@ -1315,16 +1315,21 @@ gratuits.
 > pré-existant, non aggravé). Mesuré en bac à sable : si `formulaire` est
 > lui-même un lien vers la racine du cabinet, `GET /config.json` rend 200.
 >
-> **État : implémentée le 7 novembre 2026** (contrat `docs/contrats/C6-T7.md`),
-> sur la branche `c6-t7-racine` ; audit de sécurité et revue à faire. Le serveur
+> **État : livrée le 7 novembre 2026** (contrat `docs/contrats/C6-T7.md`,
+> amendement A1). Audit CONFORME au réaudit (`docs/audits/C6-T7.md`), revue
+> À LIVRER (`docs/revues/C6-T7.md`). Ne part au cabinet qu'avec C1-T4b : à la
+> visite, lancer une fois `demarrer-serveur.bat` et lire la sortie (un
+> `dossier_pdf` sous `formulaire` y refuserait de démarrer). Le serveur
 > **refuse de démarrer** (code 1) quand la racine web résolue contient la
 > racine du cabinet ou le dossier des bilans : `journal.log` porte les chemins
 > résolus, `technique.log` le seul motif fermé (`DEMARRAGE_REFUSE`), la console
 > le geste à faire. Le contrôle précède `os.makedirs` et toute ouverture de
 > socket. Boucle `lstat` : un préfixe absent passe au suivant, Windows ne
-> journalise plus `illisible` pour un absent. Mises en échec M1 à M10 :
-> `docs/audits/C6-T7-mises-en-echec.md`. **Reste :** W1 (jonction réelle) n'a
-> jamais tourné hors CI Windows.
+> journalise plus `illisible` pour un absent. Après audit : comparaison en NFC
+> (contournement par une autre forme Unicode sous macOS), `verdict_certificat`
+> lit le jeton `DEMARRAGE` exact. Mises en échec M1 à M14 :
+> `docs/audits/C6-T7-mises-en-echec.md`. W1 (jonction réelle) et U9 verts en
+> CI Windows 3.9 et 3.13 (run 42416314295).
 >
 > **Consigné, non corrigé (audit) :** un préfixe `\\?\` écrit à la main dans
 > `dossier_pdf` n'est pas normalisé ; un `formulaire` lié à un sous-dossier du

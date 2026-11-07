@@ -525,8 +525,9 @@ def motif_refus_racine_web(racine_web, racine_cabinet, dossier_pdf):
     atteinte par un lien, indispensable sous macOS et sous une jonction. Il ne
     distingue pas un lien qui déplace la racine web d'un lien qui lui fait
     englober le cabinet : config.json (extension servie) ne serait plus
-    protégé par la séparation des dossiers. Ce contrôle porte donc sur la contenance, des formes
-    résolues des deux côtés, jamais sur l'existence d'un lien.
+    protégé par la séparation des dossiers. Ce contrôle porte donc sur la
+    contenance, des formes résolues des deux côtés, jamais sur l'existence
+    d'un lien.
     """
     try:
         web = forme_comparable(racine_web)

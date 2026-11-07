@@ -174,6 +174,26 @@ Conséquence du compte SYSTEM : `dossier_pdf` doit être un chemin local absolu
 ou un chemin UNC (`\\serveur\partage\...`). Un lecteur réseau mappé sur la
 session du praticien n'existe pas pour SYSTEM.
 
+### Le serveur refuse de démarrer
+
+Symptôme : le formulaire ne s'ouvre pas, `Get-ScheduledTaskInfo` montre un
+dernier résultat `1`. Sous la tâche planifiée, il n'y a pas de console : le
+motif est dans la **dernière ligne de `technique.log`**, qui peut s'envoyer,
+de la forme `… DEMARRAGE_REFUSE refus motif=<motif>`. `journal.log`, sur
+place, donne en plus les chemins en cause ; `demarrer-serveur.bat` affiche le
+même message à l'écran.
+
+| Motif | Cause | Geste |
+|---|---|---|
+| `racine-cabinet` | le dossier `formulaire` est un raccourci, un lien ou une jonction qui mène au dossier d'installation ou au-dessus : `config.json` et les journaux seraient servis à la tablette | supprimer ce `formulaire`, puis recopier le dossier `formulaire` du paquet conservé : un vrai dossier |
+| `dossier-pdf` | `dossier_pdf` désigne un dossier situé dans `formulaire` : les bilans seraient servis à la tablette | dans `config.json`, remettre `"dossier_pdf": "bilans"` (ou un autre chemin hors de `formulaire`) |
+| `indetermine` | l'emplacement de `formulaire` n'a pas pu être vérifié | vérifier les droits sur le dossier d'installation ; à défaut, recopier le `serveur/serveur.py` de la version précédente depuis le paquet conservé |
+
+Puis `Start-ScheduledTask -TaskName BilanPosturo`, et vérifier que
+`https://<adresse>:8000/sante` répond. Les bilans faits pendant la panne sont
+restés dans la file d'attente de la tablette : ils partent seuls au retour du
+serveur.
+
 ### L'adresse du PC a changé
 
 Symptôme : la tablette affiche `ERR_CONNECTION_TIMED_OUT` ou un avertissement
