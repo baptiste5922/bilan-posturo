@@ -115,23 +115,15 @@ def attendre_ligne_technique(dossier, sous_chaine, limite=10):
             sous_chaine, limite))
 
 
-def demarrer_sandbox_court(config_extra=None, attendre_demarrage_technique=False,
-                           avant_demarrage=None):
-    """Construit et démarre un serveur complet dans son propre bac à sable.
+def preparer_sandbox(config_extra=None, avant_demarrage=None):
+    """Construit un bac à sable complet (arborescence, autorité, config.json)
+    sans lancer le serveur. Rend (dossier, port) ; l'appelant supprime le
+    dossier.
 
-    Pour un test qui a besoin d'arrêter lui-même son serveur (ARRET,
-    l'interrupteur de journal technique) plutôt que de partager celui, à
-    vie plus longue, de ServeurEnMarche. Rend (dossier, port, processus) ;
-    l'appelant nettoie (terminer le processus, puis supprimer le dossier).
-
-    attendre_demarrage_technique : à True pour un appelant qui va envoyer un
-    signal au processus (voir attendre_ligne_technique) — False par défaut,
-    car certains appelants désactivent le journal technique
-    (journal_technique=False), où DEMARRAGE ne s'écrirait jamais.
-
-    avant_demarrage : fonction appelée avec le dossier du bac à sable juste
-    avant le lancement du serveur, pour y poser des fichiers que le
-    démarrage doit trouver (archives de journal, C4-T2).
+    avant_demarrage : fonction appelée avec le dossier juste avant de rendre
+    la main, pour y poser des fichiers que le démarrage doit trouver. Si elle
+    lève, le bac est supprimé avant que l'erreur remonte : personne ne tient
+    encore le dossier pour le nettoyer (C6-T7).
     """
     dossier = tempfile.mkdtemp(prefix="bilan-test-sandbox-")
     os.mkdir(os.path.join(dossier, "serveur"))
@@ -163,7 +155,33 @@ def demarrer_sandbox_court(config_extra=None, attendre_demarrage_technique=False
         json.dump(config, f)
 
     if avant_demarrage is not None:
-        avant_demarrage(dossier)
+        try:
+            avant_demarrage(dossier)
+        except BaseException:
+            shutil.rmtree(dossier, ignore_errors=True)
+            raise
+    return dossier, port
+
+
+def demarrer_sandbox_court(config_extra=None, attendre_demarrage_technique=False,
+                           avant_demarrage=None):
+    """Construit et démarre un serveur complet dans son propre bac à sable.
+
+    Pour un test qui a besoin d'arrêter lui-même son serveur (ARRET,
+    l'interrupteur de journal technique) plutôt que de partager celui, à
+    vie plus longue, de ServeurEnMarche. Rend (dossier, port, processus) ;
+    l'appelant nettoie (terminer le processus, puis supprimer le dossier).
+
+    attendre_demarrage_technique : à True pour un appelant qui va envoyer un
+    signal au processus (voir attendre_ligne_technique) — False par défaut,
+    car certains appelants désactivent le journal technique
+    (journal_technique=False), où DEMARRAGE ne s'écrirait jamais.
+
+    avant_demarrage : fonction appelée avec le dossier du bac à sable juste
+    avant le lancement du serveur, pour y poser des fichiers que le
+    démarrage doit trouver (archives de journal, C4-T2).
+    """
+    dossier, port = preparer_sandbox(config_extra, avant_demarrage)
 
     processus = subprocess.Popen(
         # -u : sortie non bufferisée. Sans cela, le bloc d'informations
