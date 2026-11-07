@@ -248,6 +248,8 @@ cas("T1 : ouvrir valide la recette avant toute copie, sans rien citer de son con
     const temoin = "TEMOIN-" + ["contact", "exemple.test"].join("@");
     const cas_ = {
         "pas du JSON": "{ " + temoin + " n'est pas du JSON",
+        // Node cite alors un extrait du texte dans le message de JSON.parse.
+        "texte nu": temoin + " texte nu",
         "pas un objet": JSON.stringify([temoin]),
         "clé inconnue": JSON.stringify({ version_recette: 1, description: "Texte 1", version_schema: 1, fragments: ["anamnese"], [temoin]: 1 }),
         "clé absente": JSON.stringify({ version_recette: 1, description: temoin })
@@ -262,7 +264,7 @@ cas("T1 : ouvrir valide la recette avant toute copie, sans rien citer de son con
         // Et par la ligne de commande : ni la sortie standard, ni l'erreur standard.
         const cli = lancer(["ouvrir", travail, "--recette", recette]);
         assert.strictEqual(cli.code, 1, nom);
-        assert.ok(cli.erreur.indexOf(temoin) === -1 && cli.sortie.indexOf(temoin) === -1, nom + " : le contenu de la recette est cité");
+        assert.ok(cli.erreur.indexOf("TEMOIN") === -1 && cli.sortie.indexOf("TEMOIN") === -1, nom + " : le contenu de la recette est cité");
         assert.ok(cli.erreur.indexOf("@") === -1, nom + " : un fragment du contenu est cité");
         assert.ok(!fs.existsSync(travail));
     });
