@@ -23,6 +23,7 @@ Bibliothèque standard seule. Pas d'`assert` nu : il s'évaporerait sous -O.
 
 import ast
 import base64
+import contextlib
 import http.client
 import inspect
 import json
@@ -159,6 +160,34 @@ class ConfinementServi(RacineServie):
             self.assertEqual(self.juge("images", "ordinaire.png"), "hors-racine")
 
 
+@contextlib.contextmanager
+def lstat_truque(reconnait, faux):
+    """Dans la simulation de Windows, fait répondre `faux` à lstat pour les
+    chemins que `reconnait` désigne, et islink aveugle (comme avant Python 3.12
+    pour une jonction). realpath, lui, voit le disque simulé : sur certaines
+    versions de Python il appelle os.lstat, et un faux lien lui ferait lire un
+    lien qui n'existe pas."""
+    with windows_simule():
+        lstat_simule = os.lstat
+        realpath_simule = os.path.realpath
+
+        def lstat_pipeau(chemin, *args, **options):
+            if reconnait(chemin):
+                return faux
+            return lstat_simule(chemin, *args, **options)
+
+        def realpath_protege(chemin, *args, **options):
+            with unittest.mock.patch.object(serveur.os, "lstat", lstat_simule):
+                return realpath_simule(chemin, *args, **options)
+
+        with unittest.mock.patch.object(serveur.os.path, "islink",
+                                        return_value=False), \
+             unittest.mock.patch.object(serveur.os.path, "realpath",
+                                        realpath_protege), \
+             unittest.mock.patch.object(serveur.os, "lstat", lstat_pipeau):
+            yield
+
+
 class ToleranceDeLaCasse(RacineServie):
     """U9, U9b, U9c : Windows simulé. La casse seule est servie, mais aucun
     détour ne passe par cette tolérance."""
@@ -169,40 +198,23 @@ class ToleranceDeLaCasse(RacineServie):
             self.assertIsNone(self.juge("Images", "ORDINAIRE.png"))
 
     def test_u9b_a_lstat_voit_un_lien_que_islink_ne_voit_pas(self):
-        fichier = os.path.join("images", "ORDINAIRE.png")
-
-        with windows_simule():
-            lstat_simule = os.lstat
-
-            def lstat_pipeau(chemin, *args, **options):
-                # Reconnu par son suffixe : la racine peut être résolue ou non
-                # selon la version de Python (/var -> /private/var, macOS).
-                if chemin.endswith(os.sep + fichier):
-                    return types.SimpleNamespace(st_mode=stat.S_IFLNK | 0o777)
-                return lstat_simule(chemin, *args, **options)
-
-            with unittest.mock.patch.object(serveur.os.path, "islink",
-                                            return_value=False), \
-                 unittest.mock.patch.object(serveur.os, "lstat", lstat_pipeau):
-                self.assertEqual(self.juge("images", "ORDINAIRE.png"),
-                                 "lien-symbolique")
+        # Reconnu par son suffixe : la racine peut être résolue ou non selon
+        # la version de Python (/var -> /private/var, macOS).
+        suffixe = os.sep + os.path.join("images", "ORDINAIRE.png")
+        with lstat_truque(
+                lambda chemin: chemin.endswith(suffixe),
+                types.SimpleNamespace(st_mode=stat.S_IFLNK | 0o777)):
+            self.assertEqual(self.juge("images", "ORDINAIRE.png"),
+                             "lien-symbolique")
 
     def test_u9b_b_point_de_reparse_sur_un_dossier_parent(self):
-        with windows_simule():
-            lstat_simule = os.lstat
-
-            def lstat_pipeau(chemin, *args, **options):
-                if os.path.basename(chemin) == "images":
-                    return types.SimpleNamespace(
-                        st_mode=stat.S_IFDIR | 0o777,
-                        st_file_attributes=stat.FILE_ATTRIBUTE_REPARSE_POINT)
-                return lstat_simule(chemin, *args, **options)
-
-            with unittest.mock.patch.object(serveur.os.path, "islink",
-                                            return_value=False), \
-                 unittest.mock.patch.object(serveur.os, "lstat", lstat_pipeau):
-                self.assertEqual(self.juge("images", "ORDINAIRE.png"),
-                                 "lien-symbolique")
+        with lstat_truque(
+                lambda chemin: os.path.basename(chemin) == "images",
+                types.SimpleNamespace(
+                    st_mode=stat.S_IFDIR | 0o777,
+                    st_file_attributes=stat.FILE_ATTRIBUTE_REPARSE_POINT)):
+            self.assertEqual(self.juge("images", "ORDINAIRE.png"),
+                             "lien-symbolique")
 
     def test_u9b_c_resolution_vers_un_dossier_hors_racine(self):
         # Le dossier résolu porte le nom attendu à la casse près (WEB pour
