@@ -504,6 +504,18 @@ def chemin_contient(englobant, contenu):
         return False
 
 
+def forme_comparable(chemin):
+    """Forme résolue, normalisée en casse puis en NFC, d'un chemin à comparer.
+
+    Sous macOS, un lien écrit en NFC vers un dossier stocké en NFD désigne le
+    même dossier, mais realpath rend chaque forme telle qu'écrite : sans la
+    normalisation, commonpath ne verrait aucune contenance. L'erreur ne peut
+    aller que dans le sens du refus (deux noms que seule la normalisation
+    distingue sont confondus). Lève OSError ou ValueError comme realpath."""
+    return unicodedata.normalize(
+        "NFC", os.path.normcase(os.path.realpath(chemin)))
+
+
 def motif_refus_racine_web(racine_web, racine_cabinet, dossier_pdf):
     """None si la racine web résolue ne contient ni la racine du cabinet ni le
     dossier des bilans ; sinon un motif de MOTIFS_REFUS_DEMARRAGE. Jamais de
@@ -517,9 +529,9 @@ def motif_refus_racine_web(racine_web, racine_cabinet, dossier_pdf):
     résolues des deux côtés, jamais sur l'existence d'un lien.
     """
     try:
-        web = os.path.normcase(os.path.realpath(racine_web))
-        cabinet = os.path.normcase(os.path.realpath(racine_cabinet))
-        bilans = os.path.normcase(os.path.realpath(dossier_pdf))
+        web = forme_comparable(racine_web)
+        cabinet = forme_comparable(racine_cabinet)
+        bilans = forme_comparable(dossier_pdf)
     except (OSError, ValueError):
         # Échec fermé : mieux vaut un refus visible qu'un serveur qui paraît
         # marcher, comme pour l'absence de TLS.
@@ -1135,7 +1147,10 @@ def verdict_certificat(empreinte):
 
     precedente = None
     for ligne in reversed(lignes):
-        if "DEMARRAGE" in ligne:
+        # Le jeton exact après l'horodatage, pas une sous-chaîne : sans cela,
+        # DEMARRAGE_REFUSE (C6-T7) passait pour un démarrage sans empreinte et
+        # le verdict suivant annonçait à tort « premier démarrage observé ».
+        if re.match(r"\S+ DEMARRAGE(?:\s|$)", ligne):
             correspondance = re.search(r"certificat=([0-9a-f]+)", ligne)
             if correspondance:
                 precedente = correspondance.group(1)

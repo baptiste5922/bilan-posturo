@@ -32,6 +32,8 @@ import sys
 import tempfile
 import threading
 import time
+import types
+import unicodedata
 import unittest
 import unittest.mock
 
@@ -41,6 +43,7 @@ sys.path.insert(0, os.path.join(PROJET, "serveur"))
 sys.path.insert(0, DOSSIER_TESTS)
 
 import serveur
+import test_integration
 from test_integration import (
     cryptography_absente, demarrer_sandbox_court, preparer_sandbox)
 from test_liens_servis import lier, lire, requete
@@ -210,6 +213,51 @@ class MotifRefusRacineWeb(Arborescence):
             self.assertIsNone(self.motif())
 
 
+class FormesUnicode(Arborescence):
+    """Sous macOS, deux écritures (NFC, NFD) d'un même nom désignent le même
+    dossier, et realpath rend chacune telle qu'écrite. Ailleurs, le système de
+    fichiers les distingue : le test reste valable, car la normalisation ne
+    peut que confondre deux noms, donc refuser (échec fermé)."""
+
+    NOM_NFC = unicodedata.normalize("NFC", "cabinet-caf\u00e9")
+    NOM_NFD = unicodedata.normalize("NFD", NOM_NFC)
+
+    def setUp(self):
+        super().setUp()
+        self.assertNotEqual(self.NOM_NFC, self.NOM_NFD)   # ancrage
+
+    def creer(self, *morceaux):
+        chemin = os.path.join(self.tmp, *morceaux)
+        try:
+            os.makedirs(chemin)
+        except OSError as erreur:
+            self.skipTest("nom accentué impossible ici : {}".format(erreur))
+        return chemin
+
+    def test_u9_cabinet_en_nfd_racine_web_liee_en_nfc(self):
+        cabinet = self.creer(self.NOM_NFD)
+        web = os.path.join(cabinet, "formulaire")
+        # Le texte du lien est en NFC, le dossier du cabinet est stocké en NFD.
+        lier(self, os.path.join(self.tmp, self.NOM_NFC), web, dossier=True)
+        self.assertEqual(
+            serveur.motif_refus_racine_web(
+                web, cabinet, os.path.join(cabinet, "bilans")),
+            "racine-cabinet")
+
+    def test_u9_dossier_des_bilans_ecrit_en_nfd_sous_une_racine_web_en_nfc(self):
+        web = self.creer(self.NOM_NFC)
+        bilans = os.path.join(self.tmp, self.NOM_NFD, "bilans")
+        self.assertEqual(
+            serveur.motif_refus_racine_web(web, self.cabinet, bilans),
+            "dossier-pdf")
+
+    def test_u9_temoin_deux_noms_vraiment_differents_ne_sont_pas_confondus(self):
+        web = self.creer(self.NOM_NFC)
+        autre = unicodedata.normalize("NFD", self.NOM_NFC + "-autre")
+        self.assertIsNone(serveur.motif_refus_racine_web(
+            web, self.cabinet, os.path.join(self.tmp, autre, "bilans")))
+
+
 # --------------------------------------------------------------------------
 # Journaux et console du refus
 # --------------------------------------------------------------------------
@@ -287,6 +335,42 @@ class SignalementDuRefus(Arborescence):
             self.signaler("racine-cabinet")
         self.assertFalse(os.path.exists(self.technique))
         self.assertIn("DEMARRAGE refusé", lire(self.tmp, "journal.log"))
+
+
+class VerdictApresUnRefus(unittest.TestCase):
+    """verdict_certificat relit la dernière ligne DEMARRAGE. DEMARRAGE_REFUSE
+    n'en est pas une : sans empreinte, il faisait annoncer « premier
+    démarrage observé » après tout refus."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="bilan-test-verdict-")
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.technique = os.path.join(self.tmp, "technique.log")
+
+    def verdict(self, lignes, empreinte):
+        with open(self.technique, "w", encoding="utf-8") as f:
+            f.write("".join(ligne + "\n" for ligne in lignes))
+        with unittest.mock.patch.object(serveur, "TECHNIQUE", self.technique):
+            return serveur.verdict_certificat(empreinte)
+
+    def test_un_refus_apres_un_demarrage_ne_change_pas_le_verdict(self):
+        demarrage = ["2026-11-07T08:00:00 DEMARRAGE version=1.1.0 port=8000 "
+                     "certificat=abcdef0123456789 certificat identique"]
+        refus = ["2026-11-07T08:05:00 DEMARRAGE_REFUSE refus motif=racine-cabinet"]
+        for empreinte, attendu in (
+                ("abcdef0123456789", "certificat identique au démarrage précédent"),
+                ("0000000000000000", "certificat différent du démarrage précédent")):
+            with self.subTest(empreinte=empreinte):
+                sans = self.verdict(demarrage, empreinte)
+                self.assertEqual(sans, attendu)   # ancrage
+                self.assertEqual(self.verdict(demarrage + refus, empreinte), sans)
+                self.assertEqual(self.verdict(demarrage + refus + refus, empreinte), sans)
+
+    def test_un_refus_seul_reste_un_premier_demarrage(self):
+        self.assertEqual(
+            self.verdict(["2026-11-07T08:05:00 DEMARRAGE_REFUSE refus motif=dossier-pdf"],
+                         "abcdef0123456789"),
+            "premier démarrage observé")
 
 
 # --------------------------------------------------------------------------
@@ -382,6 +466,32 @@ class Gardes(unittest.TestCase):
                         for c in n.targets)]
             self.assertEqual(len(affectations), 1, nom)
             self.assertLess(affectations[0], controle[0], nom)
+
+    def test_g3_preparer_sandbox_n_a_aucun_assert(self):
+        # Un assert disparaît sous python -O : l'échec de l'autorité passerait
+        # inaperçu et le bac servirait sans certificat.
+        with open(os.path.join(DOSSIER_TESTS, "test_integration.py"),
+                  encoding="utf-8") as f:
+            arbre = ast.parse(f.read())
+        preparer = definition(arbre, "preparer_sandbox")
+        self.assertEqual(
+            [n for n in ast.walk(preparer) if isinstance(n, ast.Assert)], [])
+
+    def test_g3_preparer_sandbox_leve_avec_la_sortie_du_sous_processus(self):
+        echec = types.SimpleNamespace(returncode=3, stdout="SORTIE-OUT",
+                                      stderr="SORTIE-ERR")
+        avant = set(os.listdir(tempfile.gettempdir()))
+        with unittest.mock.patch.object(test_integration.subprocess, "run",
+                                        return_value=echec):
+            with self.assertRaises(AssertionError) as contexte:
+                preparer_sandbox()
+        message = str(contexte.exception)
+        for attendu in ("code 3", "SORTIE-OUT", "SORTIE-ERR"):
+            self.assertIn(attendu, message)
+        # Le bac créé est retiré : personne ne tient son nom.
+        crees = [n for n in set(os.listdir(tempfile.gettempdir())) - avant
+                 if n.startswith("bilan-test-sandbox-")]
+        self.assertEqual(crees, [])
 
     def test_g2_le_refus_sort_avec_le_code_1(self):
         demarrer = definition(arbre_serveur(), "demarrer")
@@ -489,6 +599,10 @@ class RefusDeDemarrer(unittest.TestCase):
         self.assertLess(duree, 10)
         self.assertEqual(connexions, 0, "le port a été ouvert avant le refus")
         self.assertIn("Refus de démarrer", sortie)
+        # Le motif, lu dans journal.log, qui existe même sans journal
+        # technique (I3) : un refus pour la mauvaise raison ne passe pas.
+        self.assertIn("DEMARRAGE refusé motif={} ".format(motif),
+                      lire(dossier, "journal.log"))
         return sortie
 
     def test_i1_formulaire_lie_a_la_racine_du_bac(self):

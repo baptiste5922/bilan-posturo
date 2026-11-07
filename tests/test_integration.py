@@ -142,7 +142,13 @@ def preparer_sandbox(config_extra=None, avant_demarrage=None):
         [sys.executable, os.path.join("serveur", "generer_autorite.py"),
          "127.0.0.1"],
         cwd=dossier, capture_output=True, text=True)
-    assert sortie.returncode == 0, sortie.stderr
+    if sortie.returncode != 0:
+        # Une levée et non un assert : sous python -O, un assert disparaîtrait
+        # et le bac serait utilisé sans autorité, pour une erreur sans rapport.
+        shutil.rmtree(dossier, ignore_errors=True)
+        raise AssertionError(
+            "generer_autorite.py a échoué (code {}) : {}{}".format(
+                sortie.returncode, sortie.stdout, sortie.stderr))
 
     port = port_libre()
     config = {"port": port, "dossier_pdf": "bilans",
