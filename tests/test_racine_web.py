@@ -85,13 +85,15 @@ class MotifRefusRacineWeb(Arborescence):
     def test_u1_temoin_une_arborescence_ordinaire(self):
         self.assertIsNone(self.motif())
 
-    def test_u2_web_lie_au_cabinet(self):
-        for cible in (self.cabinet, os.curdir):
-            with self.subTest(cible=cible):
-                self.remplacer_web_par_un_lien(cible)
-                self.assertEqual(self.motif(), "racine-cabinet")
-                os.remove(self.web)
-                os.makedirs(self.web)
+    def test_u2_web_lie_au_cabinet_par_un_lien_absolu(self):
+        self.remplacer_web_par_un_lien(self.cabinet)
+        self.assertEqual(self.motif(), "racine-cabinet")
+
+    def test_u2_web_lie_au_cabinet_par_un_lien_relatif_point(self):
+        # Le lien « . » : le cas que le contrat nomme, sans aucun chemin
+        # absolu dans le lien.
+        self.remplacer_web_par_un_lien(os.curdir)
+        self.assertEqual(self.motif(), "racine-cabinet")
 
     def test_u3_web_lie_a_un_ancetre_du_cabinet(self):
         self.remplacer_web_par_un_lien(self.tmp)
