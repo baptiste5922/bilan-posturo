@@ -215,9 +215,12 @@ class MotifRefusRacineWeb(Arborescence):
 
 class FormesUnicode(Arborescence):
     """Sous macOS, deux écritures (NFC, NFD) d'un même nom désignent le même
-    dossier, et realpath rend chacune telle qu'écrite. Ailleurs, le système de
-    fichiers les distingue : le test reste valable, car la normalisation ne
-    peut que confondre deux noms, donc refuser (échec fermé)."""
+    dossier, et realpath rend chacune telle qu'écrite. Sous Linux, le système
+    de fichiers les distingue, mais realpath suit le texte d'un lien pendant :
+    le test reste valable, la normalisation ne pouvant que confondre deux
+    noms, donc refuser (échec fermé). Sous Windows, NTFS les distingue aussi
+    et realpath ne suit pas un lien pendant : le lien en NFC ne mène nulle
+    part, il n'y a aucun contournement à refuser, et U9 saute."""
 
     NOM_NFC = unicodedata.normalize("NFC", "cabinet-caf\u00e9")
     NOM_NFD = unicodedata.normalize("NFD", NOM_NFC)
@@ -236,6 +239,10 @@ class FormesUnicode(Arborescence):
 
     def test_u9_cabinet_en_nfd_racine_web_liee_en_nfc(self):
         cabinet = self.creer(self.NOM_NFD)
+        if os.name == "nt" and not os.path.isdir(
+                os.path.join(self.tmp, self.NOM_NFC)):
+            self.skipTest("NTFS distingue NFC et NFD, et realpath ne suit pas "
+                          "un lien pendant : aucun contournement ici")
         web = os.path.join(cabinet, "formulaire")
         # Le texte du lien est en NFC, le dossier du cabinet est stocké en NFD.
         lier(self, os.path.join(self.tmp, self.NOM_NFC), web, dossier=True)
