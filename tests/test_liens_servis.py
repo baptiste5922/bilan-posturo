@@ -188,6 +188,37 @@ def lstat_truque(reconnait, faux):
             yield
 
 
+@contextlib.contextmanager
+def realpath_casse_des_parents():
+    """Fait rendre à realpath la casse du disque pour chaque composante
+    existante, comme Windows (le chemin absent, lui, reste tel que demandé).
+    windows_simule ne corrige que la dernière composante : insuffisant pour
+    un fichier absent dans un dossier écrit avec une autre casse, le cas de
+    C6-T7. À ouvrir AVANT windows_simule ou lstat_truque, qui capturent le
+    realpath courant."""
+    realpath_reel = os.path.realpath
+
+    def realpath_windows(chemin, *args, **options):
+        reel = realpath_reel(chemin, *args, **options)
+        morceaux = reel.split(os.sep)
+        courant = morceaux[0] or os.sep
+        for i, morceau in enumerate(morceaux[1:], start=1):
+            try:
+                noms = os.listdir(courant)
+            except OSError:
+                return os.path.join(courant, *morceaux[i:])
+            trouve = next((n for n in noms if n.lower() == morceau.lower()),
+                          None)
+            if trouve is None:
+                return os.path.join(courant, *morceaux[i:])
+            courant = os.path.join(courant, trouve)
+        return courant
+
+    with unittest.mock.patch.object(serveur.os.path, "realpath",
+                                    realpath_windows):
+        yield
+
+
 class ToleranceDeLaCasse(RacineServie):
     """U9, U9b, U9c : Windows simulé. La casse seule est servie, mais aucun
     détour ne passe par cette tolérance."""
@@ -236,6 +267,27 @@ class ToleranceDeLaCasse(RacineServie):
                                             realpath_dehors):
                 self.assertEqual(self.juge("images", "ordinaire.png"),
                                  "hors-racine")
+
+    def test_u13a_fichier_absent_dans_un_dossier_d_une_autre_casse(self):
+        # Windows : realpath rend la casse du disque pour les dossiers
+        # existants, pas pour le fichier absent. reel et attendu diffèrent
+        # donc par la casse, et la boucle lstat atteignait le fichier absent :
+        # « illisible » au journal, au lieu de la 404 ordinaire (C6-T7).
+        with realpath_casse_des_parents(), windows_simule():
+            self.assertIsNone(self.juge("Images", "absent.png"))
+            # Témoin : le fichier présent, lui, reste servi.
+            self.assertIsNone(self.juge("Images", "ORDINAIRE.png"))
+
+    def test_u13b_parent_en_point_de_reparse_reste_refuse_si_le_fichier_est_absent(self):
+        # `continue` et non `return` : le fichier absent est passé, mais son
+        # parent, une jonction que islink ne voit pas, est encore examiné.
+        with realpath_casse_des_parents(), lstat_truque(
+                lambda chemin: os.path.basename(chemin).lower() == "images",
+                types.SimpleNamespace(
+                    st_mode=stat.S_IFDIR | 0o777,
+                    st_file_attributes=stat.FILE_ATTRIBUTE_REPARSE_POINT)):
+            self.assertEqual(self.juge("Images", "absent.png"),
+                             "lien-symbolique")
 
     def test_u9c_le_logo_garde_le_refus(self):
         # Même simulation que U9 : le logo, lui, ne tolère pas la casse.

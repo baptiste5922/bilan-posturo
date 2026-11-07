@@ -436,7 +436,14 @@ def confiner_sous_racine(chemin, racine_web, tolerer_casse=False):
             # qui voit le lien même quand islink est aveugle, et le point de
             # reparse (jonction) par ses attributs Windows.
             for prefixe in prefixes:
-                infos = os.lstat(prefixe)
+                try:
+                    infos = os.lstat(prefixe)
+                except (FileNotFoundError, NotADirectoryError):
+                    # Un préfixe absent (le fichier demandé lui-même, le plus
+                    # souvent) n'est pas un lien : la 404 de la bibliothèque
+                    # répond. `continue` et non `return` : ses parents restent
+                    # à examiner, l'un d'eux peut être une jonction (C6-T7).
+                    continue
                 if (stat.S_ISLNK(infos.st_mode)
                         or (getattr(infos, "st_file_attributes", 0)
                             & stat.FILE_ATTRIBUTE_REPARSE_POINT)):
