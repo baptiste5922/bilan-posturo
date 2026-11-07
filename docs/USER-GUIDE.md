@@ -40,6 +40,7 @@ server then runs in a visible window.
 | `certificat.pem introuvable` | See the Maintenance section. |
 | `config.json absent` | See the Maintenance section. |
 | `Refus de démarrer : le dossier formulaire mène…` ("Refusing to start: the formulaire folder leads…") | See the Maintenance section; do not move the `formulaire` folder or replace it with a shortcut. |
+| `Refus de démarrer : le dossier des bilans (dossier_pdf) se trouve dans le dossier formulaire…` ("Refusing to start: the assessments folder (dossier_pdf) is inside the formulaire folder…") | See the Maintenance section; in `config.json`, set `"dossier_pdf": "bilans"` again, then restart the task. |
 
 ---
 

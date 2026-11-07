@@ -121,3 +121,41 @@ listes rouges sont **identiques en mode normal et sous `-O`**, test pour test.
   de bac à sable en marche (I6, nettoyage sauté par le `pkill` de la série, pas
   par le test). Retrouvé par son répertoire courant, arrêté, bac supprimé. Aucun
   serveur ne tourne plus.
+
+## Suite : mutations M11 à M14 (corrections de l'audit, 7 novembre 2026)
+
+Mêmes copies jetables et même protocole que ci-dessus (copie issue de
+`git ls-files -z --cached --others --exclude-standard`, `serveur.py` et
+`tests/` sauvegardés hors du dépôt, remplacement de texte exact refusé s'il ne
+s'applique pas, témoin non muté avant chaque mutation et témoin final, mode
+normal et `-O`, **tous deux au premier plan**). Tests joués :
+`tests.test_racine_web tests.test_liens_servis tests.test_logo tests.test_serveur
+tests.test_integration` (292 tests, 5 sautés). Tous les témoins rendent `rc=0`,
+toutes les mutations `rc=1`, listes rouges identiques dans les deux modes.
+
+| Id | Mutation | Tests rouges | Point de l'audit |
+|---|---|---|---|
+| M11 | `verdict_certificat` revient à `"DEMARRAGE" in ligne` | `test_un_refus_apres_un_demarrage_ne_change_pas_le_verdict` (les deux empreintes) | faible 1 |
+| M12 | `forme_comparable` sans `unicodedata.normalize("NFC", …)` | `test_u9_cabinet_en_nfd_racine_web_liee_en_nfc`, `test_u9_dossier_des_bilans_ecrit_en_nfd_sous_une_racine_web_en_nfc` | faible 2 |
+| M13 | `assert sortie.returncode == 0, sortie.stderr` rétabli dans `preparer_sandbox` (mutation du fichier de test) | `test_g3_preparer_sandbox_n_a_aucun_assert`, `test_g3_preparer_sandbox_leve_avec_la_sortie_du_sous_processus` | assert hérité |
+| M14 | le serveur signale toujours `racine-cabinet`, quel que soit le motif calculé | `test_i2_dossier_des_bilans_sous_la_racine_web`, `test_i2_le_dossier_des_bilans_absolu_est_refuse_aussi` | helper `refus()` |
+
+Notes :
+
+1. **Piège rencontré.** Une première passe du mode normal, lancée en
+   arrière-plan par `( … ) &`, a fait échouer `ServeurArret.test_arret_journalise`
+   **même sur le témoin** (SIGINT ignoré, piège connu de `CLAUDE.md`, ici aussi
+   en mode normal). Elle a été écartée en entier et rejouée au premier plan.
+2. **M14 et le helper.** Avant la correction, l'I2 absolu passait un motif à
+   `refus()` qui l'ignorait ; il aurait donc été vert sous M14 (les deux
+   contrôles de motif de l'autre I2 portent sur le journal technique). Le
+   helper lit maintenant `journal.log`, qui existe même sans journal technique.
+3. **M12 et les systèmes de fichiers.** Les deux tests U9 rougissent sous
+   macOS (APFS confond NFC et NFD à la lecture, `realpath` les rend tels
+   qu'écrits). Sur Linux ou NTFS, qui distinguent les formes, le lien NFC est
+   pendant : le test reste valable car la normalisation confond alors les deux
+   noms et refuse (sens sûr). M12 n'a été joué que sous macOS.
+4. **`unicodedata` était déjà importé** dans `serveur.py` (ligne 41) : aucune
+   ligne d'import n'est ajoutée, l'amendement A1 du contrat le consigne.
+5. **Non traité** : l'`assert` de `ServeurEnMarche.setUpClass`
+   (`tests/test_integration.py`), de même forme, hors du périmètre demandé.

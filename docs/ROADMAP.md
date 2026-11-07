@@ -1325,6 +1325,11 @@ gratuits.
 > journalise plus `illisible` pour un absent. Mises en échec M1 à M10 :
 > `docs/audits/C6-T7-mises-en-echec.md`. **Reste :** W1 (jonction réelle) n'a
 > jamais tourné hors CI Windows.
+>
+> **Consigné, non corrigé (audit) :** un préfixe `\\?\` écrit à la main dans
+> `dossier_pdf` n'est pas normalisé ; un `formulaire` lié à un sous-dossier du
+> cabinet (`serveur/` par exemple) n'est pas refusé, conforme à D3 : seul le
+> filtre d'extensions le protège alors.
 
 - **Effort :** S
 - **Process :** Allégé + audit — surface servie.

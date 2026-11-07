@@ -38,6 +38,7 @@ Pour voir un éventuel message d'erreur, double-cliquer plutôt sur
 | `certificat.pem introuvable` | Voir la section Maintenance. |
 | `config.json absent` | Voir la section Maintenance. |
 | `Refus de démarrer : le dossier formulaire mène…` | Voir la section Maintenance ; ne pas déplacer ni remplacer le dossier `formulaire` par un raccourci. |
+| `Refus de démarrer : le dossier des bilans (dossier_pdf) se trouve dans le dossier formulaire…` | Voir la section Maintenance ; dans `config.json`, remettre `"dossier_pdf": "bilans"`, puis relancer la tâche. |
 
 ---
 
