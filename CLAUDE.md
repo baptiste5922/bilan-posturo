@@ -8,10 +8,10 @@ août 2026 par une pédicure-podologue à Morlaix, pour la totalité de ses bila
 **Dernière mise à jour :** 7 novembre 2026, par `/cloture-projet`
 **Version :** V1 en production au cabinet ; `main` porte la 1.1.0
 (`formulaire/version.json`), sous **BUSL 1.1** depuis le 14 octobre 2026
-**Jalon en cours :** V2 — 20 tâches livrées, C1-T5 et C9-T2 fusionnées en
+**Jalon en cours :** V2 — 21 tâches livrées, C1-T5 et C9-T2 fusionnées en
 attente de leur mesure ; rien de la V2 n'est au cabinet, qui tourne sur
 **`d43350a` (26 août)**, étiquette `production-cabinet-01`, fiche
-`docs/production/cabinet-01.md`. **`main` est poussé** (`fd0f163`), CI verte.
+`docs/production/cabinet-01.md`. **`main` est poussé** (`1b771bd`), CI verte.
 **Premier prospect hors pilote :** un formateur en posturologie (fiche hors dépôt).
 
 ## Architecture en bref
@@ -29,7 +29,7 @@ attente de leur mesure ; rien de la V2 n'est au cabinet, qui tourne sur
 
 | Composant | Rôle |
 |---|---|
-| `serveur/serveur.py` (~2 130 l.) | HTTPS, dépôt, authentification, `/sante`, `/cabinet`, `/etat`, deux journaux purgés à six mois |
+| `serveur/serveur.py` (~2 250 l.) | HTTPS, dépôt, authentification, `/sante`, `/cabinet`, `/etat`, deux journaux purgés à six mois |
 | `serveur/generer_autorite.py` | Autorité de certification locale + certificat serveur |
 | `formulaire/script.js` | PDF, stylet, brouillon, dépôt, file d'attente, tokens de couleur |
 | `formulaire/index.html` | Coquille de 118 l. que le moteur remplit ; V1 gelée dans `index-v1.html` |
@@ -42,7 +42,7 @@ attente de leur mesure ; rien de la V2 n'est au cabinet, qui tourne sur
 | `outils/faire-paquet.sh <client>` | Paquet d'un client, argument obligatoire ; le serveur ne voit jamais `clients/` |
 | `blocs/`, `templates/`, `outils/composer-schema.js` | Neuf fragments du pilote, recettes de départ, composition validée par le moteur (atelier, hors paquet) |
 | `outils/atelier/` | Fabrication d'un client hors de tout dépôt Git ; règles lues dans `serveur.py` et `script.js`, jamais recopiées ; `identite-cabinet.json` et `apercu-atelier.html` ignorés par Git |
-| `tests/` | 405 tests Python + 16 suites Node |
+| `tests/` | 448 tests Python + 16 suites Node |
 
 Le PDF est produit **côté navigateur** : le serveur ne reçoit qu'un fichier déjà
 assemblé, et n'a aucune dépendance Python.
@@ -70,7 +70,9 @@ hors paquet, validé au démarrage (C2-T2, `docs/configuration.md` §7).
 - **La racine web est `formulaire/`** et ne contient que le formulaire. Clés,
   configuration, journaux et code Python vivent un niveau au-dessus. Le filtre
   d'extensions et le refus de tout lien sous la racine (C6-T6, 404 identique à
-  un absent) sont les deux autres barrières : les trois se conservent.
+  un absent) sont les deux autres barrières : les trois se conservent. Le
+  serveur **refuse de démarrer** si la racine web résolue contient le cabinet
+  ou `dossier_pdf` (C6-T7, événement `DEMARRAGE_REFUSE`).
 - **`/sante` est la seule route non authentifiée** (garde dérivée de l'AST
   depuis C4-T3). Elle ne divulgue que l'existence du port, muette dans les
   **deux** journaux. **`/etat` ne montre aucune adresse ni nom de fichier** :
@@ -93,7 +95,7 @@ une image et non une donnée.
 | C3 | Adressage, certificat et installateur | T1, **T3a livrés** (T3a : VM Windows à faire) ; T2, T3, T4 |
 | C4 | Observabilité et support | T1, T2, **T3 (`/etat`)**, T4 **livrés** ; T5 **sortie de la V2** ; T6 |
 | C5 | Mises à jour signées | à faire (tirées par le PC, signées : décidé) |
-| C6 | Durcissement de sécurité | **T4, T6 (liens) livrés** ; T1, T2, T3, T5, T7 (racine web contenant celle du cabinet) |
+| C6 | Durcissement de sécurité | **T4, T6 (liens), T7 (racine web) livrés** ; T1, T2, T3, T5 |
 | C7 | Filet de tests | **T1, T5 livrés** ; T2, T3, T4 |
 | C8 | Mécanisme de licence d'abonnement | à faire (grâce de 30 j puis export bloqué : décidé) |
 | C9 | Atelier de fabrication d'un client | **T1 livré** ; **T2 fusionnée**, mesures M-A et M-B à faire ; T3 décidé (révision annuelle) |
@@ -147,7 +149,7 @@ une semaine de bilans réels. Il faut l'appareil, **pas avant janvier 2027**.
 D'ici là rien ne part au cabinet ; un correctif d'urgence part de
 `maintenance-cabinet-01`, jamais de `main`.
 
-**Tests :** 405 Python (6 sautés sur le Mac) et 16 suites Node, tous verts
+**Tests :** 448 Python (7 sautés sur le Mac) et 16 suites Node, tous verts
 au 7 novembre 2026, aussi sous `python3 -O`, et en CI sur Linux, Windows et
 macOS, Python 3.9 et 3.13, sur les branches de tâche comme sur `main`.
 `npm test` dépasse le délai de 2 min d'une commande : le lancer en arrière-plan.
@@ -164,9 +166,13 @@ client**, à sa largeur : au-delà de 1 192 px, l'export est refusé ; sous
 **Avant d'envoyer le paquet au prospect** : essai de C3-T3a sur une VM Windows
 propre, fiche `docs/essais/C3-T3a-windows.md`. Et annoncer à la praticienne
 pilote que l'historique de `journal.log` partira en bloc vers février 2027.
+À la visite, lancer une fois `demarrer-serveur.bat` et lire la sortie : un
+`dossier_pdf` sous `formulaire` ferait désormais refuser le démarrage.
 
 ## Dernières sessions
 
+- [2026-11-07 (2) — Un serveur qui refuse de démarrer sur une racine web dangereuse](docs/resumes/2026-11-07-racine-web-refusee.md) :
+  C6-T7 livrée ; audit CONFORME au réaudit.
 - [2026-11-07 — L'atelier de composition, et un serveur qui ne suit plus les liens](docs/resumes/2026-11-07-atelier-et-liens-servis.md) :
   C9-T2 fusionnée (mesure à faire) ; C6-T6 livrée ; C6-T7 ouverte.
 - [2026-11-06 (3) — Une bibliothèque de blocs, et le logo du client](docs/resumes/2026-11-06-blocs-templates-et-logo.md) :
@@ -175,8 +181,6 @@ pilote que l'historique de `journal.log` partira en bloc vers février 2027.
   production nommée (`d43350a`) ; C1-T4 scindée ; C1-T4a livrée.
 - [2026-11-06 — `main` publié, et une page d'état qui peut circuler](docs/resumes/2026-11-06-page-etat.md) :
   C1-T6 et C1-T6b fusionnées et poussées ; C4-T3 livrée (voie A, neuf clés).
-- [2026-11-05 (2) — Fiabiliser l'outillage et les gardes de la grille](docs/resumes/2026-11-05-outillage-et-gardes-grille.md) :
-  C1-T6b livrée. La garde lit tout l'historique de la plage ; seuil de 735 px.
 
 ## Comment on travaille ici
 
@@ -238,42 +242,38 @@ Ils ont déjà coûté du temps ; ils le recoûteront.
 - **`dossier_pdf` et le compte SYSTEM** — un lecteur réseau de la session du
   praticien n'existe pas pour la tâche planifiée : chemin local ou UNC. Et
   `TerminateProcess` saute le `finally` : pas de ligne `ARRET` au cabinet.
-- **`actions/checkout` clone à la profondeur 1** (sauf le job `test`, en
-  `fetch-depth: 0` depuis C1-T6b). Un test qui a besoin d'un autre commit
-  vérifie **l'objet** (`git cat-file -e`) ; `git log -1 -- <fichier>` y rend la
-  date de `HEAD`.
+- **`actions/checkout` clone à la profondeur 1** (sauf le job `test`) : un test
+  qui a besoin d'un autre commit vérifie **l'objet** (`git cat-file -e`).
 - **`git ls-files` sans `-z`** échappe les chemins accentués ; `xargs -0 grep`
   rend 123 pour « rien » comme pour une erreur. Un contrôle qui lit l'index Git
   s'éprouve sur des fichiers **indexés**.
-- **Un tube `stdout=PIPE` jamais lu fige le serveur de test sous Windows**
-  (tampon minuscule) : toute requête qui journalise se bloque, `/sante` seule
-  répond. C'était le « délai TLS » de C7-T5 ; un fil lecteur le règle, dans
-  `ServeurEnMarche` et `LiensServis` seulement (**pas** dans
-  `demarrer_sandbox_court`). Attendre `DEMARRAGE` ne garantit pas que le `try:`
-  est franchi. Ne jamais relancer un échec intermittent : le capturer.
+- **Un tube `stdout=PIPE` jamais lu fige le serveur de test sous Windows** :
+  seule `/sante` répond. Fil lecteur dans `ServeurEnMarche` et `LiensServis`,
+  **pas** dans `demarrer_sandbox_court`. Attendre `DEMARRAGE` ne garantit pas
+  que le `try:` est franchi. Ne jamais relancer un échec intermittent : le capturer.
 - **La CI ne part que sur `main`, une pull request ou à la main.** Une branche
   poussée ne lance rien : `env -u GITHUB_TOKEN gh workflow run tests.yml --ref
   <branche>`. Un `GITHUB_TOKEN` invalide dans l'environnement masque le
   trousseau de `gh`. Des commits jamais passés en CI ont caché deux semaines une
   régression Windows : ne pas laisser `main` local longtemps sans CI.
-- **Un harnais de mutation peut mentir** (`$?` après un `printf`, commande en
-  variable sous zsh — rendue 127, et revenue dans un protocole d'essai : écrire
-  une fonction `A() { … "$@"; }`) : toujours un témoin et le code du test lui-même. Muter une
-  copie `git ls-files -z --cached --others --exclude-standard`, ou un clone
-  jetable **sans `origin`** (un clone `file://` pousse dans le dépôt réel).
-- **Une mutation qui provoque un interblocage fige la suite** au lieu d'échouer :
-  préférer une garde statique dérivée de l'arbre syntaxique (C4-T2).
-- **Piloter Chrome** : coordonnées de `Input.dispatchMouseEvent` relatives à la
-  zone affichée (défiler d'abord) ; sans `Network.setCacheDisabled`, un PDF
-  régénéré ressort identique. Le nombre de pages dépend de la fenêtre (3 à
-  1 280 px, 6 vers 760 px) : `cdp.js` refuse un port occupé (C1-T6b).
+- **Un harnais de mutation peut mentir** (`$?` après un `printf` ; commande en
+  variable sous zsh, rendue 127 : écrire `A() { … "$@"; }`) : toujours un témoin.
+  Muter une copie `git ls-files -z`, ou un clone jetable **sans `origin`**.
+- **Une mutation qui interbloque fige la suite** : garde statique AST (C4-T2).
+- **Piloter Chrome** : défiler avant `Input.dispatchMouseEvent` ; sans
+  `Network.setCacheDisabled`, un PDF régénéré ressort identique ; le nombre de
+  pages dépend de la fenêtre (3 à 1 280 px, 6 vers 760 px).
 - **Simuler Windows dans un test** : `lstat` aussi doit ignorer la casse, et
   `realpath` être isolé du faux `lstat` sous 3.9 (vu en CI seulement). Sous
   macOS, `os.getcwd()` rend le chemin résolu : un bac à sable ne passe jamais
   par `/var`. Deux tests de jonction échouent sous le Python 3.9.6 de macOS.
+- **Chemins comparés** : en CI Windows, le dossier temporaire passe par un nom
+  court 8.3 (`RUNNER~1`) — partir de `realpath(tmp)`, ne pas sauter le test ;
+  sous macOS, un chemin a deux écritures Unicode — comparer en NFC (C6-T7).
+- **Un lecteur de journal cherche un jeton exact**, jamais une sous-chaîne :
+  `DEMARRAGE` est un préfixe de `DEMARRAGE_REFUSE` (`verdict_certificat`).
 - **`python3 -O` lancé par `(… &)` d'un shell non interactif ignore SIGINT** :
-  `ServeurArret.test_arret_journalise` y échoue toujours. Jouer `-O` au premier
-  plan ; ce n'est pas un test instable.
+  `test_arret_journalise` y échoue toujours. Jouer `-O` au premier plan.
 - **La fiche de secours charge `script.js`.** Toute modification de ce fichier
   doit prouver que le PDF de `index-v1.html` reste identique au pixel.
 - **Un export n'est pas déterministe sous `serveur.py`** : comparer des
