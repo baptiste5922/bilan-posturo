@@ -179,7 +179,9 @@ private keys, `journal.log` and the Python source all live one level up and are
 simply not inside the served tree. On top of that, only the extensions
 `.html`, `.css`, `.js`, `.png`, `.jpg`, `.jpeg`, `.svg`, `.ico` are served, on
 `GET` as well as on `HEAD`. Either barrier alone would be enough; a mistake in
-one is caught by the other.
+one is caught by the other. A symbolic link or an NTFS junction placed under
+`formulaire/` is never followed: it answers 404, exactly like a missing file
+(C6-T6).
 
 **File delivery** — sanitised filename (directory traversal neutralised,
 Unicode normalisation, truncation), `%PDF-` signature verified, 30 MB ceiling,

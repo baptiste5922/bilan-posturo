@@ -195,5 +195,15 @@ par C5) : après une réinstallation, reposer le fichier.
 Les motifs : `hors-racine`, `forme-invalide`, `extension-non-servie`,
 `lien-symbolique`, `absent`, `trop-volumineux`, `illisible`.
 
+`absent` : aucun fichier ne porte exactement ce nom. Sous Windows, vérifier
+aussi la casse : `Logo.png` n'est pas `logo.png`.
+
+**Le service statique ne suit aucun lien** (C6-T6). Un lien symbolique ou une
+jonction posés sous `formulaire/` ne sont jamais servis : le serveur répond 404,
+comme pour un fichier absent, et note `lecture refusée motif=lien-symbolique`
+dans `journal.log` (jamais dans `technique.log`). Cela vaut pour tout fichier,
+pas seulement le logo. Sous Windows, une différence de casse seule dans l'URL
+(`/INDEX.HTML`) reste servie ; le logo, lui, refuse une casse différente.
+
 **Retour arrière** : mettre `"logo": "images/favicon.jpeg"` (ou `""`) dans
 `config.json` et relancer le serveur.
