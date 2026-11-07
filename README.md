@@ -227,6 +227,7 @@ bilans/              health data
 Bilan_entrants/
 BilanPosturo-*.zip   distribution archives
 formulaire/images/cabinet/   the client's own logo, placed on the practice PC only
+identite-cabinet.json  apercu-atelier.html   workshop files of a client, kept outside the repository
 node_modules/        build-time only; formulaire/lib/ is committed
 __pycache__/  *.pyc
 .DS_Store
@@ -264,7 +265,9 @@ bilan-posturo/
 │   ├── faire-paquet.sh     builds the archive to install at the practice:
 │   │                       `sh outils/faire-paquet.sh cabinet-01` (client is required)
 │   ├── partager-paquet.sh  serves that archive over the local network
-│   └── composer-schema.js  workshop tool: composes and checks a client schema
+│   ├── composer-schema.js  workshop tool: composes and checks a client schema
+│   └── atelier/            workshop tool: builds a whole client (schema, identity, logo,
+│                           preview) in a folder outside any Git repository
 ├── tests/                  Python for the server, Node for the delivery queue
 ├── demarrer-serveur.bat    manual Windows launcher, useful to see errors
 ├── installer-demarrage.ps1 registers the scheduled task and firewall rule

@@ -28,14 +28,16 @@ dans le dépôt, et l'atelier refuse d'y écrire.
   contrat, l'aperçu montre celle du pilote) ; l'**export d'essai sur la tablette**
   du client ; le **versement** du schéma dans `clients/` (D-O1 non tranchée) ;
   la fabrication du **paquet** (`outils/faire-paquet.sh`) ; le report de
-  l'identité dans `config.json` (`python3 serveur/serveur.py --config` :
-  **à lancer UNIQUEMENT dans le dossier d'installation du cabinet, jamais depuis
-  le dépôt** — depuis la racine du dépôt, la commande réécrit le `config.json`
-  réel) ; la
-  pose du logo sous `formulaire/images/cabinet/`. Aucune de ces étapes n'est
-  dans le chronomètre, et un temps plus long ne leur est pas imputé à l'atelier.
+  l'identité dans `config.json` (`python3 serveur/serveur.py --config`,
+  voir l'avertissement ci-dessous) ; la pose du logo sous
+  `formulaire/images/cabinet/`. Aucune de ces étapes n'est dans le chronomètre,
+  et un temps plus long ne leur est pas imputé à l'atelier.
 - **Le temps de l'outil compris** : chaque commande de l'atelier fait partie de
   la durée.
+
+> **`python3 serveur/serveur.py --config` : à lancer UNIQUEMENT dans le dossier
+> d'installation du cabinet, jamais depuis le dépôt.** Lancée depuis la racine
+> du dépôt, la commande réécrit le `config.json` réel.
 
 Un cas peut être **remplacé par une vraie feuille de route** de client : on ne
 consigne alors que la **durée** et le **nombre de modifications**, rien de son
@@ -50,20 +52,23 @@ le nom du client.
 ```
 cd <racine du dépôt>
 T=$(cd "$(mktemp -d)" && pwd -P)
-A="node outils/atelier/atelier.js"
+A() { node outils/atelier/atelier.js "$@"; }
 ```
+
+`A` est une **fonction**, pas une variable : sous zsh (macOS), une variable
+`A="node …"` n'est pas découpée en mots et la première commande rend 127.
 
 ## Cas A — départ `podologue-court`, logo, aperçu relu
 
 ```
 date '+%Y-%m-%d %H:%M:%S'      # DÉBUT : à lancer en ouvrant cette feuille de route
-$A ouvrir "$T/a" --recette templates/podologue-court.json
+A ouvrir "$T/a" --recette templates/podologue-court.json
 ```
 
 Onze modifications du schéma :
 
 1. Dans `"$T/a/recette.json"`, ajouter le fragment `examen-dynamique` **après**
-   `examen-statique`, puis `$A composer "$T/a"`. Les modifications 2 à 11 se
+   `examen-statique`, puis `A composer "$T/a"`. Les modifications 2 à 11 se
    font à la main dans `"$T/a/schema.json"`.
 2. Retirer le bloc `oriente_par_bloc`.
 3. Retirer le champ `niveau_scolaire` du bloc `patient_infos`.
@@ -111,13 +116,13 @@ jamais renommer une clé existante d'un bloc repris de la bibliothèque.
 **Logo** : `cp formulaire/images/favicon.jpeg "$T/a/images/cabinet/logo.jpeg"`,
 puis `"logo": "images/cabinet/logo.jpeg"` dans l'identité.
 
-**Aperçu** : `$A apercu "$T/a"`, puis ouvrir `"$T/a/apercu-atelier.html"` dans
+**Aperçu** : `A apercu "$T/a"`, puis ouvrir `"$T/a/apercu-atelier.html"` dans
 Chrome, **à la largeur de la tablette** (l'aperçu l'affiche), et relire **chaque
 bloc** contre les onze modifications : le bloc retiré n'y est plus, le libellé
 neuf y est, le bloc neuf est après `ATCD:`. Ce n'est pas le PDF.
 
 ```
-$A verifier "$T/a"; echo "code $?"
+A verifier "$T/a"; echo "code $?"
 date '+%Y-%m-%d %H:%M:%S'      # FIN : premier verifier à 0 APRÈS la dernière modification et l'aperçu relu
 ```
 
@@ -128,14 +133,14 @@ Attendu : code 0, `Dossier de travail valide (17 blocs).`, une seule ligne
 
 ```
 date '+%Y-%m-%d %H:%M:%S'      # DÉBUT
-$A ouvrir "$T/b" --recette templates/podologue-complet.json
+A ouvrir "$T/b" --recette templates/podologue-complet.json
 ```
 
 Onze rubriques, soit **treize gestes** (un retrait de fragment ou de champ
 compte pour un) :
 
 1. Dans `"$T/b/recette.json"`, **retirer** les fragments `examen-complementaire`
-   et `chaussage`, puis `$A composer "$T/b"`. Les rubriques 2 à 11 se font à
+   et `chaussage`, puis `A composer "$T/b"`. Les rubriques 2 à 11 se font à
    la main dans `"$T/b/schema.json"`.
 2. Retirer les champs `niveau_scolaire` puis `metier` du bloc `patient_infos`.
 3. Remplacer le libellé `Sport:` par `Texte 1 :` (la clé `sport` ne change pas).
@@ -158,10 +163,10 @@ ensemble pour quatre : 2 + 2 + 1 + 1 + 1 + 4 + 1 + 1 = 13.
 `convention_nommage` = `{nom}_{prenom}_{date}`. Pas de dossier `images/cabinet/`
 garni.
 
-**Aperçu** : `$A apercu "$T/b"`, relu **bloc par bloc**.
+**Aperçu** : `A apercu "$T/b"`, relu **bloc par bloc**.
 
 ```
-$A verifier "$T/b"; echo "code $?"
+A verifier "$T/b"; echo "code $?"
 date '+%Y-%m-%d %H:%M:%S'      # FIN
 ```
 

@@ -47,12 +47,16 @@ code, jamais le nom du client. Il doit être neuf pour `ouvrir`.
 ## Les quatre commandes
 
 ```
-A="node outils/atelier/atelier.js"
-$A ouvrir   <travail> --recette templates/podologue-court.json
-$A composer <travail>
-$A verifier <travail>
-$A apercu   <travail>
+A() { node outils/atelier/atelier.js "$@"; }
+A ouvrir   <travail> --recette templates/podologue-court.json
+A composer <travail>
+A verifier <travail>
+A apercu   <travail>
 ```
+
+`A` est une **fonction**, pas une variable : sous zsh (macOS), `A="node …"`
+puis `$A …` rend 127, la variable n'étant pas découpée en mots. La fonction est
+valide sous sh, bash et zsh.
 
 | Commande | Fait | Refuse |
 |---|---|---|
@@ -64,6 +68,17 @@ $A apercu   <travail>
 Codes de sortie : **0** (rien à refuser), **1** (au moins un refus, ligne
 `REFUS :` sur l'erreur standard), **2** (usage). Les lignes `À FAIRE :` ne
 changent pas le code.
+
+### Poser le logo : deux gestes, pas un
+
+1. Copier le fichier sous `<travail>/images/cabinet/<nom>` (un seul niveau).
+2. **Écrire ce chemin dans la clé `logo` de `identite-cabinet.json`**, par
+   exemple `"logo": "images/cabinet/logo.jpeg"`.
+
+Sans le second geste, la clé garde sa valeur par défaut (le logo du pilote) :
+`verifier` rend 0, avec pour seul signal un rappel `À FAIRE`, et c'est
+l'emblème du pilote qui sortirait sur les bilans. Le **même chemin** se saisit
+ensuite au cabinet (`docs/configuration.md` §7).
 
 ### Ce que `verifier` refuse
 
@@ -116,15 +131,21 @@ partie de la fabrication (D1 du contrat C9-T2).
 
 ## Un client complet, à la sortie de l'atelier
 
-Un dossier où `verifier` rend 0, avec : `schema.json` validé ; `identite-cabinet.json`
-aux sept clés, praticien renseigné, convention valide ; le logo sous
+Un dossier où `verifier` rend 0, avec : `schema.json` validé ;
+`identite-cabinet.json` aux sept clés, praticien renseigné, convention valide ; le logo sous
 `images/cabinet/`, ou `logo` vide, ou celui du pilote en connaissance de cause ;
 un aperçu relu.
 
-Restent des **gestes de mise en service, hors de l'atelier** : reporter l'identité
-au cabinet par `python3 serveur/serveur.py --config` — **à lancer UNIQUEMENT dans le dossier d'installation du cabinet, jamais depuis le dépôt** (depuis la racine du dépôt, la commande réécrit le `config.json` réel) (`docs/configuration.md`
-§2) ; poser le logo sous `formulaire/images/cabinet/` (§7) ; l'export d'essai sur
-la tablette ; la palette ; le paquet (`outils/faire-paquet.sh`).
+Restent des **gestes de mise en service, hors de l'atelier** : reporter
+l'identité au cabinet par `python3 serveur/serveur.py --config`
+(`docs/configuration.md` §2) ; poser le logo sous
+`formulaire/images/cabinet/` (§7), avec le même chemin dans la clé `logo` ;
+l'export d'essai sur la tablette ; la palette ; le paquet
+(`outils/faire-paquet.sh`).
+
+> **`python3 serveur/serveur.py --config` : à lancer UNIQUEMENT dans le dossier
+> d'installation du cabinet, jamais depuis le dépôt.** Lancée depuis la racine
+> du dépôt, la commande réécrit le `config.json` réel.
 
 ## Ce que l'atelier ne fait pas
 
@@ -139,8 +160,8 @@ la tablette ; la palette ; le paquet (`outils/faire-paquet.sh`).
 ## Si un fichier d'identité atterrit dans le dépôt malgré tout
 
 Ces fichiers ne peuvent y atterrir que par un geste manuel, puisque l'atelier
-refuse d'y écrire. `.gitignore` ignore `identite-cabinet.json` et `apercu-atelier.html` à toute
-profondeur, et le contrôle « aucun secret versionné » de la CI refuse
+refuse d'y écrire. `.gitignore` ignore `identite-cabinet.json` et
+`apercu-atelier.html` à toute profondeur, et le contrôle « aucun secret versionné » de la CI refuse
 `identite-cabinet.json` dans l'index. `tests/test_identite_absente.py` refuse en
 outre tout courriel ou téléphone dans l'arbre suivi. Ce sont des filets : la
 barrière est le refus d'écrire dans le dépôt.

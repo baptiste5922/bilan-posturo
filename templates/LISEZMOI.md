@@ -49,7 +49,10 @@ la dernière étape. L'outil d'atelier `outils/atelier/atelier.js` enchaîne les
    rend 0. Le moteur est le vrai ; un avertissement vaut refus.
 5. Verser le résultat dans `clients/cabinet-NN/schema.json` (numéro suivant,
    jamais d'après une ville ni un nom : le dépôt est public), puis
-   `node tests/test_schema_client.js`.
+   `node tests/test_schema_client.js`. **Un client hors pilote n'est pas versé
+   tant que la décision D-O1 (où vit son schéma ?) n'est pas tranchée** : le
+   dépôt est public. Pour un client réel, travailler avec l'atelier
+   (`outils/atelier/LISEZMOI.md`), qui ne verse rien.
 6. Fabriquer le paquet : `sh outils/faire-paquet.sh cabinet-NN`.
 
 Aucune **grille** n'entre dans une recette ni dans un fragment. Elle se pose à
