@@ -169,54 +169,61 @@ class ToleranceDeLaCasse(RacineServie):
             self.assertIsNone(self.juge("Images", "ORDINAIRE.png"))
 
     def test_u9b_a_lstat_voit_un_lien_que_islink_ne_voit_pas(self):
-        lstat_reel = os.lstat
         fichier = os.path.join("images", "ORDINAIRE.png")
 
-        def lstat_pipeau(chemin, *args, **options):
-            # Reconnu par son suffixe : la racine peut être résolue ou non
-            # selon la version de Python (/var -> /private/var sous macOS).
-            if chemin.endswith(os.sep + fichier):
-                return types.SimpleNamespace(st_mode=stat.S_IFLNK | 0o777)
-            return lstat_reel(chemin, *args, **options)
+        with windows_simule():
+            lstat_simule = os.lstat
 
-        with windows_simule(), \
-             unittest.mock.patch.object(serveur.os.path, "islink", return_value=False), \
-             unittest.mock.patch.object(serveur.os, "lstat", lstat_pipeau):
-            self.assertEqual(self.juge("images", "ORDINAIRE.png"),
-                             "lien-symbolique")
+            def lstat_pipeau(chemin, *args, **options):
+                # Reconnu par son suffixe : la racine peut être résolue ou non
+                # selon la version de Python (/var -> /private/var, macOS).
+                if chemin.endswith(os.sep + fichier):
+                    return types.SimpleNamespace(st_mode=stat.S_IFLNK | 0o777)
+                return lstat_simule(chemin, *args, **options)
+
+            with unittest.mock.patch.object(serveur.os.path, "islink",
+                                            return_value=False), \
+                 unittest.mock.patch.object(serveur.os, "lstat", lstat_pipeau):
+                self.assertEqual(self.juge("images", "ORDINAIRE.png"),
+                                 "lien-symbolique")
 
     def test_u9b_b_point_de_reparse_sur_un_dossier_parent(self):
-        lstat_reel = os.lstat
+        with windows_simule():
+            lstat_simule = os.lstat
 
-        def lstat_pipeau(chemin, *args, **options):
-            if os.path.basename(chemin) == "images":
-                return types.SimpleNamespace(
-                    st_mode=stat.S_IFDIR | 0o777,
-                    st_file_attributes=stat.FILE_ATTRIBUTE_REPARSE_POINT)
-            return lstat_reel(chemin, *args, **options)
+            def lstat_pipeau(chemin, *args, **options):
+                if os.path.basename(chemin) == "images":
+                    return types.SimpleNamespace(
+                        st_mode=stat.S_IFDIR | 0o777,
+                        st_file_attributes=stat.FILE_ATTRIBUTE_REPARSE_POINT)
+                return lstat_simule(chemin, *args, **options)
 
-        with windows_simule(), \
-             unittest.mock.patch.object(serveur.os.path, "islink", return_value=False), \
-             unittest.mock.patch.object(serveur.os, "lstat", lstat_pipeau):
-            self.assertEqual(self.juge("images", "ORDINAIRE.png"),
-                             "lien-symbolique")
+            with unittest.mock.patch.object(serveur.os.path, "islink",
+                                            return_value=False), \
+                 unittest.mock.patch.object(serveur.os, "lstat", lstat_pipeau):
+                self.assertEqual(self.juge("images", "ORDINAIRE.png"),
+                                 "lien-symbolique")
 
     def test_u9b_c_resolution_vers_un_dossier_hors_racine(self):
-        # Le dossier résolu ne diffère de celui attendu que par la casse, mais
-        # il est hors de la racine : commonpath tranche avant la tolérance.
+        # Le dossier résolu porte le nom attendu à la casse près (WEB pour
+        # web), mais sous un autre parent : il est hors de la racine, et
+        # commonpath tranche avant la tolérance.
         base = os.path.realpath(self.racine)
-        realpath_reel = os.path.realpath
-        autre = os.path.join(os.path.dirname(base), "WEB")
+        autre = os.path.join(os.path.dirname(base) + "-ailleurs", "WEB")
 
-        def realpath_dehors(chemin, *args, **options):
-            reel = realpath_reel(chemin, *args, **options)
-            if reel == base:
-                return reel
-            return os.path.join(autre, os.path.relpath(reel, base))
+        with windows_simule():
+            realpath_simule = os.path.realpath
 
-        with windows_simule(), unittest.mock.patch.object(
-                serveur.os.path, "realpath", realpath_dehors):
-            self.assertEqual(self.juge("images", "ordinaire.png"), "hors-racine")
+            def realpath_dehors(chemin, *args, **options):
+                reel = realpath_simule(chemin, *args, **options)
+                if reel == base:
+                    return reel
+                return os.path.join(autre, os.path.relpath(reel, base))
+
+            with unittest.mock.patch.object(serveur.os.path, "realpath",
+                                            realpath_dehors):
+                self.assertEqual(self.juge("images", "ordinaire.png"),
+                                 "hors-racine")
 
     def test_u9c_le_logo_garde_le_refus(self):
         # Même simulation que U9 : le logo, lui, ne tolère pas la casse.

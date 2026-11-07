@@ -57,26 +57,34 @@ def ecrire(chemin, debut, taille=64):
 
 @contextlib.contextmanager
 def windows_simule():
-    """Simule les deux traits de Windows qui comptent ici : normcase ignore la
-    casse, et realpath rend la casse du disque. lstat reste le vrai. Le
-    disque réel, lui, peut être sensible ou non à la casse (Linux, macOS) :
-    realpath relit donc le dossier parent pour retrouver le nom exact."""
+    """Simule les traits de Windows qui comptent ici : normcase ignore la
+    casse, realpath rend la casse du disque, et lstat trouve un fichier sous
+    n'importe quelle casse. Le disque réel peut être sensible à la casse
+    (Linux) ou non (macOS) : le dernier composant est donc retrouvé en relisant
+    le dossier parent. Le reste de lstat est le vrai."""
     realpath_reel = os.path.realpath
+    lstat_reel = os.lstat
 
-    def realpath_disque(chemin, *args, **options):
-        reel = realpath_reel(chemin, *args, **options)
-        parent, nom = os.path.split(reel)
+    def nom_du_disque(chemin):
+        parent, nom = os.path.split(chemin)
         try:
             noms = os.listdir(parent)
         except OSError:
-            return reel
+            return chemin
         for candidat in noms:
             if candidat.lower() == nom.lower():
                 return os.path.join(parent, candidat)
-        return reel
+        return chemin
+
+    def realpath_disque(chemin, *args, **options):
+        return nom_du_disque(realpath_reel(chemin, *args, **options))
+
+    def lstat_disque(chemin, *args, **options):
+        return lstat_reel(nom_du_disque(chemin), *args, **options)
 
     with unittest.mock.patch.object(serveur.os.path, "normcase", str.lower), \
-         unittest.mock.patch.object(serveur.os.path, "realpath", realpath_disque):
+         unittest.mock.patch.object(serveur.os.path, "realpath", realpath_disque), \
+         unittest.mock.patch.object(serveur.os, "lstat", lstat_disque):
         yield
 
 
