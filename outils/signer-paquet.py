@@ -42,7 +42,9 @@ SUFFIXE_SIGNATURE = ".manifeste.sig"
 
 _NOM_DE_CLE = re.compile(r"publication-[0-9]{4}[a-z0-9-]*")
 _CLIENT = re.compile(r"cabinet-[0-9]{2,}")
-LONGUEUR_MIN_PHRASE = 12
+# Le fichier de clé n'est chiffré que par 2 048 tours de PBKDF2 : la phrase est sa
+# seule défense, d'où un minimum aligné sur docs/cle-publication.md.
+LONGUEUR_MIN_PHRASE = 20
 
 
 class Echec(Exception):
@@ -118,11 +120,19 @@ def _ecrire_exclusif(chemin, octets, mode):
         raise Echec("le fichier existe déjà et ne sera pas écrasé : %s" % chemin)
     except OSError as erreur:
         raise Echec("écriture impossible de %s : %s" % (chemin, erreur))
+    # Le fichier existe depuis l'instant précédent, et c'est CETTE exécution qui
+    # l'a créé : s'il reste à moitié écrit, il est effacé, quelle que soit la cause
+    # de l'échec (disque plein, interruption). Un manifeste ou une signature tronqués
+    # ressemblent à un vrai trio, et une clé tronquée bloquerait la génération
+    # suivante (« existe déjà »).
     try:
         with os.fdopen(descripteur, "wb") as fichier:
             fichier.write(octets)
-    except OSError as erreur:
-        raise Echec("écriture impossible de %s : %s" % (chemin, erreur))
+    except BaseException as erreur:
+        _supprimer([chemin])
+        if isinstance(erreur, OSError):
+            raise Echec("écriture impossible de %s : %s" % (chemin, erreur))
+        raise
 
 
 def _supprimer(chemins):

@@ -367,16 +367,45 @@ def _verifier_empreinte_archive(fichier, archive):
         raise PaquetRefuse("ARCHIVE_DIFFERENTE", "empreinte différente de celle signée")
 
 
+# Champ supplémentaire « Unicode Path » d'Info-ZIP : un second nom, que
+# `zipfile` applique à partir de Python 3.12 et ignore avant.
+CHAMP_NOM_UNICODE = 0x7075
+
+
+def _porte_un_champ_de_nom(extra):
+    """Vrai si le champ supplémentaire d'une entrée contient un champ de nom.
+
+    Parcours des blocs (type, longueur, données) sans rien interpréter d'autre ;
+    un bloc tronqué arrête la lecture, `zipfile` refusant de toute façon l'archive.
+    """
+    i = 0
+    while i + 4 <= len(extra):
+        type_champ, longueur = struct.unpack_from("<HH", extra, i)
+        if type_champ == CHAMP_NOM_UNICODE:
+            return True
+        i += 4 + longueur
+    return False
+
+
 def _controler_entrees(entrees):
     """Gardes de l'étape 6 sur chaque entrée de l'archive ; rend (fichiers, dossiers).
 
     Le nom jugé est le nom BRUT (`orig_filename`) : `zipfile` y remplace `\\` par
     `/` sous Windows seulement, et tronque au premier NUL ; juger le nom corrigé
     laisserait passer sur un système ce que l'autre extrairait ailleurs.
+
+    Deux barrières contre un nom qui change selon la version de Python. La première
+    refuse tout champ de nom supplémentaire, en lisant `extra` : le verdict est le
+    même sous 3.9 (qui l'ignore) et sous 3.12 et plus (qui l'applique). La seconde,
+    la comparaison du nom brut au nom corrigé, rattrape ce que la première n'aurait
+    pas prévu.
     """
     fichiers, dossiers, vus = {}, set(), set()
     for entree in entrees:
         brut = entree.orig_filename
+        if _porte_un_champ_de_nom(entree.extra):
+            raise PaquetRefuse("CHEMIN_DANGEREUX",
+                               "entrée à champ de nom supplémentaire : %r" % (brut,))
         if brut != entree.filename:
             raise PaquetRefuse("CHEMIN_DANGEREUX",
                                "nom d'entrée modifié par zipfile : %r" % (brut,))
@@ -409,6 +438,23 @@ def _parents_stricts(chemins):
         for i in range(1, len(morceaux)):
             parents.add("/".join(morceaux[:i]))
     return parents
+
+
+def _refuser_fichier_et_dossier_de_meme_nom(fichiers, dossiers=()):
+    """Refuse un nom qui serait à la fois un fichier et un dossier.
+
+    `…/x` et `…/x/y` ne s'extraient pas sous Windows (ni ailleurs) : le même nom
+    ne peut désigner les deux. Le code est CHEMIN_EN_DOUBLE, celui d'un même nom
+    pris deux fois : il n'y a pas de motif nouveau, seulement une autre manière
+    d'en avoir deux. La casse est ignorée, comme pour les doublons.
+    """
+    noms = {nom.casefold() for nom in fichiers}
+    dossiers_pris = {p.casefold() for p in _parents_stricts(fichiers)}
+    dossiers_pris.update(d.casefold() for d in dossiers)
+    communs = sorted(noms & dossiers_pris)
+    if communs:
+        raise PaquetRefuse("CHEMIN_EN_DOUBLE",
+                           "nom à la fois fichier et dossier : %r" % (communs[0],))
 
 
 def verifier_paquet(chemin_archive, octets_manifeste, signature, cles,
@@ -455,6 +501,7 @@ def verifier_paquet(chemin_archive, octets_manifeste, signature, cles,
         if chemin.casefold() in casses:
             raise PaquetRefuse("CHEMIN_EN_DOUBLE", "chemin en double : %r" % (chemin,))
         casses.add(chemin.casefold())
+    _refuser_fichier_et_dossier_de_meme_nom(fichiers)
     if len(fichiers) > NOMBRE_MAX_FICHIERS:
         raise PaquetRefuse("MANIFESTE_MALFORME",
                            "plus de %d fichiers" % NOMBRE_MAX_FICHIERS)
@@ -498,6 +545,7 @@ def _verifier_contenu(fichier, manifeste, fichiers):
         except _ERREURS_ZIP as erreur:
             raise PaquetRefuse("ARCHIVE_ILLISIBLE", "archive illisible : %s" % (erreur,))
         presents, dossiers = _controler_entrees(entrees)
+        _refuser_fichier_et_dossier_de_meme_nom(presents, dossiers)
 
         # 7. Égalité des ensembles. Un dossier n'est admis que s'il abrite un
         # fichier du manifeste : un dossier vide n'a rien à faire dans un paquet.

@@ -26,6 +26,7 @@ import tempfile
 import unittest
 import warnings
 import zipfile
+import zlib
 from collections import namedtuple
 
 RACINE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -72,6 +73,17 @@ def _entree_dossier(nom):
     info = zipfile.ZipInfo(nom, DATE_FIXE)
     info.external_attr = (0o40755 << 16) | 0x10
     return info, b""
+
+
+def champ_nom_unicode(nom_brut, nom_unicode):
+    """Champ supplémentaire « Unicode Path » (0x7075) d'une entrée de zip.
+
+    Version 1, CRC-32 du nom brut tel qu'écrit, puis le nom en UTF-8 : c'est la
+    forme que zipfile 3.12 et plus applique en remplaçant le nom de l'entrée.
+    """
+    donnees = struct.pack("<BL", 1, zlib.crc32(nom_brut.encode("utf-8"))) \
+        + nom_unicode.encode("utf-8")
+    return struct.pack("<HH", 0x7075, len(donnees)) + donnees
 
 
 def entrees_depuis(contenus):
@@ -671,6 +683,7 @@ class Chemins(Atelier):
             file_size = 1
             external_attr = 0
             flag_bits = 0
+            extra = b""
             compress_type = zipfile.ZIP_DEFLATED
         with self.assertRaises(PaquetRefuse) as c:
             ps._controler_entrees([Entree()])
@@ -680,6 +693,81 @@ class Chemins(Atelier):
             orig_filename = "a/b"
         fichiers, dossiers = ps._controler_entrees([EntreeProprement()])
         self.assertEqual((list(fichiers), dossiers), (["a/b"], set()))
+
+    def test_barriere_nom_brut_different_du_nom_corrige(self):
+        # Seconde barrière, isolée : le nom brut est PROPRE, le nom corrigé ne
+        # l'est pas (ce que ferait un champ de nom appliqué par zipfile), et
+        # aucun champ supplémentaire ne le signale. Sans la comparaison, rien
+        # ne le retiendrait : la validation ne regarde que le nom brut.
+        class Entree:
+            orig_filename = "a/b"
+            filename = "../../evil"
+            file_size = 1
+            external_attr = 0
+            flag_bits = 0
+            extra = b""
+            compress_type = zipfile.ZIP_DEFLATED
+        with self.assertRaises(PaquetRefuse) as c:
+            ps._controler_entrees([Entree()])
+        self.assertEqual(c.exception.code, "CHEMIN_DANGEREUX")
+        self.assertIn("modifié par zipfile", c.exception.detail)
+
+    def test_barriere_champ_de_nom_supplementaire(self):
+        # Première barrière, isolée : le nom brut et le nom corrigé sont égaux (ce
+        # que voit zipfile 3.9, qui ignore le champ), mais l'entrée porte un champ
+        # de nom : refusée quand même, pour que le verdict ne dépende pas de la
+        # version de Python.
+        class Entree:
+            orig_filename = "a/b"
+            filename = "a/b"
+            file_size = 1
+            external_attr = 0
+            flag_bits = 0
+            extra = champ_nom_unicode("a/b", "../../evil")
+            compress_type = zipfile.ZIP_DEFLATED
+        with self.assertRaises(PaquetRefuse) as c:
+            ps._controler_entrees([Entree()])
+        self.assertEqual(c.exception.code, "CHEMIN_DANGEREUX")
+        self.assertIn("champ de nom", c.exception.detail)
+
+    def test_champ_de_nom_dans_une_vraie_archive_meme_verdict_sur_toute_version(self):
+        # Derrière une signature valide (D8) : le manifeste est sain, l'entrée
+        # LICENSE porte un champ Unicode Path qui la renommerait `../../evil`
+        # sous Python 3.12 et plus. Le code ET le détail sont ceux de la
+        # première barrière, sous 3.9 comme sous 3.14 : la comparaison du nom
+        # corrigé ne suffit pas, elle ne voit rien sous 3.9.
+        nom = DOSSIER_RACINE + "/LICENSE"
+        for unicode_ in ("../../evil", DOSSIER_RACINE + "/LICENSE", "x/y"):
+            with self.subTest(nom_unicode=unicode_):
+                declares = contenus_normaux()
+                entrees = [e for e in entrees_depuis(declares)
+                           if e[0].filename != nom]
+                info, octets = _entree_fichier(nom, declares[nom])
+                info.extra = champ_nom_unicode(nom, unicode_)
+                entrees.append((info, octets))
+                trio = self.fabriquer(declares=declares, entrees=entrees)
+                erreur = self.refus("CHEMIN_DANGEREUX", trio)
+                self.assertIn("champ de nom", erreur.detail)
+
+    def test_champ_de_nom_apres_un_autre_champ(self):
+        nom = DOSSIER_RACINE + "/LICENSE"
+        declares = contenus_normaux()
+        entrees = [e for e in entrees_depuis(declares) if e[0].filename != nom]
+        info, octets = _entree_fichier(nom, declares[nom])
+        horodatage = struct.pack("<HHBI", 0x5455, 5, 1, 0)
+        info.extra = horodatage + champ_nom_unicode(nom, "x")
+        entrees.append((info, octets))
+        self.refus("CHEMIN_DANGEREUX", self.fabriquer(declares=declares, entrees=entrees))
+
+    def test_un_autre_champ_supplementaire_ne_gene_pas(self):
+        # Témoin : seul le champ de nom est refusé, pas tout champ supplémentaire.
+        nom = DOSSIER_RACINE + "/LICENSE"
+        declares = contenus_normaux()
+        entrees = [e for e in entrees_depuis(declares) if e[0].filename != nom]
+        info, octets = _entree_fichier(nom, declares[nom])
+        info.extra = struct.pack("<HHBI", 0x5455, 5, 1, 0)
+        entrees.append((info, octets))
+        self.verifier(self.fabriquer(declares=declares, entrees=entrees))
 
     def test_entree_de_dossier_a_nom_de_dossier_avec_donnees(self):
         entrees = entrees_depuis(contenus_normaux())
@@ -758,6 +846,40 @@ class Chemins(Atelier):
         self.refus("FICHIER_ALTERE", self.fabriquer(retoucher=gonfler(pile)))
         self.refus("MANIFESTE_MALFORME", self.fabriquer(retoucher=gonfler(pile + 1)))
 
+    def test_fichier_et_dossier_de_meme_nom_dans_le_manifeste(self):
+        # `…/serveur/x` et `…/serveur/x/y` : le même nom ne peut désigner un
+        # fichier et un dossier, ce paquet ne s'extrairait pas sous Windows.
+        for fichier, enfant in (("serveur/x", "serveur/x/y"),
+                                ("serveur/X", "serveur/x/y"),
+                                ("serveur/x", "serveur/X/y"),
+                                ("serveur/a/b", "serveur/a/b/c/d")):
+            with self.subTest(fichier=fichier, enfant=enfant):
+                declares = contenus_normaux()
+                declares[DOSSIER_RACINE + "/" + fichier] = b"1"
+                declares[DOSSIER_RACINE + "/" + enfant] = b"2"
+                erreur = self.refus("CHEMIN_EN_DOUBLE", self.fabriquer(declares=declares))
+                self.assertIn("fichier et dossier", erreur.detail)
+
+    def test_fichier_et_dossier_voisins_de_noms_proches_acceptes(self):
+        # Témoin : `x` et `xy/z` n'ont pas le même nom.
+        declares = contenus_normaux()
+        declares[DOSSIER_RACINE + "/serveur/x"] = b"1"
+        declares[DOSSIER_RACINE + "/serveur/xy/z"] = b"2"
+        self.verifier(self.fabriquer(declares=declares))
+
+    def test_fichier_et_dossier_de_meme_nom_dans_le_zip_seul(self):
+        # Le manifeste est sain ; le zip porte, en plus, un enfant sous un nom de
+        # fichier du manifeste. Seule la garde du ZIP (avant l'égalité des
+        # ensembles) peut dire CHEMIN_EN_DOUBLE ; sans elle, FICHIER_EN_TROP.
+        for enfant in ("serveur/serveur.py/extra", "serveur/Serveur.py/extra"):
+            with self.subTest(enfant=enfant):
+                declares = contenus_normaux()
+                entrees = entrees_depuis(declares)
+                entrees.append(_entree_fichier(DOSSIER_RACINE + "/" + enfant, b"x"))
+                erreur = self.refus("CHEMIN_EN_DOUBLE",
+                                    self.fabriquer(declares=declares, entrees=entrees))
+                self.assertIn("fichier et dossier", erreur.detail)
+
     def test_plusieurs_dossiers_racine_refuses(self):
         declares = contenus_normaux()
         declares["Autre/x.js"] = b"x"
@@ -819,6 +941,16 @@ class ContenuDeLArchive(Atelier):
         self.refus("ARCHIVE_ILLISIBLE", trio._replace(archive=trio.archive + ".absente"))
         self.refus("ARCHIVE_ILLISIBLE", trio._replace(archive=self.dossier))
         self.refus("ARCHIVE_ILLISIBLE", trio._replace(archive=None))
+
+    @unittest.skipIf(os.name == "nt", "périphérique de caractères : POSIX seulement")
+    def test_un_peripherique_n_est_pas_une_archive(self):
+        # /dev/null a la taille 0 et l'empreinte du vide : si le manifeste signé
+        # les déclare, seul le contrôle « fichier ordinaire » le distingue d'une
+        # archive vide (zipfile dirait ensuite ARCHIVE_ILLISIBLE aussi).
+        manifeste = manifeste_de(contenus_normaux(), b"")
+        brut = serialiser(manifeste)
+        trio = Trio(os.devnull, brut, essai.signer(GRAINE_A, brut), (CLE_A,))
+        self.assertIn("pas un fichier", self.refus("ARCHIVE_ILLISIBLE", trio).detail)
 
     def test_archive_qui_n_est_pas_un_zip(self):
         # Octets quelconques dont l'empreinte est signée : seul zipfile peut dire non.

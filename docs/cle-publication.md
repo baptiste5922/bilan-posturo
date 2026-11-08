@@ -43,7 +43,7 @@ mkdir -p ~/cles-editeur
 python3 outils/signer-paquet.py generer-cle --dossier ~/cles-editeur --nom publication-2026
 ```
 
-L'outil demande deux fois une **phrase de passe d'au moins 12 caractères**, puis
+L'outil demande deux fois une **phrase de passe d'au moins 20 caractères**, puis
 écrit `~/cles-editeur/publication-2026-privee.pem` (chiffré, droits `0600`). Le
 nom suit le motif `publication-AAAA`, éventuellement suivi de `[a-z0-9-]`. Le
 module `cryptography` est requis pour cette commande
@@ -53,8 +53,8 @@ module `cryptography` est requis pour cette commande
 par PBKDF2-HMAC-SHA256) n'utilise que **2 048 tours** : c'est le réglage de
 `BestAvailableEncryption`, et `cryptography` n'en offre pas d'autre pour ce format.
 Un fichier copié par un tiers se casse par essais exhaustifs bien plus vite qu'avec
-un chiffrement moderne. La phrase doit donc être **longue** (plusieurs mots, 20
-caractères et plus, au-delà du minimum de 12 que l'outil impose), et le fichier ne
+un chiffrement moderne. La phrase doit donc être **longue** (plusieurs mots ; l'outil refuse
+moins de 20 caractères, et plus long vaut mieux), et le fichier ne
 doit jamais quitter les deux supports hors ligne de la section 3.
 
 La **sortie standard** ne contient que l'objet JSON de la clé publique, à copier

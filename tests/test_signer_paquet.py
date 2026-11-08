@@ -404,17 +404,30 @@ class PaquetSigne(unittest.TestCase):
             self.assertEqual(f.read(), avant)
 
     def test_a14_phrase_trop_courte_refusee_sans_rien_ecrire(self):
+        # Le minimum est de 20 caractères (la fiche le dit : le fichier n'est
+        # chiffré que par 2 048 tours de PBKDF2). 19 refusés, 20 acceptés.
+        dix_neuf, vingt = "dix-neuf-caracteres", "vingt-caracteres-ok!"
+        self.assertEqual((len(dix_neuf), len(vingt)), (19, 20))
+        self.assertEqual(OUTIL.LONGUEUR_MIN_PHRASE, 20)
         resultat = lancer(self.outil, "generer-cle", "--dossier", self.cles,
                           "--nom", "publication-2057", "--phrase-stdin",
-                          entree="onze_chars!\n")
+                          entree=dix_neuf + "\n")
         self.assertEqual(resultat.returncode, 1)
         self.assertIn("trop courte", resultat.stderr)
+        self.assertIn("20 caractères", resultat.stderr)
         self.assertFalse(os.path.exists(
             os.path.join(self.cles, "publication-2057-privee.pem")))
-        # Témoin : douze caractères exactement passent.
+        # Un ancien minimum (12) ne suffit plus.
+        resultat = lancer(self.outil, "generer-cle", "--dossier", self.cles,
+                          "--nom", "publication-2057", "--phrase-stdin",
+                          entree="douze.chars!\n")
+        self.assertEqual(resultat.returncode, 1)
+        self.assertFalse(os.path.exists(
+            os.path.join(self.cles, "publication-2057-privee.pem")))
+        # Témoin : vingt caractères exactement passent.
         resultat = lancer(self.outil, "generer-cle", "--dossier", self.cles,
                           "--nom", "publication-2058", "--phrase-stdin",
-                          entree="douze.chars!\n")
+                          entree=vingt + "\n")
         self.assertEqual(resultat.returncode, 0, resultat.stderr)
 
     def test_a14_nom_hors_motif_est_un_refus_d_usage(self):
@@ -577,6 +590,121 @@ class PaquetSigne(unittest.TestCase):
         self.assertIn("ENTREE_INTERDITE", resultat.stderr)
         self.assertIn("effacés", resultat.stderr)
         self._aucun_fichier_de_signature(archive)
+
+    # -- effacement complet quand une écriture échoue -------------------------
+
+    def _signer_en_processus(self, archive, injection=None):
+        """`signer` dans ce processus, une erreur injectée à l'endroit voulu.
+
+        `injection` : "fdopen:N" casse la N-ième écriture après en avoir fait la
+        moitié (disque plein simulé) ; "reverification" lève KeyboardInterrupt
+        dans la revérification. Rend (code de sortie, exception ou None).
+        """
+        from unittest import mock
+        appels = []
+        fdopen_reel = os.fdopen
+
+        class FichierQuiCasse(object):
+            def __init__(self, reel):
+                self.reel = reel
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_):
+                self.reel.close()
+                return False
+
+            def write(self, octets):
+                self.reel.write(octets[:len(octets) // 2])
+                self.reel.flush()
+                raise OSError("disque plein simulé")
+
+        def fdopen_qui_casse(descripteur, mode):
+            appels.append(descripteur)
+            reel = fdopen_reel(descripteur, mode)
+            if injection == "fdopen:%d" % len(appels):
+                return FichierQuiCasse(reel)
+            return reel
+
+        def reverification_interrompue(*_args, **_kwargs):
+            raise KeyboardInterrupt()
+
+        arguments = ["signer", "--cle", self.liste["cle"], "--client", "cabinet-01",
+                     "--version-minimale", "1.0.0", "--phrase-stdin", archive]
+        contextes = [mock.patch.object(sys, "stdin", io.StringIO(PHRASE + "\n")),
+                     contextlib.redirect_stdout(io.StringIO()),
+                     contextlib.redirect_stderr(io.StringIO())]
+        if injection and injection.startswith("fdopen"):
+            contextes.append(mock.patch.object(OUTIL.os, "fdopen", fdopen_qui_casse))
+        if injection == "reverification":
+            contextes.append(mock.patch.object(
+                OUTIL.paquet_signe, "verifier_paquet", reverification_interrompue))
+        with contextlib.ExitStack() as pile:
+            for contexte in contextes:
+                pile.enter_context(contexte)
+            try:
+                return OUTIL.main(arguments), None
+            except BaseException as erreur:  # noqa: BLE001 - c'est ce qu'on observe
+                return None, erreur
+
+    def test_effacement_temoin_sans_injection(self):
+        archive = self._variante("temoin-injection")
+        code, erreur = self._signer_en_processus(archive)
+        self.assertEqual((code, erreur), (0, None))
+        self.assertTrue(os.path.exists(archive + OUTIL.SUFFIXE_MANIFESTE))
+        self.assertTrue(os.path.exists(archive + OUTIL.SUFFIXE_SIGNATURE))
+
+    def test_ecriture_du_manifeste_interrompue_ne_laisse_rien(self):
+        archive = self._variante("casse-manifeste")
+        code, erreur = self._signer_en_processus(archive, "fdopen:1")
+        self.assertEqual((code, erreur), (1, None))
+        self._aucun_fichier_de_signature(archive)
+
+    def test_ecriture_de_la_signature_interrompue_ne_laisse_rien(self):
+        # Le manifeste est déjà écrit en entier, la signature est à moitié
+        # écrite : ni l'un ni l'autre ne doit rester.
+        archive = self._variante("casse-signature")
+        code, erreur = self._signer_en_processus(archive, "fdopen:2")
+        self.assertEqual((code, erreur), (1, None))
+        self._aucun_fichier_de_signature(archive)
+
+    def test_interruption_pendant_la_reverification_ne_laisse_rien(self):
+        # Une interruption (Ctrl-C) n'est pas une Exception : c'est la branche
+        # `except BaseException` qui efface, puis laisse l'interruption remonter.
+        archive = self._variante("interrompue")
+        code, erreur = self._signer_en_processus(archive, "reverification")
+        self.assertIsNone(code)
+        self.assertIsInstance(erreur, KeyboardInterrupt)
+        self._aucun_fichier_de_signature(archive)
+
+    def test_ecriture_de_la_cle_interrompue_ne_laisse_pas_de_cle_tronquee(self):
+        # La même fonction écrit la clé privée : un fichier tronqué bloquerait la
+        # génération suivante (« existe déjà »).
+        from unittest import mock
+
+        class Casse(object):
+            def __init__(self, reel):
+                self.reel = reel
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_):
+                self.reel.close()
+                return False
+
+            def write(self, octets):
+                self.reel.write(octets[:5])
+                self.reel.flush()
+                raise OSError("disque plein simulé")
+
+        reel = os.fdopen
+        chemin = os.path.join(self.cles, "essai-tronque-privee.pem")
+        with mock.patch.object(OUTIL.os, "fdopen", lambda d, m: Casse(reel(d, m))):
+            with self.assertRaises(OUTIL.Echec):
+                OUTIL._ecrire_exclusif(chemin, b"0123456789", 0o600)
+        self.assertFalse(os.path.exists(chemin))
 
     def test_a15_client_inexistant_ou_mal_forme(self):
         archive = self._variante("client")
