@@ -51,3 +51,18 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+## RFC 8032 — Ed25519
+
+- **Fichier :** `serveur/signature_ed25519.py` (vérification seule)
+- **Origine :** RFC 8032, *Edwards-Curve Digital Signature Algorithm (EdDSA)*,
+  S. Josefsson et I. Liusvaara, janvier 2017 — §5.1.3 (décodage d'un point) et
+  §5.1.7 (vérification) — <https://www.rfc-editor.org/rfc/rfc8032>
+- **Licence :** les « Code Components » de la RFC (son §6) sont publiés sous la
+  licence BSD simplifiée de l'IETF Trust (Trust Legal Provisions,
+  <https://trustee.ietf.org/license-info>)
+- **Ce qui est repris :** l'algorithme du §5.1 et les cinq vecteurs d'essai du
+  §7.1 (`tests/donnees/rfc8032-ed25519.json`, qui ne part pas au cabinet). Le
+  code est écrit en français, en Python pur ; qu'il reprenne ou non la structure
+  du §6, la mention figure ici et dans l'en-tête du module, pour ne laisser aucun
+  doute sur une copie livrée chez un client.

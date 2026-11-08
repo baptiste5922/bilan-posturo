@@ -739,6 +739,27 @@ class ConfigurationCabinet(unittest.TestCase):
         self.assertTrue(ecrit["mot_de_passe"].startswith("pbkdf2_sha256$"))
 
 
+# Seul module de serveur/ autorisé à importer autre chose que la bibliothèque
+# standard : il fabrique les certificats, hors du chemin d'exécution du serveur.
+EXEMPTE_DE_LA_GARDE_STDLIB = "generer_autorite.py"
+
+
+def imports_hors_bibliotheque_standard(source, standard, voisins):
+    """Les modules importés par `source` qui ne sont ni de la bibliothèque
+    standard ni des modules voisins du même dossier (listés par l'appelant).
+
+    Dérivé de l'arbre syntaxique : un import dans une fonction, ou sur une ligne
+    multiple, est vu comme un import de tête.
+    """
+    modules = set()
+    for noeud in ast.walk(ast.parse(source)):
+        if isinstance(noeud, ast.Import):
+            modules.update(a.name.split(".")[0] for a in noeud.names)
+        elif isinstance(noeud, ast.ImportFrom) and noeud.module and noeud.level == 0:
+            modules.add(noeud.module.split(".")[0])
+    return sorted(modules - set(standard) - set(voisins))
+
+
 # --------------------------------------------------------------------------
 # Page d'état (C4-T3)
 # --------------------------------------------------------------------------
@@ -1556,16 +1577,52 @@ class PageEtat(unittest.TestCase):
         self.assertLess(max(lignes["construire_etat"]), min(lignes["send_response"]))
 
     def test_aucun_import_hors_bibliotheque_standard_ajoute(self):
-        # Garde du critère 16, jouable sur toute version : le serveur
-        # n'importe que des modules fournis avec Python.
-        arbre = ast.parse(self.source_serveur())
-        modules = set()
-        for noeud in ast.walk(arbre):
-            if isinstance(noeud, ast.Import):
-                modules.update(a.name.split(".")[0] for a in noeud.names)
-            elif isinstance(noeud, ast.ImportFrom) and noeud.module:
-                modules.add(noeud.module.split(".")[0])
+        # Garde du critère 16, jouable sur toute version : le code qui tourne au
+        # cabinet n'importe que des modules fournis avec Python. Depuis C5-T1 elle
+        # couvre TOUS les modules de serveur/ : un `import cryptography` glissé
+        # dans paquet_signe.py (le vérificateur) casserait l'installation au
+        # cabinet, qui n'a pas ce module. Seul generer_autorite.py, qui fabrique
+        # les certificats hors du chemin d'exécution du serveur, en est exempté,
+        # et par son NOM.
         standard = getattr(sys, "stdlib_module_names", None)
         if standard is None:
             self.skipTest("sys.stdlib_module_names absent avant Python 3.10")
-        self.assertEqual(sorted(modules - set(standard)), [])
+        dossier = os.path.dirname(os.path.abspath(serveur.__file__))
+        modules_du_dossier = {os.path.splitext(n)[0] for n in os.listdir(dossier)
+                              if n.endswith(".py")}
+        controles = sorted(n for n in os.listdir(dossier)
+                           if n.endswith(".py") and n != EXEMPTE_DE_LA_GARDE_STDLIB)
+        self.assertIn("serveur.py", controles)
+        self.assertIn("paquet_signe.py", controles)
+        self.assertIn("signature_ed25519.py", controles)
+        for nom in controles:
+            with open(os.path.join(dossier, nom), encoding="utf-8") as f:
+                source = f.read()
+            with self.subTest(module=nom):
+                self.assertEqual(
+                    imports_hors_bibliotheque_standard(
+                        source, standard, modules_du_dossier), [])
+
+    def test_la_garde_stdlib_mord_et_l_exemption_est_justifiee(self):
+        standard = getattr(sys, "stdlib_module_names", None)
+        if standard is None:
+            self.skipTest("sys.stdlib_module_names absent avant Python 3.10")
+        # Mise en échec de la garde elle-même : elle doit voir un import tiers,
+        # sous toutes ses formes, et laisser passer un module voisin.
+        for source in ("import cryptography\n", "import os, cryptography.x509\n",
+                       "from cryptography import x509\n",
+                       "def f():\n    import cryptography\n"):
+            with self.subTest(source=source):
+                self.assertEqual(
+                    imports_hors_bibliotheque_standard(source, standard, set()),
+                    ["cryptography"])
+        self.assertEqual(
+            imports_hors_bibliotheque_standard(
+                "import paquet_signe\nimport json\n", standard, {"paquet_signe"}), [])
+        # L'exemption n'est pas gratuite : generer_autorite.py importe bien
+        # cryptography. Si ce n'était plus le cas, l'exemption n'aurait plus lieu d'être.
+        dossier = os.path.dirname(os.path.abspath(serveur.__file__))
+        with open(os.path.join(dossier, EXEMPTE_DE_LA_GARDE_STDLIB), encoding="utf-8") as f:
+            self.assertEqual(
+                imports_hors_bibliotheque_standard(f.read(), standard, set()),
+                ["cryptography"])

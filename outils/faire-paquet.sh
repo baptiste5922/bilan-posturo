@@ -10,6 +10,16 @@
 # (C1-T4a). Un défaut livrerait par mégarde le formulaire du cabinet pilote à
 # un autre cabinet. Le nom de l'archive, lui, ne change pas.
 #
+# Ce script ne SIGNE jamais et n'exige aucune clé : la CI, qui n'a pas la clé de
+# publication, continue de fabriquer et de tester l'archive. La signature est
+# l'étape suivante, séparée, sur le poste de l'éditeur :
+#
+#     python3 outils/signer-paquet.py signer --cle <clé> --client cabinet-01 \
+#         --version-minimale X.Y.Z BilanPosturo-AAAA-MM-JJ.zip
+#
+# (docs/cle-publication.md). Elle pose à côté de l'archive son manifeste et sa
+# signature Ed25519 ; l'archive elle-même ne change pas d'un octet.
+#
 # `set -e` : sans lui, une copie qui échoue laissait le script continuer,
 # zipper, puis annoncer « Archive créée ». Le paquet partait au cabinet
 # amputé — du texte de licence, par exemple, que BUSL exige sur chaque
@@ -123,11 +133,14 @@ rm -rf "$PAQUET"
 # (la fiche de secours), formulaire/moteur/rendu.js et formulaire/schema.json
 # rejoignent la liste : un paquet qui en manquerait livrerait un formulaire
 # vide au cabinet, exactement comme un paquet sans LICENSE le livrerait hors
-# de ses conditions d'usage.
+# de ses conditions d'usage. Depuis C5-T1, serveur/signature_ed25519.py et
+# serveur/paquet_signe.py y figurent aussi : sans eux, le PC du cabinet ne
+# pourrait pas vérifier la première mise à jour signée.
 for obligatoire in "$PAQUET/LICENSE" "$PAQUET/TIERS.md" \
                    "$PAQUET/formulaire/index.html" "$PAQUET/formulaire/index-v1.html" \
                    "$PAQUET/formulaire/moteur/rendu.js" "$PAQUET/formulaire/schema.json" \
-                   "$PAQUET/formulaire/version.json"; do
+                   "$PAQUET/formulaire/version.json" \
+                   "$PAQUET/serveur/signature_ed25519.py" "$PAQUET/serveur/paquet_signe.py"; do
     if ! unzip -l "$PAQUET.zip" "$obligatoire" > /dev/null 2>&1; then
         # L'archive incomplète est effacée, comme pour le contrôle du schéma plus
         # bas : un BilanPosturo-*.zip laissé sur le disque a l'air d'un paquet

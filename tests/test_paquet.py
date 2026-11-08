@@ -98,6 +98,24 @@ class FabricationDuPaquet(unittest.TestCase):
         self.assertTrue(any(n.endswith("LICENSE") for n in noms))
         self.assertTrue(any(n.endswith("TIERS.md") for n in noms))
 
+    def test_le_verificateur_de_signature_part_dans_le_paquet(self):
+        # C5-T1 : sans ces deux modules, le PC du cabinet ne pourrait pas vérifier
+        # la première mise à jour signée.
+        noms = self._noms_dans_le_paquet()
+        for module in ("serveur/signature_ed25519.py", "serveur/paquet_signe.py"):
+            self.assertTrue(any(n.endswith("/" + module) for n in noms),
+                            module + " manque dans le paquet : " + ", ".join(noms))
+
+    def test_le_script_ne_signe_pas_et_n_exige_aucune_cle(self):
+        # D11 : la CI fabrique l'archive sans détenir la clé de publication, et
+        # l'archive reste seule : manifeste et signature viennent après.
+        restes = sorted(p.name for p in Path(self.dossier).glob("BilanPosturo-*"))
+        self.assertEqual(len(restes), 1, restes)
+        self.assertTrue(restes[0].endswith(".zip"), restes)
+        self.assertFalse(
+            any(n.endswith("cles_publication.json") for n in self._noms_dans_le_paquet()),
+            "aucune clé publique n'est versionnée tant que le geste de l'éditeur n'est pas fait")
+
 
 @unittest.skipUnless(OUTILS_DISPONIBLES, "sh/zip/unzip requis pour fabriquer le paquet")
 class ClientDuPaquet(unittest.TestCase):
@@ -144,6 +162,19 @@ class ClientDuPaquet(unittest.TestCase):
         self.assertNotEqual(resultat.returncode, 0, resultat.stdout)
         self.assertIn("version.json", resultat.stderr)
         self._aucune_archive()
+
+    def _piece_de_serveur_absente_efface_l_archive(self, nom):
+        (Path(self.dossier) / "serveur" / nom).unlink()
+        resultat = self._lancer("cabinet-01")
+        self.assertNotEqual(resultat.returncode, 0, resultat.stdout)
+        self.assertIn(nom, resultat.stderr)
+        self._aucune_archive()
+
+    def test_module_de_signature_absent_efface_l_archive(self):
+        self._piece_de_serveur_absente_efface_l_archive("signature_ed25519.py")
+
+    def test_module_de_paquet_signe_absent_efface_l_archive(self):
+        self._piece_de_serveur_absente_efface_l_archive("paquet_signe.py")
 
     def test_client_inexistant_refuse(self):
         resultat = self._lancer("cabinet-99")

@@ -108,7 +108,7 @@ jobs:
         run: python -m pip install --upgrade pip pyflakes
 
       - name: Check for unused imports and undefined names
-        run: python -m pyflakes serveur/ tests/ outils/atelier/
+        run: python -m pyflakes serveur/ tests/ outils/atelier/ outils/signer-paquet.py
 
       - name: Check that no secret is committed
         run: |

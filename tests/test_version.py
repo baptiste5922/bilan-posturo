@@ -31,6 +31,16 @@ class SourceUnique(unittest.TestCase):
         self.assertIsInstance(version, str)
         self.assertRegex(version, r"^[0-9A-Za-z.+-]{1,32}$")
 
+    def test_version_json_respecte_la_forme_stricte_x_y_z(self):
+        # C5-T1 : la montée de version se décide par un ORDRE. `lire_version()`
+        # tolère une forme large pour ne jamais empêcher le démarrage ; le paquet
+        # signé, lui, n'accepte que X.Y.Z (sans zéro de tête ni suffixe), et
+        # `1.10.0` doit se comparer comme un nombre à `1.9.0`.
+        import paquet_signe
+        version = _lire_json("formulaire/version.json")["version"]
+        self.assertRegex(version, r"\A(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\Z")
+        self.assertEqual(len(paquet_signe.analyser_version(version)), 3)
+
     def test_package_json_ne_diverge_pas(self):
         if _lire_json("package.json").get("version") != _lire_json("formulaire/version.json").get("version"):
             self.fail("package.json et formulaire/version.json portent deux numéros différents")
