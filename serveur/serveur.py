@@ -140,6 +140,13 @@ if EVENEMENT_ROTATION not in EVENEMENTS_TECHNIQUES:
 # même pour la page de diagnostic.
 ROUTES_TECHNIQUES = frozenset({"depot", "sante", "formulaire", "cabinet", "etat", "autre"})
 
+# Caractères de contrôle échappés dans les journaux : C0, DEL et C1, la table
+# de CPython 3.12 sans la barre oblique inverse. Échappée, elle doublerait chaque
+# séparateur des chemins Windows de la ligne ECHEC ecriture et rendrait le
+# journal illisible pour le support (C6-T5, D9).
+ECHAPPEMENT_CONTROLE = str.maketrans({
+    c: "\\x{:02x}".format(c) for c in list(range(0x20)) + list(range(0x7f, 0xa0))})
+
 # Motifs de refus de dépôt, fermés eux aussi : un motif hors de cet ensemble
 # devient "motif-inconnu" (detail_refus_depot).
 MOTIFS_REFUS_DEPOT = frozenset({
@@ -479,12 +486,25 @@ def confiner_fichier_servi(chemin_traduit, racine_web):
     chemin_traduit est celui que send_head ouvrira (translate_path), décodé.
     Seul appelant à tolérer la casse : voir confiner_sous_racine. Aucune
     exception ne sort.
+
+    Un chemin que le système de fichiers ne sait pas nommer (octet nul, demi-
+    paire de substitution isolée sous POSIX) rend « forme-invalide » : la
+    réponse reste la 404 d'un absent, seul le journal nominatif le distingue
+    (C6-T5).
     """
     # Refus explicite : selon la version de Python et le système, realpath lève
     # ou laisse passer un octet nul, et open() lèverait alors une ValueError
     # que send_head ne rattrape pas.
     if "\0" in chemin_traduit:
-        return "hors-racine"
+        return "forme-invalide"
+    # Même famille de défaut : open() lève UnicodeEncodeError, une ValueError
+    # elle aussi, sur un nom que le système n'encode pas. Le test suit
+    # l'encodage réel du système (sous Windows, PEP 529, la demi-paire s'encode
+    # et la 404 d'un absent répond) au lieu de transcrire une liste.
+    try:
+        os.fsencode(chemin_traduit)
+    except UnicodeEncodeError:
+        return "forme-invalide"
     try:
         relatif = os.path.relpath(chemin_traduit, racine_web)
     except ValueError:   # lecteurs différents sous Windows
@@ -1719,9 +1739,19 @@ class Gestionnaire(SimpleHTTPRequestHandler):
     # Le logo validé au démarrage (C2-T2), seul chemin que /cabinet rend. Vide
     # par défaut : sans demarrer(), aucun logo n'est proposé (échoue fermé).
     logo = ""
+    # L'en-tête Server (C6-T5, D1) : le nom du produit, sans numéro. Celui de la
+    # bibliothèque donnait la version exacte de Python à qui scanne le port,
+    # /sante et la 401 comprises, sans qu'il ait à s'authentifier.
+    server_version = "bilan-posturo"
+    sys_version = ""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=FORMULAIRE, **kwargs)
+
+    def version_string(self):
+        # La bibliothèque rend server_version + " " + sys_version : même vide,
+        # sys_version laisserait une espace finale.
+        return self.server_version
 
     # --- journalisation ----------------------------------------------------
 
@@ -1754,9 +1784,14 @@ class Gestionnaire(SimpleHTTPRequestHandler):
         # dépôts et les erreurs sous des milliers de lignes par jour.
         if getattr(self, "silencieux", False):
             return
+        # Les caractères de contrôle venus du client (la ligne de requête est
+        # journalisée avant la 401) sont échappés : bruts, ils s'exécuteraient
+        # dans la console de qui lit le journal. CPython l'a corrigé dans son
+        # log_message en 3.12 ; celui-ci le remplace entièrement (C6-T5, D9).
         journaliser("{} {} {}\n".format(
             datetime.datetime.now().isoformat(timespec="seconds"),
-            self.address_string(), format % args))
+            self.address_string(),
+            (format % args).translate(ECHAPPEMENT_CONTROLE)))
 
         # Voie technique : ni adresse (self.address_string() n'y est jamais
         # passé), ni chemin brut — route est une classe fermée. Le code de
@@ -1764,11 +1799,16 @@ class Gestionnaire(SimpleHTTPRequestHandler):
         # cette requête (remis à 0 par handle_one_request sinon) : un appel
         # ad hoc à log_message(), comme ceux de DEPOT ou ECHEC_ECRITURE, n'a
         # pas encore de code de réponse à cet instant.
-        methode = getattr(self, "command", None)
-        if methode not in ("GET", "HEAD", "POST"):
-            methode = "autre"
-        chemin = getattr(self, "path", "") or ""
-        route = classe_route(chemin.split("?", 1)[0].split("#", 1)[0])
+        commande = getattr(self, "command", None)
+        methode = commande if commande in ("GET", "HEAD", "POST") else "autre"
+        if commande:
+            chemin = getattr(self, "path", "") or ""
+            route = classe_route(chemin.split("?", 1)[0].split("#", 1)[0])
+        else:
+            # Ligne de requête non analysée (414, 505, 400 de syntaxe) : le
+            # chemin est vide et classe_route("") rendrait « formulaire », ce
+            # qui est faux (C6-T5, D8).
+            route = "autre"
         code = getattr(self, "_code_reponse_technique", 0)
         journaliser_technique("REPONSE", "methode={} route={} code={}".format(
             methode, route, code))
@@ -1838,17 +1878,28 @@ class Gestionnaire(SimpleHTTPRequestHandler):
             return False
 
         chemin = self.chemin_demande()
-        if chemin in ("/", ""):
+        # Seule la forme d'origine (RFC 9112 §3.2.1) est celle d'un navigateur :
+        # la forme absolue est réservée aux mandataires, « * » à OPTIONS. Après
+        # l'authentification, pour qu'un client sans identifiants reçoive la
+        # même 401 vide quel que soit son chemin (C6-T5, D3 et D4). Le message
+        # est en ASCII : il voyage dans la ligne d'état, encodée en latin-1.
+        if not chemin.startswith("/"):
+            self.send_error(HTTPStatus.BAD_REQUEST, "Chemin invalide")
+            return False
+        if chemin == "/":
             chemin = "/index.html"
 
-        extension = os.path.splitext(chemin)[1].lower()
+        # Le fichier que send_head ouvrira, décodé et normalisé comme lui. Le
+        # filtre d'extension et le contrôle portent sur cette seule chaîne :
+        # une seconde forme serait un endroit où le filtre juge une chose et
+        # le disque en ouvre une autre (C6-T5, D2).
+        fichier = self.translate_path(chemin)
+        extension = os.path.splitext(fichier)[1].lower()
         if extension not in EXTENSIONS_SERVIES:
             self.send_error(HTTPStatus.FORBIDDEN, "Type de fichier non servi")
             return False
 
-        # Le fichier que send_head ouvrira, décodé et normalisé comme lui : le
-        # contrôle porte sur ce chemin-là, non sur le chemin brut (C6-T6).
-        motif = confiner_fichier_servi(self.translate_path(chemin), FORMULAIRE)
+        motif = confiner_fichier_servi(fichier, FORMULAIRE)
         if motif:
             journaliser("{} {} lecture refusée motif={} chemin={!r}\n".format(
                 datetime.datetime.now().isoformat(timespec="seconds"),
@@ -1886,6 +1937,31 @@ class Gestionnaire(SimpleHTTPRequestHandler):
             return
         if self.autorise_lecture():
             super().do_HEAD()
+
+    def send_head(self):
+        # Filet (C6-T5, D6), qui double confiner_fichier_servi : la
+        # bibliothèque n'attrape que OSError à l'open(), et une ValueError
+        # (octet nul, UnicodeEncodeError) fermait la connexion sans un octet.
+        # Elle ne se lève qu'à l'open(), avant tout send_response. Rien d'autre
+        # n'est attrapé : une autre exception doit rester visible.
+        try:
+            return super().send_head()
+        except ValueError:
+            journaliser("{} {} lecture refusée motif=forme-invalide "
+                        "chemin={!r}\n".format(
+                            datetime.datetime.now().isoformat(timespec="seconds"),
+                            self.address_string(), self.path))
+            self.send_error(HTTPStatus.NOT_FOUND, "File not found")
+            return None
+
+    def list_directory(self, path):
+        # Le formulaire ne sert aucun index de dossier (C6-T5, D7). Il est déjà
+        # fermé par le filtre d'extension, mais ce filtre dépend de détails de
+        # la bibliothèque qui ont changé entre versions (redirection d'un
+        # dossier demandé en %2f, moment où la barre finale est calculée) :
+        # cette surcharge le ferme quelle que soit la version.
+        self.send_error(HTTPStatus.NOT_FOUND, "File not found")
+        return None
 
     # --- sonde de santé ----------------------------------------------------
 
