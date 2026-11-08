@@ -629,9 +629,23 @@ class Chemins(Atelier):
             if "\x00" in nom or nom.endswith("/"):
                 continue
             with self.subTest(nom=nom):
+                # Sous Windows, `zipfile` réécrit « \\ » en « / » À L'ÉCRITURE (CI
+                # Windows, premier passage) : l'archive ne contiendrait plus le nom
+                # voulu. On écrit un substitut de même longueur et on le remplace
+                # dans les octets du zip (en-tête local et répertoire central).
+                ecrit = nom.replace("\\", "|")
                 entrees = entrees_depuis(contenus_normaux())
-                entrees.append(_entree_fichier(nom, b"x"))
-                trio = self.fabriquer(entrees=entrees)
+                entrees.append(_entree_fichier(ecrit, b"x"))
+                if ecrit == nom:
+                    trio = self.fabriquer(entrees=entrees)
+                else:
+                    trio = self.fabriquer(
+                        entrees=entrees,
+                        retoucher_zip=lambda o, e=ecrit, n=nom: o.replace(
+                            e.encode("utf-8"), n.encode("utf-8")))
+                # Le nom brut voulu est bien dans l'archive, sur tout système.
+                with zipfile.ZipFile(trio.archive) as z:
+                    self.assertIn(nom, [i.orig_filename for i in z.infolist()])
                 self.refus("CHEMIN_DANGEREUX", trio)
 
     def test_nom_avec_nul_dans_le_zip(self):
