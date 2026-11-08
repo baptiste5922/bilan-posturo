@@ -130,7 +130,7 @@ class Atelier(unittest.TestCase):
 
     def fabriquer(self, declares=None, entrees=None, retoucher=None,
                   retoucher_zip=None, version="1.2.0", minimale="1.1.0",
-                  client="cabinet-01", graine=GRAINE_A, cles=None):
+                  client="cabinet-01", graine=GRAINE_A, cles=None, compact=False):
         """Trio signé. `declares` : ce que dit le manifeste ; `entrees` : ce que
         contient le zip (par défaut, la même chose) ; `retoucher` : modifie le
         dict du manifeste avant la signature ; `retoucher_zip` : modifie les
@@ -152,7 +152,11 @@ class Atelier(unittest.TestCase):
         manifeste = manifeste_de(declares, octets_archive, version, minimale, client)
         if retoucher is not None:
             retoucher(manifeste)
-        octets = serialiser(manifeste)
+        # `compact` : sans espaces ni retraits, pour tenir 10 000 entrées sous le
+        # plafond de 1 Mio du manifeste (la mise en forme de l'outil, elle, n'y
+        # tiendrait pas).
+        octets = (json.dumps(manifeste, sort_keys=True, separators=(",", ":")).encode()
+                  if compact else serialiser(manifeste))
         return Trio(archive, octets, essai.signer(graine, octets),
                     (CLE_A,) if cles is None else cles)
 
@@ -671,6 +675,18 @@ class Chemins(Atelier):
         declares[DOSSIER_RACINE + "/a.js"] = b"2"
         self.refus("CHEMIN_EN_DOUBLE", self.fabriquer(declares=declares))
 
+    def test_doublon_du_manifeste_refuse_avant_de_lire_l_archive(self):
+        # Le zip, lui, n'a qu'une des deux graphies : seule la garde du MANIFESTE
+        # (étape 4) peut dire CHEMIN_EN_DOUBLE ; sans elle, on lirait
+        # FICHIER_MANQUANT à l'étape 7.
+        declares = contenus_normaux()
+        declares[DOSSIER_RACINE + "/A.js"] = b"1"
+        declares[DOSSIER_RACINE + "/a.js"] = b"2"
+        entrees = entrees_depuis(contenus_normaux())
+        entrees.append(_entree_fichier(DOSSIER_RACINE + "/A.js", b"1"))
+        self.refus("CHEMIN_EN_DOUBLE",
+                   self.fabriquer(declares=declares, entrees=entrees))
+
     def test_doublon_a_la_casse_pres_dans_le_zip(self):
         declares = contenus_normaux()
         entrees = entrees_depuis(declares)
@@ -688,6 +704,35 @@ class Chemins(Atelier):
         declares = contenus_normaux()
         entrees = entrees_depuis(declares) + [_entree_dossier(DOSSIER_RACINE + "/LICENSE/")]
         self.refus("CHEMIN_EN_DOUBLE", self.fabriquer(declares=declares, entrees=entrees))
+
+    def test_plafond_du_nombre_de_fichiers(self):
+        # 10 000 fichiers déclarés : le plafond n'est pas atteint (le refus vient
+        # alors de l'archive, qui n'a pas ces fichiers) ; 10 001 : il l'est.
+        for nombre, code in ((ps.NOMBRE_MAX_FICHIERS, "FICHIER_EN_TROP"),
+                             (ps.NOMBRE_MAX_FICHIERS + 1, "MANIFESTE_MALFORME")):
+            with self.subTest(nombre=nombre):
+                declares = {"R/%05d" % i: b"" for i in range(nombre)}
+                trio = self.fabriquer(
+                    declares=declares, compact=True,
+                    entrees=entrees_depuis(contenus_normaux()))
+                self.assertLess(len(trio.manifeste), ps.TAILLE_MAX_MANIFESTE)
+                self.refus(code, trio)
+
+    def test_plafond_de_la_somme_des_tailles(self):
+        nom = DOSSIER_RACINE + "/LICENSE"
+        limite = ps.OCTETS_MAX_TOTAL
+        total = len(contenus_normaux()[nom])
+
+        def gonfler(supplement):
+            def retoucher(manifeste):
+                manifeste["fichiers"][nom]["taille"] += supplement
+            return retoucher
+        reste = sum(len(o) for o in contenus_normaux().values()) - total
+        # Pile à la limite : le plafond ne parle pas (la taille fausse sera relevée
+        # plus loin) ; un octet de plus, il parle.
+        pile = limite - reste - total
+        self.refus("FICHIER_ALTERE", self.fabriquer(retoucher=gonfler(pile)))
+        self.refus("MANIFESTE_MALFORME", self.fabriquer(retoucher=gonfler(pile + 1)))
 
     def test_plusieurs_dossiers_racine_refuses(self):
         declares = contenus_normaux()
@@ -869,7 +914,9 @@ class ContenuDeLArchive(Atelier):
                               retoucher_zip=tronquer_la_taille)
         with zipfile.ZipFile(trio.archive) as z:
             self.assertEqual(z.getinfo(nom).file_size, 10)
-        self.refus("FICHIER_ALTERE", trio)
+        # La taille déclarée concorde avec le manifeste : c'est la LECTURE qui
+        # échoue (CRC), pas la comparaison de tailles.
+        self.assertIn("lecture impossible", self.refus("FICHIER_ALTERE", trio).detail)
 
     def test_taille_declaree_dans_le_zip_differente_de_celle_du_manifeste(self):
         nom = DOSSIER_RACINE + "/LICENSE"
@@ -885,7 +932,9 @@ class ContenuDeLArchive(Atelier):
                     return (octets[:position + 24] + struct.pack("<I", 3)
                             + octets[position + 28:])
                 position += 4
-        self.refus("FICHIER_ALTERE", self.fabriquer(retoucher_zip=mentir))
+        exception = self.refus("FICHIER_ALTERE", self.fabriquer(retoucher_zip=mentir))
+        # Refusé AVANT toute lecture : c'est la comparaison de tailles qui parle.
+        self.assertIn("taille déclarée", exception.detail)
 
     def test_lecture_bornee_a_taille_plus_un(self):
         # M19 : une lecture non bornée lirait tout le flux d'une entrée qui
@@ -926,11 +975,22 @@ class ContenuDeLArchive(Atelier):
 
     def test_version_json_illisible_ou_sans_version(self):
         for contenu in (b"pas du json", b"[]", b'{"autre": "1.2.0"}',
-                        b'{"version": "1.2.0", "version": "1.2.0"}', b"\xff"):
+                        b'{"version": "1.2.0", "version": "1.2.0"}', b"\xff",
+                        b'{"version": "1.2.0", "x": NaN}'):
             with self.subTest(contenu=contenu):
                 declares = contenus_normaux()
                 declares[DOSSIER_RACINE + "/formulaire/version.json"] = contenu
                 self.refus("VERSION_INCOHERENTE", self.fabriquer(declares=declares))
+
+    def test_version_json_demesure_refuse_sans_etre_charge_en_memoire(self):
+        nom = DOSSIER_RACINE + "/formulaire/version.json"
+        base = b'{"version": "1.2.0"}'
+        # Pile à la limite : accepté ; un octet de plus : refusé.
+        declares = contenus_normaux()
+        declares[nom] = base + b" " * (ps.TAILLE_MAX_VERSION - len(base))
+        self.verifier(self.fabriquer(declares=declares))
+        declares[nom] = declares[nom] + b" "
+        self.refus("VERSION_INCOHERENTE", self.fabriquer(declares=declares))
 
     def test_version_json_a_la_racine_d_un_autre_dossier_ne_compte_pas(self):
         declares = contenus_normaux()

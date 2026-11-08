@@ -72,6 +72,9 @@ NOMBRE_MAX_FICHIERS = 10000
 OCTETS_MAX_TOTAL = 256 * 1024 * 1024
 LONGUEUR_MAX_CHEMIN = 240
 TAILLE_BLOC = 1024 * 1024
+# formulaire/version.json est lu en mémoire pour être comparé au manifeste : il
+# tient en quelques dizaines d'octets, et rien ne justifie d'en charger davantage.
+TAILLE_MAX_VERSION = 4096
 
 FORMAT_MANIFESTE = 1
 TYPE_MANIFESTE = "manifeste-mise-a-jour"
@@ -517,6 +520,9 @@ def _verifier_contenu(fichier, manifeste, fichiers):
         for nom in sorted(fichiers):
             attendu = fichiers[nom]
             entree = presents[nom]
+            if nom == chemin_version and attendu["taille"] > TAILLE_MAX_VERSION:
+                raise PaquetRefuse("VERSION_INCOHERENTE",
+                                   "%s démesuré : %d octets" % (CHEMIN_VERSION, attendu["taille"]))
             if entree.file_size != attendu["taille"]:
                 raise PaquetRefuse("FICHIER_ALTERE",
                                    "taille déclarée différente du manifeste : %r" % (nom,))

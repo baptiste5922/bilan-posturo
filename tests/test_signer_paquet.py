@@ -118,9 +118,12 @@ def reconditionner(entree, sortie, remplacer=None, supprimer=(), ajouter=None):
             copie.external_attr = info.external_attr
             cible.writestr(copie, donnees)
         for nom, donnees in ajouter.items():
+            attributs = 0o100644 << 16
+            if isinstance(donnees, tuple):
+                donnees, attributs = donnees
             info = zipfile.ZipInfo(nom, (2026, 11, 8, 0, 0, 0))
             info.compress_type = zipfile.ZIP_DEFLATED
-            info.external_attr = 0o100644 << 16
+            info.external_attr = attributs
             cible.writestr(info, donnees)
 
 
@@ -521,7 +524,9 @@ class PaquetSigne(unittest.TestCase):
                     f.write(b"preexistant")
                 resultat = self.signer(archive, self.liste["cle"])
                 self.assertEqual(resultat.returncode, 1)
-                self.assertIn("existe déjà", resultat.stderr)
+                # Refus AVANT toute saisie de phrase ni lecture de clé : le message
+                # est celui de la première garde, pas celui de l'écriture exclusive.
+                self.assertIn("supprimez-le délibérément", resultat.stderr)
                 with open(archive + suffixe, "rb") as f:
                     self.assertEqual(f.read(), b"preexistant")
                 autre = (OUTIL.SUFFIXE_SIGNATURE if suffixe == OUTIL.SUFFIXE_MANIFESTE
@@ -556,6 +561,21 @@ class PaquetSigne(unittest.TestCase):
         resultat = self.signer(archive, self.liste["cle"])
         self.assertEqual(resultat.returncode, 1)
         self.assertIn("un seul dossier racine", resultat.stderr)
+        self._aucun_fichier_de_signature(archive)
+
+    def test_a15_la_reverification_efface_ce_qu_elle_refuse(self):
+        # Un lien symbolique passe les gardes de l'outil (nom de la liste blanche)
+        # mais pas la vérification du cabinet : la revérification, par le même
+        # code, doit EFFACER le manifeste et la signature qu'elle vient d'écrire.
+        # Sans elle, une signature que le cabinet refuserait sortirait d'ici.
+        with zipfile.ZipFile(self.archive) as z:
+            racine = z.namelist()[0].split("/")[0]
+        archive = self._variante(
+            "lien", ajouter={racine + "/lien": (b"formulaire/index.html", 0o120777 << 16)})
+        resultat = self.signer(archive, self.liste["cle"])
+        self.assertEqual(resultat.returncode, 1, resultat.stdout + resultat.stderr)
+        self.assertIn("ENTREE_INTERDITE", resultat.stderr)
+        self.assertIn("effacés", resultat.stderr)
         self._aucun_fichier_de_signature(archive)
 
     def test_a15_client_inexistant_ou_mal_forme(self):
@@ -669,6 +689,42 @@ class VerifierSansCryptography(unittest.TestCase):
         self.assertEqual(aide.returncode, 0)
         self.assertNotIn("positional arguments", aide.stdout)
         self.assertNotIn("show this help", aide.stdout)
+
+
+class EcritureExclusive(unittest.TestCase):
+    """`O_EXCL` : la seconde ligne de défense, quand le fichier apparaît entre le test et l'écriture."""
+
+    def setUp(self):
+        self.dossier = tempfile.mkdtemp(prefix="bilan-exclusif-")
+        self.addCleanup(shutil.rmtree, self.dossier, ignore_errors=True)
+
+    def test_ne_remplace_jamais_un_fichier_existant(self):
+        chemin = os.path.join(self.dossier, "x-privee.pem")
+        with open(chemin, "wb") as f:
+            f.write(b"ancienne cle")
+        with self.assertRaises(OUTIL.Echec) as contexte:
+            OUTIL._ecrire_exclusif(chemin, b"nouvelle", 0o600)
+        self.assertIn("ne sera pas écrasé", str(contexte.exception))
+        with open(chemin, "rb") as f:
+            self.assertEqual(f.read(), b"ancienne cle")
+
+    def test_cree_un_fichier_neuf_avec_le_mode_demande(self):
+        chemin = os.path.join(self.dossier, "neuf.pem")
+        OUTIL._ecrire_exclusif(chemin, b"contenu", 0o600)
+        with open(chemin, "rb") as f:
+            self.assertEqual(f.read(), b"contenu")
+        if os.name != "nt":
+            self.assertEqual(stat.S_IMODE(os.stat(chemin).st_mode) & 0o077, 0)
+
+    def test_un_lien_symbolique_pendant_n_est_pas_suivi(self):
+        if os.name == "nt":
+            self.skipTest("lien symbolique : droits requis sous Windows")
+        cible = os.path.join(self.dossier, "cible-qui-n-existe-pas")
+        lien = os.path.join(self.dossier, "lien-privee.pem")
+        os.symlink(cible, lien)
+        with self.assertRaises(OUTIL.Echec):
+            OUTIL._ecrire_exclusif(lien, b"x", 0o600)
+        self.assertFalse(os.path.exists(cible))
 
 
 class EstSousLaRacine(unittest.TestCase):
