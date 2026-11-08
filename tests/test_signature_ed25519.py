@@ -41,7 +41,10 @@ def cryptography_absente():
 
 
 def _vecteurs():
-    chemin = os.path.join(RACINE, "tests", "donnees", "rfc8032-ed25519.json")
+    # Dans externes/ et non à plat dans donnees/ : le contrôle de vocabulaire de
+    # tests/test_confidentialite_prospect.py lit TOUT .json de donnees/ comme un
+    # schéma de formulaire. Ces vecteurs viennent de la RFC, pas du projet.
+    chemin = os.path.join(RACINE, "tests", "donnees", "externes", "rfc8032-ed25519.json")
     with open(chemin, encoding="utf-8") as f:
         brut = json.load(f)["vecteurs"]
     return [

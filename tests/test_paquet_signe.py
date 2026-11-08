@@ -719,11 +719,13 @@ class ContenuDeLArchive(Atelier):
         trio = self.fabriquer()
         with open(trio.archive, "ab") as f:
             f.write(b"\0")
-        self.refus("ARCHIVE_DIFFERENTE", trio)
+        # Le détail dit que c'est la TAILLE : elle se compare avant l'empreinte,
+        # pour ne pas hacher un fichier démesuré.
+        self.assertIn("taille", self.refus("ARCHIVE_DIFFERENTE", trio).detail)
         trio = self.fabriquer()
         with open(trio.archive, "r+b") as f:
             f.truncate(os.path.getsize(trio.archive) - 1)
-        self.refus("ARCHIVE_DIFFERENTE", trio)
+        self.assertIn("taille", self.refus("ARCHIVE_DIFFERENTE", trio).detail)
 
     def test_taille_juste_empreinte_fausse(self):
         # La taille est comparée avant l'empreinte : sans cette seconde garde, un
@@ -734,7 +736,7 @@ class ContenuDeLArchive(Atelier):
         octets[-1] ^= 0xFF
         with open(trio.archive, "wb") as f:
             f.write(octets)
-        self.refus("ARCHIVE_DIFFERENTE", trio)
+        self.assertIn("empreinte", self.refus("ARCHIVE_DIFFERENTE", trio).detail)
 
     def test_empreinte_d_archive_fausse_dans_le_manifeste_signe(self):
         trio = self.fabriquer(retoucher=lambda m: m["archive"].update(sha256="0" * 64))

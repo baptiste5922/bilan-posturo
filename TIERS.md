@@ -62,7 +62,7 @@ SOFTWARE.
   licence BSD simplifiée de l'IETF Trust (Trust Legal Provisions,
   <https://trustee.ietf.org/license-info>)
 - **Ce qui est repris :** l'algorithme du §5.1 et les cinq vecteurs d'essai du
-  §7.1 (`tests/donnees/rfc8032-ed25519.json`, qui ne part pas au cabinet). Le
+  §7.1 (`tests/donnees/externes/rfc8032-ed25519.json`, qui ne part pas au cabinet). Le
   code est écrit en français, en Python pur ; qu'il reprenne ou non la structure
   du §6, la mention figure ici et dans l'en-tête du module, pour ne laisser aucun
   doute sur une copie livrée chez un client.
