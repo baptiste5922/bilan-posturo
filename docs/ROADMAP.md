@@ -1236,6 +1236,25 @@ gratuits.
 
 ### C6-T5 — Une requête malformée reçoit un code, pas un silence
 
+> **Livrée le 8 novembre 2026** (`docs/contrats/C6-T5.md`, audit CONFORME,
+> revue À LIVRER). Le dernier silence (`/%ed%a0%80.html` sous Python 3.9) est
+> fermé deux fois : `confiner_fichier_servi` refuse un chemin que
+> `os.fsencode` ne sait pas encoder (motif `forme-invalide`, octet nul
+> compris), et un filet dans `send_head` rend 404 sur une `ValueError`, et sur
+> elle seule. Le filtre d'extension et le confinement lisent la même chaîne,
+> le chemin traduit que `send_head` ouvrira : des formes encodées du même
+> fichier (`/index%2ehtml`, `/script.j%73`, `/index.html/.`) sont servies,
+> aucun fichier nouveau ne l'est. Un chemin qui ne commence pas par `/` reçoit
+> 400 après l'authentification ; `list_directory` rend toujours 404 ;
+> `Server: bilan-posturo`, sans version de Python ; les caractères de contrôle
+> sont échappés dans `journal.log` (pas `\`) ; une requête non analysée est
+> classée `route=autre`. 473 tests ; mutations M1 à M11 et M9b
+> (`docs/audits/C6-T5-mises-en-echec.md`) ; CI `42470497173` verte. Effort réel
+> M. Reportés : la dérivation des routes dupliquée entre
+> `test_seule_sante_sans_authentification` et `test_s2` (à factoriser en C7) ;
+> un test de casse du filtre d'extension hors Windows (`test_i9` ne mord que
+> sous Windows). Rien ne part au cabinet avant C1-T4b.
+
 > **Ouverte le 15 octobre 2026**, par l'audit de C1-T3. Défaut **pré-existant**,
 > non introduit par cette tâche : il est antérieur à l'ajout de `.json` dans la
 > liste blanche, et se reproduit à l'identique sur `.html` et `.css`.
@@ -1286,8 +1305,8 @@ gratuits.
 > logo la refuse avec le motif `absent`. Mises en échec :
 > `docs/audits/C6-T6-mises-en-echec.md`. Rien ne part au cabinet avant C1-T4b.
 > **Effet de bord (R4) :** `/x%00.json` rend désormais 404 au lieu d'une
-> connexion fermée ; C6-T5 garde le calcul de l'extension sur le chemin non
-> décodé, l'en-tête `Server` et son test.
+> connexion fermée ; C6-T5 (livrée le 8 novembre) a unifié la forme du chemin
+> et neutralisé l'en-tête `Server`.
 
 - **Effort :** S
 - **Process :** Allégé + audit — surface servie.
@@ -1353,8 +1372,10 @@ gratuits.
   serveur refuse de démarrer, ou rend 404 sur `config.json` ; test en bac à
   sable, mis en échec par mutation.
 - **À noter (même audit) :** un lien physique NTFS sous `formulaire/` reste
-  invisible à tout contrôle de chemin ; quand C6-T5 calculera l'extension sur
-  le chemin décodé, revérifier que la page d'index d'un dossier reste fermée.
+  invisible à tout contrôle de chemin. *Soldé par C6-T5 :* l'extension est
+  calculée sur le chemin décodé et la page d'index reste fermée
+  (`list_directory` rend 404, critère A6) ; ne pas compter sur le 403 de
+  `/journal.log%2f.html`, la barrière est le confinement.
   Sous Windows, un fichier absent dans un dossier demandé avec une autre casse
   est journalisé `illisible` au lieu de passer à la 404 ordinaire (même
   réponse, ligne de `journal.log` seule différente ; revue de C6-T6) :

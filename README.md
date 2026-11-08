@@ -184,7 +184,11 @@ one is caught by the other. A symbolic link or an NTFS junction placed under
 (C6-T6). And the server refuses to start if `formulaire/` itself resolves to
 the installation folder or above it, or contains `dossier_pdf`: the reason
 goes to `technique.log` as a closed `DEMARRAGE_REFUSE` code, never a path
-(C6-T7).
+(C6-T7). The extension filter and the containment check read the same
+decoded path the server will open; no directory listing is ever produced; a
+request target that does not start with `/` answers 400, after
+authentication; a malformed path answers 403 or 404, never a closed
+connection (C6-T5).
 
 **File delivery** — sanitised filename (directory traversal neutralised,
 Unicode normalisation, truncation), `%PDF-` signature verified, 30 MB ceiling,
@@ -200,7 +204,8 @@ could not do. It discloses nothing beyond the open port, which already answers
 to the log.
 
 **Headers** — `X-Content-Type-Options: nosniff`, `Referrer-Policy:
-no-referrer`, `Cache-Control: no-store`, `X-Frame-Options: DENY`.
+no-referrer`, `Cache-Control: no-store`, `X-Frame-Options: DENY`. The `Server`
+header is a plain `bilan-posturo`, with no Python version.
 
 ### Known limitations
 
@@ -298,14 +303,15 @@ of those, kept alongside rather than in place of them.
 
 | Symptom | Likely cause |
 |---|---|
-| `ERR_EMPTY_RESPONSE` | TLS handshake failed, or an exception in a thread. Check `journal.log`, which records TLS rejections explicitly. |
+| `ERR_EMPTY_RESPONSE` | TLS handshake failed, or an exception in a thread (a malformed path no longer causes it). Check `journal.log`, which records TLS rejections explicitly. |
 | `ERR_SSL_PROTOCOL_ERROR` | An old process holds the port and answers in plain text. On Windows, `Get-NetTCPConnection -LocalPort 8000`. |
 | `ERR_CERT_AUTHORITY_INVALID` | `autorite.crt` missing from the trust store, or the browser was not restarted. |
 | `ERR_CERT_COMMON_NAME_INVALID` | The address being visited is not in the `subjectAltName`. Regenerate, declaring that address. |
 | Port unavailable at startup | An instance is already running. |
 
 `journal.log` records every request, every TLS negotiation failure and every
-exception traceback.
+exception traceback. Control characters sent by a client are escaped
+(`\x1b`), so reading the log in a console is safe.
 
 ---
 
