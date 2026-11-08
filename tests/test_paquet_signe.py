@@ -460,6 +460,16 @@ class LectureDuManifeste(Atelier):
             with self.subTest(cas=nom):
                 self.refuse("MANIFESTE_MALFORME", octets)
 
+    def test_le_bom_est_refuse_par_notre_garde_et_non_par_json(self):
+        # `json.loads` refuse déjà un BOM dans une chaîne ; on vérifie que c'est
+        # NOTRE garde, explicite, qui parle, pour qu'elle ne dépende pas d'un
+        # comportement de bibliothèque.
+        octets = b"\xef\xbb\xbf" + serialiser(self.manifeste_valide())
+        with self.assertRaises(PaquetRefuse) as c:
+            self.lire(octets)
+        self.assertEqual(c.exception.code, "MANIFESTE_MALFORME")
+        self.assertIn("marque d'ordre des octets", c.exception.detail)
+
     def test_type_et_format_inconnus(self):
         valide = self.manifeste_valide()
         for nom, valeur, code in (
