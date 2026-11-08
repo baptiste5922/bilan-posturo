@@ -759,6 +759,22 @@ class Chemins(Atelier):
         entrees.append((info, octets))
         self.refus("CHEMIN_DANGEREUX", self.fabriquer(declares=declares, entrees=entrees))
 
+    def test_lecture_de_extra_independante_de_zipfile(self):
+        # Directement sur les octets : sous 3.9, zipfile ne ferait rien du champ,
+        # et seul ce parcours le voit. Il doit trouver le champ après d'autres
+        # blocs, ne pas tourner sur un bloc vide, et s'arrêter sur un bloc tronqué.
+        horodatage = struct.pack("<HHBI", 0x5455, 5, 1, 0)
+        vide = struct.pack("<HH", 0x1234, 0)
+        champ = champ_nom_unicode("a", "b")
+        self.assertTrue(ps._porte_un_champ_de_nom(champ))
+        self.assertTrue(ps._porte_un_champ_de_nom(horodatage + champ))
+        self.assertTrue(ps._porte_un_champ_de_nom(vide + horodatage + vide + champ))
+        self.assertFalse(ps._porte_un_champ_de_nom(b""))
+        self.assertFalse(ps._porte_un_champ_de_nom(horodatage + vide))
+        self.assertFalse(ps._porte_un_champ_de_nom(horodatage + b"\x01\x02"))
+        # Bloc tronqué : la longueur annoncée dépasse ce qui reste.
+        self.assertFalse(ps._porte_un_champ_de_nom(struct.pack("<HH", 0x1234, 500) + b"x"))
+
     def test_un_autre_champ_supplementaire_ne_gene_pas(self):
         # Témoin : seul le champ de nom est refusé, pas tout champ supplémentaire.
         nom = DOSSIER_RACINE + "/LICENSE"
