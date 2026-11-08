@@ -143,7 +143,7 @@ class ConfinementServi(RacineServie):
         # le refus ne doit pas dépendre de lui.
         with unittest.mock.patch.object(serveur.os.path, "realpath",
                                         side_effect=lambda chemin: chemin):
-            self.assertEqual(self.juge("images", "x\x00.png"), "hors-racine")
+            self.assertEqual(self.juge("images", "x\x00.png"), "forme-invalide")
 
     def test_u11_aucune_exception_ne_sort(self):
         for erreur in (OSError("disque"), ValueError("lecteurs")):
@@ -398,39 +398,107 @@ class GardesStructurelles(unittest.TestCase):
                     noeud = pere
                 self.assertEqual(len(gardes), 1)
 
-    def test_g2_le_controle_porte_sur_le_chemin_traduit_et_vient_a_sa_place(self):
+    def test_g2_une_seule_forme_du_chemin_et_chaque_etape_a_sa_place(self):
+        # C6-T5 : le filtre d'extension et l'ouverture portent sur une seule
+        # chaîne, le chemin traduit que send_head ouvrira. Chaque ancrage est
+        # « trouvé exactement une fois » : une garde qui ne trouve rien ne
+        # garde rien.
         definition = fonction(arbre_serveur(), "autorise_lecture", "Gestionnaire")
+        corps = definition.body
 
-        def position(n):
-            return (n.lineno, n.col_offset)
+        def niveau(noeud):
+            """Indice, dans le corps, de l'instruction qui contient noeud."""
+            trouves = [i for i, instruction in enumerate(corps)
+                       if any(n is noeud for n in ast.walk(instruction))]
+            self.assertEqual(len(trouves), 1)
+            return trouves[0]
 
-        authentifie = [n for n in ast.walk(definition)
-                       if est_appel_de(n, "self", "authentifie")]
-        controles = [n for n in ast.walk(definition)
-                     if isinstance(n, ast.Call)
-                     and isinstance(n.func, ast.Name)
-                     and n.func.id == "confiner_fichier_servi"]
-        retours_vrai = [n for n in definition.body
+        def appels(predicat):
+            return [n for n in ast.walk(definition) if predicat(n)]
+
+        def appelle(nom):
+            return lambda n: (isinstance(n, ast.Call)
+                              and isinstance(n.func, ast.Name)
+                              and n.func.id == nom)
+
+        def appelle_attribut(attribut):
+            return lambda n: (isinstance(n, ast.Call)
+                              and isinstance(n.func, ast.Attribute)
+                              and n.func.attr == attribut)
+
+        # L'authentification : un seul appel, dans le test d'un « if » du
+        # premier niveau.
+        authentifie = appels(lambda n: est_appel_de(n, "self", "authentifie"))
+        self.assertEqual(len(authentifie), 1)
+        garde_auth = corps[niveau(authentifie[0])]
+        self.assertIsInstance(garde_auth, ast.If)
+        self.assertTrue(any(n is authentifie[0] for n in ast.walk(garde_auth.test)))
+
+        # Le 400 d'un chemin non absolu : un « if » du premier niveau dont le
+        # test cherche la barre initiale, et dont le corps répond 400.
+        erreurs_400 = appels(lambda n: est_appel_de(n, "self", "send_error")
+                             and n.args
+                             and isinstance(n.args[0], ast.Attribute)
+                             and n.args[0].attr == "BAD_REQUEST")
+        self.assertEqual(len(erreurs_400), 1)
+        garde_400 = corps[niveau(erreurs_400[0])]
+        self.assertIsInstance(garde_400, ast.If)
+        self.assertTrue(any(
+            appelle_attribut("startswith")(n) and n.args
+            and isinstance(n.args[0], ast.Constant) and n.args[0].value == "/"
+            for n in ast.walk(garde_400.test)))
+        self.assertIsInstance(garde_400.body[-1], ast.Return)
+
+        # La forme unique : « fichier » est affecté une fois, au premier
+        # niveau, depuis self.translate_path(<nom>).
+        affectations = [n for n in ast.walk(definition)
+                        if isinstance(n, ast.Assign)
+                        and any(isinstance(c, ast.Name) and c.id == "fichier"
+                                for c in n.targets)]
+        self.assertEqual(len(affectations), 1)
+        traduction = affectations[0]
+        self.assertIn(traduction, corps)
+        self.assertTrue(est_appel_de(traduction.value, "self", "translate_path"))
+        self.assertEqual(len(traduction.value.args), 1)
+        nom_traduit = traduction.value.args[0]
+        self.assertIsInstance(nom_traduit, ast.Name)
+        self.assertEqual(len(appels(appelle_attribut("translate_path"))), 1)
+
+        # Le filtre d'extension et le confinement lisent ce même « fichier ».
+        extensions = appels(appelle_attribut("splitext"))
+        controles = appels(appelle("confiner_fichier_servi"))
+        self.assertEqual(len(extensions), 1)
+        self.assertEqual(len(controles), 1)
+        for appel in extensions + controles:
+            self.assertTrue(appel.args)
+            self.assertIsInstance(appel.args[0], ast.Name)
+            self.assertEqual(appel.args[0].id, "fichier")
+            # Au premier niveau : une affectation, qu'aucune branche ne saute.
+            self.assertIsInstance(corps[niveau(appel)], ast.Assign)
+
+        # Le chemin affecté à self.path est celui qui a été traduit.
+        chemins = [n for n in ast.walk(definition)
+                   if isinstance(n, ast.Assign)
+                   and any(isinstance(c, ast.Attribute) and c.attr == "path"
+                           and isinstance(c.value, ast.Name) and c.value.id == "self"
+                           for c in n.targets)]
+        self.assertEqual(len(chemins), 1)
+        self.assertIn(chemins[0], corps)
+        self.assertIsInstance(chemins[0].value, ast.Name)
+        self.assertEqual(chemins[0].value.id, nom_traduit.id)
+
+        retours_vrai = [i for i, n in enumerate(corps)
                         if isinstance(n, ast.Return)
                         and isinstance(n.value, ast.Constant)
                         and n.value.value is True]
-        # Ancrages : chacun existe, une fois.
-        self.assertEqual(len(authentifie), 1)
-        self.assertEqual(len(controles), 1)
         self.assertEqual(len(retours_vrai), 1)
 
-        controle = controles[0]
-        self.assertTrue(controle.args)
-        argument = controle.args[0]
-        self.assertTrue(est_appel_de(argument, "self", "translate_path"),
-                        "le contrôle doit porter sur self.translate_path(...)")
-        self.assertLess(position(authentifie[0]), position(controle))
-        self.assertLess(position(controle), position(retours_vrai[0]))
-        # Le contrôle n'est pas dans une branche qui pourrait le sauter : son
-        # instruction est au premier niveau du corps.
-        self.assertTrue(any(controle in list(ast.walk(instruction))
-                            and not isinstance(instruction, (ast.If, ast.Try))
-                            for instruction in definition.body))
+        ordre = [niveau(authentifie[0]), niveau(erreurs_400[0]),
+                 niveau(traduction), niveau(extensions[0]),
+                 niveau(controles[0]), niveau(chemins[0]), retours_vrai[0]]
+        self.assertEqual(ordre, sorted(set(ordre)),
+                         "authentifie < 400 < translate_path < splitext < "
+                         "confiner_fichier_servi < self.path < return True")
 
     def test_g3_la_tolerance_de_casse_n_a_qu_un_appelant(self):
         arbre = arbre_serveur()
@@ -641,8 +709,8 @@ class LiensServis(unittest.TestCase):
 
     def test_i10_octet_nul_encode_rend_404_et_non_une_connexion_fermee(self):
         # Effet de bord assumé (R4) : /x%00.json fermait la connexion sans
-        # réponse. Le correctif de C6-T5 reste à faire pour le calcul de
-        # l'extension ; ici seul le symptôme change.
+        # réponse. C6-T5 a unifié le calcul de l'extension et de l'ouverture
+        # (tests/test_requetes_malformees.py) ; la 404 reste celle d'un absent.
         for chemin in ("/images/x%00.json", "/images/x%00.png", "/x%00.html"):
             with self.subTest(chemin=chemin):
                 self.assertEqual(self.demander(chemin)[0], 404)
