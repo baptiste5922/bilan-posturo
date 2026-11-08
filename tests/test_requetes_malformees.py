@@ -551,7 +551,11 @@ class RequetesMalformees(unittest.TestCase):
         # Ancrage : le refus de lecture a bien été journalisé.
         self.assertIn("lecture refusée motif=forme-invalide", ajoutees)
         self.assertIn("\\x1b[31m", ajoutees)
-        lignes = ajoutees.split("\n")     # pas splitlines : il coupe sur 0x1c
+        # Sous Windows le journal, ouvert en mode texte, termine ses lignes par
+        # \r\n : le terminateur du système n'est pas un caractère du client. Un
+        # \r venu du client resterait, lui, devant son propre terminateur.
+        # Pas splitlines : il coupe aussi sur 0x1c.
+        lignes = ajoutees.replace(os.linesep, "\n").split("\n")
         self.assertEqual(lignes[-1], "")
         for ligne in lignes[:-1]:
             for caractere in ligne:
@@ -566,7 +570,19 @@ class RequetesMalformees(unittest.TestCase):
         self.assertEqual(self.demander("/%ed%a0%80.html").statut, 404)
         self.assertEqual(self.demander("/x%00.json").statut, 404)
         ajoutees = ajoute(self.dossier, "journal.log", avant)
-        self.assertEqual(ajoutees.count("lecture refusée motif=forme-invalide"), 2)
+        # L'octet nul est toujours refusé. La demi-paire ne l'est que là où le
+        # système ne sait pas l'encoder : sous Windows (PEP 529) elle s'encode,
+        # et c'est la 404 d'un absent qui répond, sans motif au journal. Le
+        # nombre attendu suit le système, il n'est pas transcrit.
+        try:
+            os.fsencode("x\ud800.html")
+            attendu = 1
+        except UnicodeEncodeError:
+            attendu = 2
+        if os.name == "posix":
+            self.assertEqual(attendu, 2)     # ancrage
+        self.assertEqual(ajoutees.count("lecture refusée motif=forme-invalide"),
+                         attendu)
 
     def test_j3_technique_sans_chemin_ni_adresse_et_sante_muette(self):
         lignes = table_a4() + table_illisibles()
