@@ -703,7 +703,7 @@ class PaquetSigne(unittest.TestCase):
         chemin = os.path.join(self.cles, "essai-tronque-privee.pem")
         with mock.patch.object(OUTIL.os, "fdopen", lambda d, m: Casse(reel(d, m))):
             with self.assertRaises(OUTIL.Echec):
-                OUTIL._ecrire_exclusif(chemin, b"0123456789", 0o600)
+                OUTIL._ecrire_exclusif(chemin, b"contenu de cle a ecrire", 0o600)
         self.assertFalse(os.path.exists(chemin))
 
     def test_a15_client_inexistant_ou_mal_forme(self):

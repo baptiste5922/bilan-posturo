@@ -188,6 +188,52 @@ de la boucle `obligatoire` fait rougir
 `test_module_de_paquet_signe_absent_efface_l_archive` (`tests.test_paquet`,
 2 échecs) ; le fichier restauré, `tests.test_paquet` est vert (15 tests).
 
+## 6 ter. Correction de l'audit (Y1 à Y11)
+
+L'audit de sécurité a rendu CONFORME SOUS RÉSERVE (quatre constats). Chacun a été
+corrigé, puis mis en échec dans la copie jetable, avec témoin, par le même harnais.
+
+| # | Constat | Mutation | Tests rouges (deux premiers) | python3 | python3 -O | 3.9.6 -O, sans cryptography |
+|---|---|---|---|---|---|---|
+| Y1 | 1 (moyen) | première barrière, lecture de `extra`, retirée | `Chemins.test_barriere_champ_de_nom_supplementaire`<br>`Chemins.test_champ_de_nom_dans_une_vraie_archive_meme_verdict_sur_toute_version` | rouge | rouge | rouge (3 tests) |
+| Y2 | 1 | seconde barrière, `brut != filename`, retirée | `Chemins.test_barriere_nom_brut_different_du_nom_corrige` | rouge | rouge | rouge |
+| Y3 | 1 | les deux barrières retirées | 4 tests, dont l'archive réelle | rouge | rouge | rouge |
+| Y4 | 1 | seul le premier bloc de `extra` est lu | `Chemins.test_lecture_de_extra_independante_de_zipfile` | rouge | rouge | rouge |
+| Y5 | 2 | minimum de la phrase ramené à 12 | `PaquetSigne.test_a14_phrase_trop_courte_refusee_sans_rien_ecrire` | rouge | rouge | n/a (exige `cryptography`) |
+| Y6 | 3 | `_ecrire_exclusif` n'efface plus le fichier partiel | `test_ecriture_du_manifeste_interrompue_ne_laisse_rien`<br>`test_ecriture_de_la_signature_interrompue_ne_laisse_rien` (+ la clé tronquée) | rouge | rouge | n/a |
+| Y7 | 3 | la branche `except BaseException` de `signer` n'efface plus | `test_interruption_pendant_la_reverification_ne_laisse_rien`<br>`test_ecriture_de_la_signature_interrompue_ne_laisse_rien` | rouge | rouge | n/a |
+| Y8 | 4 | fichier et dossier de même nom : garde du manifeste retirée | `Chemins.test_fichier_et_dossier_de_meme_nom_dans_le_manifeste` | rouge | rouge | rouge |
+| Y9 | 4 | même garde, côté zip, retirée | `Chemins.test_fichier_et_dossier_de_meme_nom_dans_le_zip_seul` | rouge | rouge | rouge |
+| Y10 | 4 | casse non ignorée | 2 tests (manifeste, zip) | rouge | rouge | rouge |
+| Y11 | observation | contrôle « fichier ordinaire » (`S_ISREG`) retiré | `ContenuDeLArchive.test_un_peripherique_n_est_pas_une_archive` | rouge | rouge | rouge |
+
+**Régression :** les 55 mutations précédentes ont été rejouées avec les tests
+corrigés, en même temps que Y1 à Y11 : **66 sur 66 concluantes** sous `python3`.
+
+Points à retenir :
+
+- **Constat 1.** Le défaut était réel : retirer la comparaison nom brut / nom
+  corrigé laissait la suite verte, parce que les tests existants (nom à NUL,
+  antislash, `Entree` simulée) donnaient tous un nom brut **déjà refusé par la
+  liste blanche**. La comparaison n'est atteinte que par un nom brut propre dont
+  le nom corrigé ne l'est pas : c'est ce que fabrique désormais
+  `test_barriere_nom_brut_different_du_nom_corrige` (Y2). La première barrière
+  lit `extra`, donc ne dépend pas de `zipfile` : Y1 est rouge **sous 3.9.6**
+  (où `zipfile` ignore le champ et où la seule comparaison ne verrait rien) comme
+  sous 3.14. L'archive réelle du test (nom brut `…/LICENSE`, champ 0x7075 vers
+  `../../evil`, manifeste signé et sain) donne le même code **et le même détail**
+  sous 3.9 et sous 3.14.
+- **Constat 3.** Y6 et Y7 couvrent deux lignes distinctes : le fichier partiel
+  créé par l'écriture elle-même, et le manifeste déjà complet que la branche
+  `BaseException` doit effacer quand l'écriture de la signature, ou la
+  revérification, échoue. L'injection est faite en processus : `os.fdopen`
+  remplacé par un fichier qui écrit la moitié des octets puis lève `OSError`, et
+  la revérification remplacée par une levée de `KeyboardInterrupt`.
+- **Constat 4.** Le code `CHEMIN_EN_DOUBLE` est réutilisé : le même nom est pris
+  deux fois, comme fichier et comme dossier. Aucun code nouveau.
+- **Y5, Y6, Y7** exigent `cryptography` (outil de signature) : non jouées sous
+  3.9.6 du Mac, qui ne l'a pas ; elles le sont sous 3.14 en mode normal et `-O`.
+
 ## 7. Ce que ces mises en échec ne couvrent pas
 
 - Les **gardes qui dépendent du système** : `orig_filename` modifié par `zipfile`
