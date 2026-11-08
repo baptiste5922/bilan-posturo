@@ -179,6 +179,15 @@ est justifiée (le module importe bien `cryptography`) et que la garde voit un
 import tiers sous ses quatre formes (`import x`, `import a, x.y`, `from x import y`,
 import dans une fonction).
 
+## 6 bis. `faire-paquet.sh` : la boucle `obligatoire`
+
+Joué à la main dans la copie jetable, hors harnais (le fichier est du shell) :
+retirer les deux lignes `serveur/signature_ed25519.py` et `serveur/paquet_signe.py`
+de la boucle `obligatoire` fait rougir
+`test_module_de_signature_absent_efface_l_archive` et
+`test_module_de_paquet_signe_absent_efface_l_archive` (`tests.test_paquet`,
+2 échecs) ; le fichier restauré, `tests.test_paquet` est vert (15 tests).
+
 ## 7. Ce que ces mises en échec ne couvrent pas
 
 - Les **gardes qui dépendent du système** : `orig_filename` modifié par `zipfile`
