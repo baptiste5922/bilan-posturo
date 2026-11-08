@@ -49,6 +49,14 @@ nom suit le motif `publication-AAAA`, éventuellement suivi de `[a-z0-9-]`. Le
 module `cryptography` est requis pour cette commande
 (`python3 -m pip install cryptography`).
 
+**Limite à connaître.** Le chiffrement du fichier (PKCS8, AES-256 avec une clé dérivée
+par PBKDF2-HMAC-SHA256) n'utilise que **2 048 tours** : c'est le réglage de
+`BestAvailableEncryption`, et `cryptography` n'en offre pas d'autre pour ce format.
+Un fichier copié par un tiers se casse par essais exhaustifs bien plus vite qu'avec
+un chiffrement moderne. La phrase doit donc être **longue** (plusieurs mots, 20
+caractères et plus, au-delà du minimum de 12 que l'outil impose), et le fichier ne
+doit jamais quitter les deux supports hors ligne de la section 3.
+
 La **sortie standard** ne contient que l'objet JSON de la clé publique, à copier
 tel quel à la section 4 ; la clé privée et la phrase n'y apparaissent jamais.
 

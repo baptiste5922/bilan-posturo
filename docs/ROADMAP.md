@@ -1088,7 +1088,25 @@ avant toute nouvelle fonctionnalité. La fiabilité est la marge.
 
 ### C5-T1 — Format de paquet et signature Ed25519
 
-- **Effort :** M
+> **Implémentée le 8 novembre 2026** sur la branche `c5-t1-signature`
+> (`docs/contrats/C5-T1.md`, errata au §13) ; **audit de sécurité et revue à
+> faire, la tâche n'est pas livrée.** Vérification Ed25519 en Python pur
+> (`serveur/signature_ed25519.py`, vecteurs RFC 8032, croisement avec
+> `cryptography`, ~4 ms), format de manifeste et vérification d'un trio
+> (`serveur/paquet_signe.py`, 20 codes de refus, rien n'est extrait), outil de
+> l'éditeur (`outils/signer-paquet.py`) et fiche `docs/cle-publication.md`.
+> 656 tests Python (473 avant) ; 55 mises en échec, M1 à M20 comprises
+> (`docs/audits/C5-T1-mises-en-echec.md`) ; CI `42518704008` verte sur les 7 jobs.
+> Effort réel L (M estimé). **Reste à faire par Baptiste : générer la vraie clé
+> de publication** (la fiche) ; le dépôt ne porte aucune clé publique tant que
+> le geste n'est pas fait. Reportés : le chiffrement du fichier de clé n'a que
+> 2 048 tours PBKDF2 (réglage de `cryptography`, noté dans la fiche) ;
+> `port_libre()` de `tests/test_integration.py` est une course (échec isolé
+> « Address already in use » sur macOS, run `42514993341`) ; `cp -R` dans
+> `faire-paquet.sh` emporte les fichiers non suivis (signés fidèlement). Décision
+> D9 (paquet par client ou générique) à prendre avant C5-T3.
+
+- **Effort :** L (M estimé ; voir le contrat, §12)
 - **Process :** Complet — format signé : une erreur ici se corrige mal une fois diffusée.
 - **Dépendances :** C4-T4
 - **Périmètre :** `outils/faire-paquet.sh`, `outils/signer-paquet.py` (nouveau)
