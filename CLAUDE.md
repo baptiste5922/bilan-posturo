@@ -5,13 +5,13 @@ formulaire et annote les schémas au stylet, le PDF est fabriqué dans le
 navigateur et déposé sur le PC du cabinet. Utilisée quotidiennement depuis
 août 2026 par une pédicure-podologue à Morlaix, pour la totalité de ses bilans.
 
-**Dernière mise à jour :** 7 novembre 2026, par `/cloture-projet`
+**Dernière mise à jour :** 8 novembre 2026, par `/cloture-projet`
 **Version :** V1 en production au cabinet ; `main` porte la 1.1.0
 (`formulaire/version.json`), sous **BUSL 1.1** depuis le 14 octobre 2026
-**Jalon en cours :** V2 — 21 tâches livrées, C1-T5 et C9-T2 fusionnées en
+**Jalon en cours :** V2 — 22 tâches livrées, C1-T5 et C9-T2 fusionnées en
 attente de leur mesure ; rien de la V2 n'est au cabinet, qui tourne sur
 **`d43350a` (26 août)**, étiquette `production-cabinet-01`, fiche
-`docs/production/cabinet-01.md`. **`main` est poussé** (`1b771bd`), CI verte.
+`docs/production/cabinet-01.md`. **`main` est poussé** (`af8b8c3`), CI verte.
 **Premier prospect hors pilote :** un formateur en posturologie (fiche hors dépôt).
 
 ## Architecture en bref
@@ -29,7 +29,7 @@ attente de leur mesure ; rien de la V2 n'est au cabinet, qui tourne sur
 
 | Composant | Rôle |
 |---|---|
-| `serveur/serveur.py` (~2 250 l.) | HTTPS, dépôt, authentification, `/sante`, `/cabinet`, `/etat`, deux journaux purgés à six mois |
+| `serveur/serveur.py` (~2 330 l.) | HTTPS, dépôt, authentification, `/sante`, `/cabinet`, `/etat`, deux journaux purgés à six mois |
 | `serveur/generer_autorite.py` | Autorité de certification locale + certificat serveur |
 | `formulaire/script.js` | PDF, stylet, brouillon, dépôt, file d'attente, tokens de couleur |
 | `formulaire/index.html` | Coquille de 118 l. que le moteur remplit ; V1 gelée dans `index-v1.html` |
@@ -42,7 +42,7 @@ attente de leur mesure ; rien de la V2 n'est au cabinet, qui tourne sur
 | `outils/faire-paquet.sh <client>` | Paquet d'un client, argument obligatoire ; le serveur ne voit jamais `clients/` |
 | `blocs/`, `templates/`, `outils/composer-schema.js` | Neuf fragments du pilote, recettes de départ, composition validée par le moteur (atelier, hors paquet) |
 | `outils/atelier/` | Fabrication d'un client hors de tout dépôt Git ; règles lues dans `serveur.py` et `script.js`, jamais recopiées ; `identite-cabinet.json` et `apercu-atelier.html` ignorés par Git |
-| `tests/` | 448 tests Python + 16 suites Node |
+| `tests/` | 473 tests Python + 16 suites Node |
 
 Le PDF est produit **côté navigateur** : le serveur ne reçoit qu'un fichier déjà
 assemblé, et n'a aucune dépendance Python.
@@ -75,7 +75,7 @@ hors paquet, validé au démarrage (C2-T2, `docs/configuration.md` §7).
   ou `dossier_pdf` (C6-T7, événement `DEMARRAGE_REFUSE`).
 - **`/sante` est la seule route non authentifiée** (garde dérivée de l'AST
   depuis C4-T3). Elle ne divulgue que l'existence du port, muette dans les
-  **deux** journaux. **`/etat` ne montre aucune adresse ni nom de fichier** :
+  **deux** journaux ; l'en-tête `Server` ne porte aucune version (C6-T5). **`/etat` ne montre aucune adresse ni nom de fichier** :
   la page circule en capture, comme `technique.log`.
 - **Code, commentaires et messages en français**, accents compris.
 - **Un seul utilisateur en production** : toute modification du formulaire peut
@@ -95,7 +95,7 @@ une image et non une donnée.
 | C3 | Adressage, certificat et installateur | T1, **T3a livrés** (T3a : VM Windows à faire) ; T2, T3, T4 |
 | C4 | Observabilité et support | T1, T2, **T3 (`/etat`)**, T4 **livrés** ; T5 **sortie de la V2** ; T6 |
 | C5 | Mises à jour signées | à faire (tirées par le PC, signées : décidé) |
-| C6 | Durcissement de sécurité | **T4, T6 (liens), T7 (racine web) livrés** ; T1, T2, T3, T5 |
+| C6 | Durcissement de sécurité | **T4, T5 (requêtes malformées), T6 (liens), T7 (racine web) livrés** ; T1, T2, T3 |
 | C7 | Filet de tests | **T1, T5 livrés** ; T2, T3, T4 |
 | C8 | Mécanisme de licence d'abonnement | à faire (grâce de 30 j puis export bloqué : décidé) |
 | C9 | Atelier de fabrication d'un client | **T1 livré** ; **T2 fusionnée**, mesures M-A et M-B à faire ; T3 décidé (révision annuelle) |
@@ -149,8 +149,8 @@ une semaine de bilans réels. Il faut l'appareil, **pas avant janvier 2027**.
 D'ici là rien ne part au cabinet ; un correctif d'urgence part de
 `maintenance-cabinet-01`, jamais de `main`.
 
-**Tests :** 448 Python (7 sautés sur le Mac) et 16 suites Node, tous verts
-au 7 novembre 2026, aussi sous `python3 -O`, et en CI sur Linux, Windows et
+**Tests :** 473 Python (7 sautés sur le Mac) et 16 suites Node, tous verts
+au 8 novembre 2026, aussi sous `python3 -O`, et en CI sur Linux, Windows et
 macOS, Python 3.9 et 3.13, sur les branches de tâche comme sur `main`.
 `npm test` dépasse le délai de 2 min d'une commande : le lancer en arrière-plan.
 
@@ -167,10 +167,13 @@ client**, à sa largeur : au-delà de 1 192 px, l'export est refusé ; sous
 propre, fiche `docs/essais/C3-T3a-windows.md`. Et annoncer à la praticienne
 pilote que l'historique de `journal.log` partira en bloc vers février 2027.
 À la visite, lancer une fois `demarrer-serveur.bat` et lire la sortie : un
-`dossier_pdf` sous `formulaire` ferait désormais refuser le démarrage.
+`dossier_pdf` sous `formulaire` ferait désormais refuser le démarrage. Et
+rejouer A5 de C6-T5 sur la liste réelle des fichiers de son formulaire.
 
 ## Dernières sessions
 
+- [2026-11-08 — Plus de silence sur une requête malformée, et un en-tête `Server` muet](docs/resumes/2026-11-08-requetes-malformees.md) :
+  C6-T5 livrée ; audit CONFORME au premier passage.
 - [2026-11-07 (2) — Un serveur qui refuse de démarrer sur une racine web dangereuse](docs/resumes/2026-11-07-racine-web-refusee.md) :
   C6-T7 livrée ; audit CONFORME au réaudit.
 - [2026-11-07 — L'atelier de composition, et un serveur qui ne suit plus les liens](docs/resumes/2026-11-07-atelier-et-liens-servis.md) :
@@ -179,8 +182,6 @@ pilote que l'historique de `journal.log` partira en bloc vers février 2027.
   C1-T4a et C1-T5 fusionnées ; C2-T2 livrée ; C6-T6 ouverte.
 - [2026-11-06 (2) — La production archivée, et le schéma du cabinet mesuré contre elle](docs/resumes/2026-11-06-production-archivee-et-schema-cabinet.md) :
   production nommée (`d43350a`) ; C1-T4 scindée ; C1-T4a livrée.
-- [2026-11-06 — `main` publié, et une page d'état qui peut circuler](docs/resumes/2026-11-06-page-etat.md) :
-  C1-T6 et C1-T6b fusionnées et poussées ; C4-T3 livrée (voie A, neuf clés).
 
 ## Comment on travaille ici
 
@@ -200,8 +201,6 @@ monte en cours de route, jamais ne se descend.
 sous 300 lignes. Il oriente ; il ne recopie pas `docs/ROADMAP.md`.
 
 ## Pièges connus
-
-Ils ont déjà coûté du temps ; ils le recoûteront.
 
 - **Un garde-fou non mis en échec ne garde rien.** Le piège le plus coûteux du
   dépôt, quatre fois sur la seule C4-T1 : test qui ne mordait pas, détection non
@@ -266,7 +265,8 @@ Ils ont déjà coûté du temps ; ils le recoûteront.
 - **Simuler Windows dans un test** : `lstat` aussi doit ignorer la casse, et
   `realpath` être isolé du faux `lstat` sous 3.9 (vu en CI seulement). Sous
   macOS, `os.getcwd()` rend le chemin résolu : un bac à sable ne passe jamais
-  par `/var`. Deux tests de jonction échouent sous le Python 3.9.6 de macOS.
+  par `/var`. Le 3.9.6 de macOS (deux jonctions en échec, sans `cryptography`)
+  reproduit seul le silence de C6-T5 ; sous Windows, `fsencode` accepte une demi-paire.
 - **Chemins comparés** : en CI Windows, le dossier temporaire passe par un nom
   court 8.3 (`RUNNER~1`) — partir de `realpath(tmp)`, ne pas sauter le test ;
   sous macOS, un chemin a deux écritures Unicode — comparer en NFC (C6-T7).
