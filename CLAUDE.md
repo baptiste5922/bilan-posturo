@@ -5,13 +5,13 @@ formulaire et annote les schémas au stylet, le PDF est fabriqué dans le
 navigateur et déposé sur le PC du cabinet. Utilisée quotidiennement depuis
 août 2026 par une pédicure-podologue à Morlaix, pour la totalité de ses bilans.
 
-**Dernière mise à jour :** 8 novembre 2026, par `/cloture-projet`
+**Dernière mise à jour :** 9 novembre 2026, par `/cloture-projet`
 **Version :** V1 en production au cabinet ; `main` porte la 1.1.0
 (`formulaire/version.json`), sous **BUSL 1.1** depuis le 14 octobre 2026
-**Jalon en cours :** V2 — 22 tâches livrées, C1-T5 et C9-T2 fusionnées en
+**Jalon en cours :** V2 — 23 tâches livrées, C1-T5 et C9-T2 fusionnées en
 attente de leur mesure ; rien de la V2 n'est au cabinet, qui tourne sur
 **`d43350a` (26 août)**, étiquette `production-cabinet-01`, fiche
-`docs/production/cabinet-01.md`. **`main` est poussé** (`af8b8c3`), CI verte.
+`docs/production/cabinet-01.md`. **`main` est poussé** (`f33cb2b`), CI verte.
 **Premier prospect hors pilote :** un formateur en posturologie (fiche hors dépôt).
 
 ## Architecture en bref
@@ -40,9 +40,10 @@ attente de leur mesure ; rien de la V2 n'est au cabinet, qui tourne sur
 | `installer-demarrage.ps1` | Tâche planifiée SYSTEM + pare-feu ; `-Verifier` contrôle sans rien modifier |
 | `clients/cabinet-01/schema.json` | Schéma du client, **fait foi** ; `formulaire/schema.json` en est le miroir gardé à l'octet |
 | `outils/faire-paquet.sh <client>` | Paquet d'un client, argument obligatoire ; le serveur ne voit jamais `clients/` |
+| `serveur/paquet_signe.py`, `signature_ed25519.py`, `outils/signer-paquet.py` | Paquet signé (C5-T1) : vérification Ed25519 en Python pur au cabinet, signature par `cryptography` chez l'éditeur ; fiche `docs/cle-publication.md` |
 | `blocs/`, `templates/`, `outils/composer-schema.js` | Neuf fragments du pilote, recettes de départ, composition validée par le moteur (atelier, hors paquet) |
 | `outils/atelier/` | Fabrication d'un client hors de tout dépôt Git ; règles lues dans `serveur.py` et `script.js`, jamais recopiées ; `identite-cabinet.json` et `apercu-atelier.html` ignorés par Git |
-| `tests/` | 473 tests Python + 16 suites Node |
+| `tests/` | 671 tests Python + 16 suites Node |
 
 Le PDF est produit **côté navigateur** : le serveur ne reçoit qu'un fichier déjà
 assemblé, et n'a aucune dépendance Python.
@@ -94,7 +95,7 @@ une image et non une donnée.
 | C2 | Identité du cabinet en configuration | T1, **T2 (logo) livrés** |
 | C3 | Adressage, certificat et installateur | T1, **T3a livrés** (T3a : VM Windows à faire) ; T2, T3, T4 |
 | C4 | Observabilité et support | T1, T2, **T3 (`/etat`)**, T4 **livrés** ; T5 **sortie de la V2** ; T6 |
-| C5 | Mises à jour signées | à faire (tirées par le PC, signées : décidé) |
+| C5 | Mises à jour signées | **T1 livré** (clé réelle à générer par Baptiste ; D9 avant T3) ; T2, T3 |
 | C6 | Durcissement de sécurité | **T4, T5 (requêtes malformées), T6 (liens), T7 (racine web) livrés** ; T1, T2, T3 |
 | C7 | Filet de tests | **T1, T5 livrés** ; T2, T3, T4 |
 | C8 | Mécanisme de licence d'abonnement | à faire (grâce de 30 j puis export bloqué : décidé) |
@@ -122,41 +123,36 @@ clés reprises à l'identique des `id` du formulaire, version en première clé.
 
 **Adressage**, tranché par C3-T1 le 19 octobre : **IP privée fixe + autorité
 locale**, l'existant, conservé délibérément (0 €/cabinet/an, aucun geste du
-praticien). « Sous-domaine public + Let's Encrypt » est écarté : panne
-intermittente chez Free (IPv4 refuse, IPv6 accepte), dépendance à Internet,
-liste des cabinets publiée dans *Certificate Transparency*, certificats à
-47 jours en 2029. Réserve documentée, avec protocole d'essai : `docs/adressage.md`.
+praticien). « Sous-domaine public + Let's Encrypt » est écarté (panne chez
+Free, dépendance à Internet, cabinets publiés dans *Certificate Transparency*) :
+`docs/adressage.md`.
 
 ## L'état réel du moteur, et le geste qui manque
 
 `formulaire/index.html` est une coquille que le moteur remplit depuis
-`formulaire/schema.json`. La V1 est conservée octet pour octet dans
-`formulaire/index-v1.html`, servie : c'est le **retour arrière de niveau 1**, le
-favori « Formulaire — secours V1 », et le témoin qui garde les clés de brouillon
-dans les tests.
-
-Le 19 octobre, moteur et fiche de secours ont été comparés au pixel dans Chrome
-piloté, repli éprouvé contre un vrai serveur (`CONSTAT-2026-10-19.md`, outillage
-`outils/reference-visuelle/`).
-
-**Mais la fiche de secours n'est pas la production** : le cabinet tourne sur
-`d43350a`. C1-T4a a mesuré le moteur contre elle (brouillon repris sans perte,
-pages identiques une fois restaurées) et listé ce que la praticienne verra
-changer : `docs/references-visuelles/CONSTAT-2026-11-06-C1-T4a.md`.
+`formulaire/schema.json`. La V1, conservée octet pour octet dans
+`formulaire/index-v1.html` et servie, est le **retour arrière de niveau 1** (favori
+« Formulaire — secours V1 ») et le témoin des clés de brouillon dans les tests.
+**Mais elle n'est pas la production** (`d43350a`) : C1-T4a a mesuré le moteur
+contre celle-ci et listé ce que la praticienne verra changer
+(`docs/references-visuelles/CONSTAT-2026-11-06-C1-T4a.md`).
 
 **Livrer au cabinet, c'est C1-T4b** : poser le favori de secours, l'ouvrir, puis
 une semaine de bilans réels. Il faut l'appareil, **pas avant janvier 2027**.
 D'ici là rien ne part au cabinet ; un correctif d'urgence part de
 `maintenance-cabinet-01`, jamais de `main`.
 
-**Tests :** 473 Python (7 sautés sur le Mac) et 16 suites Node, tous verts
-au 8 novembre 2026, aussi sous `python3 -O`, et en CI sur Linux, Windows et
+**Tests :** 671 Python (7 sautés sur le Mac) et 16 suites Node, tous verts
+au 9 novembre 2026, aussi sous `python3 -O`, et en CI sur Linux, Windows et
 macOS, Python 3.9 et 3.13, sur les branches de tâche comme sur `main`.
 `npm test` dépasse le délai de 2 min d'une commande : le lancer en arrière-plan.
 
 **Deux mesures de Baptiste attendent** : C1-T5 (`docs/essais/C1-T5-client-fictif.md`)
 et C9-T2 (`docs/essais/C9-T2-fabrication.md`). Avant le premier client hors
 pilote, trancher D-O1 (où vit son schéma) et D-O2 (sa palette), bloc C9-T2.
+**Et un geste** : générer et sauvegarder la clé de publication
+(`docs/cle-publication.md`) ; trancher D9 (paquet par client ou générique)
+avant C5-T3. Le contrat de C5-T2 reprend les reports du bloc C5-T1.
 
 **Une grille n'entre dans un schéma client** qu'aux trois conditions de
 `docs/schema-formulaire.md`, dont un export d'essai **sur la tablette du
@@ -172,6 +168,8 @@ rejouer A5 de C6-T5 sur la liste réelle des fichiers de son formulaire.
 
 ## Dernières sessions
 
+- [2026-11-09 — Un paquet de mise à jour que le cabinet sait authentifier](docs/resumes/2026-11-09-paquet-signe.md) :
+  C5-T1 livrée ; audit CONFORME au réaudit.
 - [2026-11-08 — Plus de silence sur une requête malformée, et un en-tête `Server` muet](docs/resumes/2026-11-08-requetes-malformees.md) :
   C6-T5 livrée ; audit CONFORME au premier passage.
 - [2026-11-07 (2) — Un serveur qui refuse de démarrer sur une racine web dangereuse](docs/resumes/2026-11-07-racine-web-refusee.md) :
@@ -180,8 +178,6 @@ rejouer A5 de C6-T5 sur la liste réelle des fichiers de son formulaire.
   C9-T2 fusionnée (mesure à faire) ; C6-T6 livrée ; C6-T7 ouverte.
 - [2026-11-06 (3) — Une bibliothèque de blocs, et le logo du client](docs/resumes/2026-11-06-blocs-templates-et-logo.md) :
   C1-T4a et C1-T5 fusionnées ; C2-T2 livrée ; C6-T6 ouverte.
-- [2026-11-06 (2) — La production archivée, et le schéma du cabinet mesuré contre elle](docs/resumes/2026-11-06-production-archivee-et-schema-cabinet.md) :
-  production nommée (`d43350a`) ; C1-T4 scindée ; C1-T4a livrée.
 
 ## Comment on travaille ici
 
@@ -270,6 +266,10 @@ sous 300 lignes. Il oriente ; il ne recopie pas `docs/ROADMAP.md`.
 - **Chemins comparés** : en CI Windows, le dossier temporaire passe par un nom
   court 8.3 (`RUNNER~1`) — partir de `realpath(tmp)`, ne pas sauter le test ;
   sous macOS, un chemin a deux écritures Unicode — comparer en NFC (C6-T7).
+- **Paquet signé** — `zipfile` réécrit `\` en `/` sous Windows : juger
+  `orig_filename`, écrire un antislash de test dans les octets du zip. Le champ
+  0x7075 renomme une entrée sous 3.12+, pas sous 3.9. Une garde du zip ne
+  s'éprouve que derrière un manifeste **re-signé** (D8 de C5-T1).
 - **Un lecteur de journal cherche un jeton exact**, jamais une sous-chaîne :
   `DEMARRAGE` est un préfixe de `DEMARRAGE_REFUSE` (`verdict_certificat`).
 - **`python3 -O` lancé par `(… &)` d'un shell non interactif ignore SIGINT** :
