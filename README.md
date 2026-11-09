@@ -236,6 +236,7 @@ technique.log*       installation fingerprint, no IP and no patient name — sti
 bilans/              health data
 Bilan_entrants/
 BilanPosturo-*.zip   distribution archives
+BilanPosturo-*.zip.manifeste.json  .manifeste.sig   signed manifest of an archive (names the client)
 formulaire/images/cabinet/   the client's own logo, placed on the practice PC only
 identite-cabinet.json  apercu-atelier.html   workshop files of a client, kept outside the repository
 node_modules/        build-time only; formulaire/lib/ is committed
@@ -269,12 +270,16 @@ bilan-posturo/
 │                           `node outils/composer-schema.js templates/<name>.json`
 ├── serveur/
 │   ├── serveur.py          HTTPS server and delivery endpoint
-│   └── generer_autorite.py certificate authority + server certificate
+│   ├── generer_autorite.py certificate authority + server certificate
+│   ├── signature_ed25519.py  Ed25519 verification, pure Python (C5-T1)
+│   └── paquet_signe.py     checks a signed update package; extracts nothing
 ├── docs/                   practitioner guides, French and English
 ├── outils/
 │   ├── faire-paquet.sh     builds the archive to install at the practice:
 │   │                       `sh outils/faire-paquet.sh cabinet-01` (client is required)
 │   ├── partager-paquet.sh  serves that archive over the local network
+│   ├── signer-paquet.py    publisher tool: key, signature, check of a package
+│   │                       (`docs/cle-publication.md`, French)
 │   ├── composer-schema.js  workshop tool: composes and checks a client schema
 │   └── atelier/            workshop tool: builds a whole client (schema, identity, logo,
 │                           preview) in a folder outside any Git repository

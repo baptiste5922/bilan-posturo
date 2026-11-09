@@ -36,7 +36,9 @@ pas à distance (section 8). C'est pourquoi elle :
 
 Sur le poste de l'éditeur, dans un dossier **hors du dépôt** (l'outil refuse
 tout dossier sous la racine du dépôt, liens compris, et ne remplace jamais une
-clé existante) :
+clé existante). **Pas non plus sous `~/Documents` ni `~/Desktop`** quand iCloud
+Drive les synchronise : le fichier partirait dans un nuage, ce que la section 3
+interdit. `~/cles-editeur` n'est pas synchronisé :
 
 ```bash
 mkdir -p ~/cles-editeur
@@ -104,13 +106,18 @@ paquet entrant.
 
 ## 5. Signer un paquet
 
-1. Fabriquer le paquet, comme aujourd'hui :
+1. **Monter la version d'abord.** Un PC n'accepte qu'une version strictement
+   supérieure à la sienne : un paquet qui porte encore la version installée est
+   refusé. Changer `formulaire/version.json` (par exemple `1.1.0` → `1.2.0`),
+   faire passer les tests, commiter.
+
+2. Fabriquer le paquet, comme aujourd'hui :
 
    ```bash
    sh outils/faire-paquet.sh cabinet-01
    ```
 
-2. Le signer. La version minimale est la plus ancienne version installée qui a le
+3. Le signer. La version minimale est la plus ancienne version installée qui a le
    droit d'y monter ; elle doit être **strictement inférieure** à la version du
    paquet :
 
@@ -124,17 +131,17 @@ paquet entrant.
    Il pose à côté de l'archive `….zip.manifeste.json` et `….zip.manifeste.sig`,
    puis **revérifie** le trio avec le code qui tournera au cabinet.
 
-3. **Relire la liste des fichiers signés** que l'outil imprime. Tout fichier que
+4. **Relire la liste des fichiers signés** que l'outil imprime. Tout fichier que
    `cp -R` a emporté sans être suivi par Git est signé fidèlement et part chez
    tous les clients : un fichier inattendu dans cette liste est un arrêt.
 
-4. Contrôler comme le fera le cabinet :
+5. Contrôler comme le fera le cabinet, ici depuis la 1.1.0 :
 
    ```bash
    python3 outils/signer-paquet.py verifier --cles serveur/cles_publication.json --version-installee 1.1.0 --client cabinet-01 BilanPosturo-2026-11-08.zip
    ```
 
-   Sortie attendue : `PAQUET ACCEPTÉ <version>`. Sinon : `PAQUET REFUSÉ <code>`.
+   Sortie attendue : `PAQUET ACCEPTÉ 1.2.0`. Sinon : `PAQUET REFUSÉ <code>`.
 
 Le paquet de `cabinet-02` n'est pas celui de `cabinet-01` : le manifeste nomme le
 client, et un PC refuse le paquet d'un autre.

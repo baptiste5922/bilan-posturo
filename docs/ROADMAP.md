@@ -1088,23 +1088,39 @@ avant toute nouvelle fonctionnalité. La fiabilité est la marge.
 
 ### C5-T1 — Format de paquet et signature Ed25519
 
-> **Implémentée le 8 novembre 2026** sur la branche `c5-t1-signature`
-> (`docs/contrats/C5-T1.md`, errata au §13) ; **audit de sécurité et revue à
-> faire, la tâche n'est pas livrée.** Vérification Ed25519 en Python pur
+> **État : livrée le 9 novembre 2026** (`docs/contrats/C5-T1.md`, errata au
+> §13 ; audit `docs/audits/C5-T1.md` CONFORME au réaudit ; revue
+> `docs/revues/C5-T1.md` À LIVRER). Vérification Ed25519 en Python pur
 > (`serveur/signature_ed25519.py`, vecteurs RFC 8032, croisement avec
-> `cryptography`, ~4 ms), format de manifeste et vérification d'un trio
+> `cryptography`, ~4 ms sous 3.9), format de manifeste et vérification d'un trio
 > (`serveur/paquet_signe.py`, 20 codes de refus, rien n'est extrait), outil de
 > l'éditeur (`outils/signer-paquet.py`) et fiche `docs/cle-publication.md`.
-> 656 tests Python (473 avant) ; 55 mises en échec, M1 à M20 comprises
-> (`docs/audits/C5-T1-mises-en-echec.md`) ; CI `42518704008` verte sur les 7 jobs.
-> Effort réel L (M estimé). **Reste à faire par Baptiste : générer la vraie clé
-> de publication** (la fiche) ; le dépôt ne porte aucune clé publique tant que
-> le geste n'est pas fait. Reportés : le chiffrement du fichier de clé n'a que
-> 2 048 tours PBKDF2 (réglage de `cryptography`, noté dans la fiche) ;
-> `port_libre()` de `tests/test_integration.py` est une course (échec isolé
-> « Address already in use » sur macOS, run `42514993341`) ; `cp -R` dans
-> `faire-paquet.sh` emporte les fichiers non suivis (signés fidèlement). Décision
-> D9 (paquet par client ou générique) à prendre avant C5-T3.
+> 671 tests Python (473 avant) ; 66 mises en échec, M1 à M20 et Y1 à Y11
+> comprises (`docs/audits/C5-T1-mises-en-echec.md`) ; CI `42523857725` verte
+> sur les 7 jobs. Effort réel L (M estimé).
+>
+> **Reste à faire par Baptiste : générer et sauvegarder la vraie clé de
+> publication** (la fiche) ; le dépôt ne porte aucune clé publique tant que le
+> geste n'est pas fait, et `signer` refuse sans elle. **Décision D9** (paquet
+> par client ou générique) à prendre avant C5-T3 : des paquets par client
+> publiés sur un dépôt public exposeraient la liste des clients.
+>
+> **Reportés.** Le chiffrement du fichier de clé n'a que 2 048 tours PBKDF2
+> (réglage de `cryptography`) : parade retenue, une phrase d'au moins
+> 20 caractères. `port_libre()` de `tests/test_integration.py` est une course
+> (échec isolé « Address already in use » sur macOS, run `42514993341`), à
+> verser dans la tâche C7 de l'outillage de test. `cp -R` dans
+> `faire-paquet.sh` emporte les fichiers non suivis, que le manifeste signe
+> fidèlement : l'outil imprime la liste signée, la fiche demande de la relire.
+> Mineurs de la revue laissés en l'état (surface publique de `paquet_signe`
+> non écrite, duplications de l'outil) : voir la revue.
+>
+> **À reporter dans le contrat de C5-T2** (audit) : passer à `verifier_paquet`
+> les clés **installées**, jamais celles du paquet ; extraire avec le même
+> `zipfile`, d'après les noms du répertoire central, depuis une copie du paquet
+> dans un dossier réservé à SYSTEM, et rehacher chaque fichier écrit ;
+> réutiliser `valider_chemin` ; extraction tout ou rien et limite `MAX_PATH` ;
+> n'écrire que `erreur.code` dans `technique.log`, jamais le détail.
 
 - **Effort :** L (M estimé ; voir le contrat, §12)
 - **Process :** Complet — format signé : une erreur ici se corrige mal une fois diffusée.
