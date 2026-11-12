@@ -33,8 +33,11 @@ même matin, c'est deux causes possibles pour une seule panne.
 
 Le dossier `mise-a-jour\` (à côté de `config.json`) est créé et protégé par le
 client lui-même au premier appel : seuls SYSTEM et les administrateurs y ont des
-droits. S'il existe déjà avec d'autres droits, ils sont resserrés ; si un lien ou
-une jonction l'occupe, c'est un refus (`DOSSIER_NON_PROTEGE`).
+droits. Leur propriétaire devient le groupe Administrateurs, et toute autre
+entrée de droits est retirée puis **relue** ; si un lien ou une jonction occupe le
+nom, ou si les droits relus ne sont pas exactement ceux-là, c'est un refus
+(`DOSSIER_NON_PROTEGE`, dont le détail dans `journal.log` cite le début de ce qui
+a été lu).
 
 ## 2. Appliquer un paquet
 
