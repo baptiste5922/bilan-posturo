@@ -1425,6 +1425,34 @@ gratuits.
   réponse, ligne de `journal.log` seule différente ; revue de C6-T6) :
   traiter `FileNotFoundError` dans la boucle `lstat` comme un absent.
 
+### C6-T8 — La négociation TLS a un délai
+
+> **Ouverte le 12 novembre 2026**, par le réaudit de C5-T2a (observation 4,
+> gravité élevée, **antérieure** : présente en production sur `d43350a`).
+> La socket d'écoute est chiffrée (`wrap_socket(..., server_side=True)`) : la
+> négociation a lieu dans `accept()`, sur le fil principal, sans délai. Une
+> seule connexion TCP ouverte et muette depuis le réseau local, sans
+> identifiant, fige tout le serveur : plus aucun dépôt, `/sante` muette. Le
+> délai d'inactivité de 120 s posé par C5-T2a (`Gestionnaire.timeout`) ne
+> s'applique qu'après. Aucun bilan perdu (la tablette garde sa file), mais le
+> cabinet ne dépose plus jusqu'à la fermeture de la connexion.
+
+- **Effort :** S
+- **Process :** Allégé + audit — surface exposée, chemin de chaque dépôt.
+- **Dépendances :** aucune. **À livrer avant la visite de C1-T4b**, pour
+  partir au cabinet avec elle (aucun accès distant d'ici là).
+- **Périmètre :** `serveur/serveur.py`, `get_request()` et ouverture de la
+  socket d'écoute.
+- **Travail :** sortir la négociation du fil principal (accepter en clair,
+  puis `wrap_socket` avec délai dans le fil de la requête), ou borner
+  `accept()` par un délai sur la socket acceptée ; garder ALPN, la
+  journalisation `TLS_REFUSE` sans adresse et le refus de tout repli en clair.
+- **Critères d'acceptation :** en bac à sable, une connexion TCP ouverte et
+  muette n'empêche pas un dépôt concurrent d'aboutir, ni `/sante` de répondre ;
+  la connexion muette est fermée au plus tard au délai fixé ; Chrome négocie
+  toujours (ALPN) ; test mis en échec par mutation, joué sous `-O` et en CI
+  Windows.
+
 ---
 
 ## C7 — Filet de tests

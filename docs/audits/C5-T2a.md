@@ -8,7 +8,7 @@ contexte : `confiner_sous_racine`, `forme_comparable`, `ecrire_atomiquement`,
 `journaliser*`, `faire_tourner_journal`, `do_POST`, `demarrer()`,
 `installer-demarrage.ps1`, `formulaire/script.js` (sondes de la tablette).
 Contrat `docs/contrats/C5-T2.md`, §10 et errata §13.
-**Verdict :** CONFORME SOUS RÉSERVE
+**Verdict :** CONFORME SOUS RÉSERVE (premier passage, `30ffd4d`) — **CONFORME au réaudit** (`1419493`, section « Réaudit » en fin de document)
 
 **Réserve.** Le constat de gravité Moyenne (serveur arrêté et jamais relancé
 quand le client abandonne après l'acceptation de l'arrêt) est à corriger
@@ -394,3 +394,229 @@ fermera.
   observer `PermissionError` sur `arret.reponse` / `etat.json`.
 - Rendre publics, ou tester comme contrat, `_lire_json_strict` et `_VERSION`,
   désormais lus par le serveur.
+
+---
+
+# Réaudit
+
+**Date :** 2026-11-12  **Périmètre :** `git diff 7b5ad54..1419493` : `serveur/maj.py`,
+`serveur/serveur.py`, `serveur/paquet_signe.py`, tests, errata 12 à 18 du contrat.
+Le reste de `serveur.py` a été relu pour les régressions : `get_request`,
+`handle_one_request`, `log_message`, `do_POST`.
+**Verdict :** CONFORME
+
+## Ce qui a été rejoué
+
+- **Témoin** sur une copie `git ls-files -z` de `1419493` sans `origin` :
+  `test_maj`, `test_maj_bout_en_bout`, `test_maj_windows`, `test_serveur` et
+  `test_integration` passent (387 tests, Python 3.14 avec `cryptography`, 12
+  sautés). `test_maj` et `test_serveur` passent aussi sous `/usr/bin/python3 -O`
+  (3.9.6). Aucun `assert` nu ni dans `maj.py` ni dans `serveur.py`.
+- **CI `43263305981`** relue : tête `1419493`, succès. Sous `windows-latest`, ces
+  tests sont **exécutés** (`... ok`) :
+  `test_vraie_jonction_a_la_place_du_dossier_reserve` (une vraie jonction faite
+  par `mklink /J`), `test_proprietaire_de_la_racine_jetable_se_lit` (ctypes),
+  `test_jonction_simulee_*`, `test_demande_dans_un_dossier_qui_n_est_pas_de_confiance_est_ignoree`.
+- **Mes sondes de scénario de l'audit, rejouées** sur un serveur réel en bac à
+  sable :
+
+| Sonde | Avant | Après |
+|---|---|---|
+| S1b : `arrete` jamais écrit | code 3, serveur **laissé arrêté** | code 3, **serveur relancé**, `/sante` répond |
+| S2 : tentative reportée puis `revenir` | `RETOUR_IMPOSSIBLE` | code 0, « Version 1.1.0 remise en place » |
+| S3 : dépôt figé, puis `appliquer` | `ARRET_REFUSE depot-en-cours` après 40 s | après 126 s : **code 0**, mise à jour appliquée |
+| S5 (nouvelle) : dépôt lent mais actif, un morceau toutes les 28 s, 168 s au total | — | **200**, PDF identique octet pour octet |
+
+- **Mes mises en échec** (ancre unique, témoin vert, restauration contrôlée par
+  SHA-256, `python3` et `python3 -O`) : 9 mutations, toutes rouges.
+
+| # | Mutation | Rougit |
+|---|---|---|
+| Y1 | confiance POSIX : écriture du groupe ou des autres admise | `DossierReserve`, `ObeissanceALaDemandeDArret.test_criteres_posix` |
+| Y2 | confiance POSIX : propriétaire non vérifié | `test_proprietaire_etranger_ou_lien_ou_fichier_refuses` |
+| Y3 | `vider_contenu` suit les liens (`stat` au lieu de `lstat`) | `test_contenu_pose_a_l_avance_est_vide_sans_suivre_de_lien` |
+| Y4 | relecture de confiance après protection retirée | `test_dossier_qui_n_est_pas_de_confiance_apres_protection_est_refuse` |
+| Y5 | ancienne sauvegarde non remise en place si la substitution échoue | `test_substitution_qui_echoue_remet_l_ancienne` |
+| Y6 | drapeau d'acceptation jamais posé | survit aux unitaires, dont les tests simulent l'acceptation eux-mêmes ; **rouge** au bout en bout (`AbandonApresAcceptation`, deux tests) |
+| Y7 | écriture patiente réduite à un essai | `EtatSousLecture`, `EcrituresPatientes` |
+| Y8 | délai d'inactivité retiré | `test_delai_d_inactivite_des_connexions` |
+
+  Le registre de l'implémenteur (R1 à R14) a été relu. Les gardes que j'avais
+  trouvées non éprouvées (X15, X6, X9, X7) y sont reprises en R9 à R12, et je ne
+  les ai pas rejouées une à une. Y1 à Y8 portent sur la nouvelle surface.
+
+## Sort des constats
+
+**Moyen, serveur accepté jamais relancé : corrigé.**
+- Dès l'acceptation, `demander_arret` pose un drapeau. Toute sortie d'`appliquer`
+  passe ensuite par le `except BaseException` qui appelle `assurer_serveur`
+  (`maj.py`, fonction `appliquer`) : refus, exception ou `KeyboardInterrupt`.
+- `assurer_serveur` n'est appelée qu'après une acceptation ; un refus ne relance
+  rien.
+- L'étape `bascule` est écrite dans le `try` de `basculer`.
+- `arret.reponse` et `etat.json` s'écrivent avec 40 reprises de 50 ms sur
+  `PermissionError`.
+- Démontré par S1b, et Y6 et Y7 rougissent.
+- Résidu en observation ci-dessous.
+
+**Faible, sauvegarde détruite par une tentative reportée : corrigé.**
+- La sauvegarde est bâtie et relue avant l'arrêt, mais n'est adoptée qu'après
+  l'acceptation.
+- L'ancienne passe par un renommage et revient si la substitution échoue (Y5
+  rouge).
+- `sauvegarde-neuve/` est effacée dans tous les cas (`finally`).
+- Démontré par S2.
+
+**Faible, dépôt figé : corrigé.** `Gestionnaire.timeout = 120` est posé par
+`StreamRequestHandler.setup()` sur la socket acceptée. C'est un délai **par
+opération**, pas une durée totale : S5 le montre, un envoi de 168 s qui avance
+aboutit. Les effets vérifiés :
+- **Dépôt en cours :** un délai dépassé lève `TimeoutError` dans `rfile.read`,
+  que `BaseHTTPRequestHandler.handle_one_request` rattrape. `sortir_depot` passe
+  par le `finally`, rien n'est écrit sous `bilans/`, et la ligne va dans
+  `journal.log` par `log_error`. `technique.log` ne reçoit pas d'adresse
+  (`log_message` inchangé).
+- **File de la tablette :** aucun effet. La tablette abandonne d'elle-même un dépôt
+  au bout de 20 s (`DELAI_DEPOT`, `script.js:13`) et le garde dans sa file. Le
+  délai serveur de 120 s de silence ne coupe donc jamais un envoi que la tablette
+  attendrait encore.
+- **Réponses lentes à lire :** le délai s'applique de la même façon à l'écriture.
+  Je n'ai pas trouvé de régression.
+
+**Faible, fichier d'arrêt dans un dossier non vérifié : corrigé.**
+- **Côté serveur :** il n'obéit qu'après `dossier_reserve_de_confiance`, sinon il
+  efface la demande et l'écrit une seule fois dans `journal.log`.
+- **Sous Windows :** le SDDL doit être exactement `D:P` + `SY` + `BA`, **et** le
+  propriétaire doit être SYSTEM ou Administrateurs.
+- **Ailleurs :** le propriétaire doit être le compte du serveur ou root, sans
+  écriture pour le groupe ni les autres.
+- **Correctif de l'erratum 17 (« comparaison vide »), vérifié de près :**
+  - l'attendu est bâti à partir de `realpath(parent)` et du **nom non résolu**,
+    puis comparé à `forme_comparable(dossier)` ;
+  - une jonction ou un lien à la place du dossier lui-même fait donc différer
+    les deux formes ;
+  - un parent résolu (`/var` → `/private/var`, nom court 8.3) les laisse égales ;
+  - j'avais écrit au premier audit que la logique était « correcte, simplement
+    non éprouvée » : c'était faux, l'implémenteur a eu raison de le relever ;
+  - c'est une vraie jonction qui est éprouvée sous Windows en CI.
+- **La surface ctypes de `proprietaire_windows` est raisonnable :**
+  - `argtypes` et `restype` sont déclarés pour les trois fonctions, et l'arité
+    de `GetNamedSecurityInfoW` est conforme (8 paramètres) ;
+  - les tampons sont libérés par `LocalFree` dans un `finally` ;
+  - aucune donnée ne vient du réseau : le seul argument est un chemin construit
+    par le serveur ;
+  - toute `OSError` vaut « non » ;
+  - l'appel n'a lieu, comme `icacls`, que si une demande existe, et pas à chaque
+    sonde.
+- **`vider_contenu` ne suit aucun lien :**
+  - `lstat` d'abord ;
+  - un lien est retiré, jamais sa cible ;
+  - un sous-dossier passe par `shutil.rmtree`, qui depuis Python 3.8 retire une
+    jonction **sans la parcourir** (bpo-37834) ;
+  - il n'a lieu qu'après le refus d'une jonction à la place du dossier ;
+  - Y3 rougit.
+
+**Faible, quatre gardes non éprouvées : corrigé.** R9 à R12 du registre ; la
+jonction est éprouvée pour de vrai sous Windows.
+
+## Observations du réaudit
+
+### Observation — Résidu : arrêt accepté mais aucune réponse lue
+
+**Où :** `maj.py`, `demander_arret`, première boucle (`ARRET_SANS_REPONSE`
+« le serveur n'a pas répondu »).
+
+**Scénario (sonde S4, simulé) :** si **les deux** écritures `accepte` et
+`arrete` échouent, `maj.py` sort avant d'avoir vu l'acceptation. Le serveur, lui,
+a accepté et quitte : il reste arrêté (S4 : code 3, `/sante` muette).
+
+Il faudrait deux refus de remplacement soutenus chacun plus de 2 s (40 × 50 ms).
+Autre voie : un `accepte` perdu suivi d'un `arrete` qui arrive après les 30 s de
+`delai_reponse`. Pour cela, il faut qu'un dépôt ait commencé dans la seconde qui
+suit la décision et qu'il dure plus de 30 s, ce que la tablette elle-même
+abandonne au bout de 20 s.
+
+Improbable. Un `/Run` y serait inoffensif, puisque `assurer_serveur` est sans
+effet sur un serveur qui tourne. À reprendre en C5-T2b, où personne ne
+regardera la console.
+
+### Observation — Ordre « vider puis protéger » dans `preparer_dossier_prive`
+
+Sur un dossier existant qui n'est pas de confiance, le contenu est vidé
+**avant** que `icacls` retire à l'utilisateur le droit d'y créer des fichiers.
+Un programme qui reposerait en boucle `etat.json` (étape `bascule`) et une
+`sauvegarde/` dans cet intervalle pourrait voir son contenu survivre.
+`dossier_reserve_de_confiance` ne vérifie que le dossier, pas son contenu.
+
+La précondition reste une racine inscriptible par l'utilisateur, qui permet déjà
+de remplacer `serveur\serveur.py` directement : ce n'est **pas une aggravation**.
+Mais la variante que le correctif voulait fermer ne l'est qu'en l'absence de
+course. Protéger d'abord, puis vider, la fermerait aussi. À traiter avec le point
+C6 de la racine inscriptible, ou en T2b, quand l'installateur créera le dossier
+protégé.
+
+### Observation — Ce que le serveur lit encore sans vérifier le dossier
+
+- `effacer_demandes_perimees` (au démarrage) efface `arret.demande` et
+  `arret.reponse` sans contrôle de confiance. Sur un `mise-a-jour` remplacé par une
+  jonction (racine inscriptible), SYSTEM efferait deux fichiers **de ces noms
+  exacts** dans le dossier cible. Les liens ne sont pas suivis : seule la jonction
+  du dossier lui-même le permettrait.
+- `/etat` lit `etat.json` sans contrôle de confiance. Les valeurs restent fermées
+  (étape, code, version) : au pire un affichage trompeur, jamais une fuite.
+- Le dossier temporaire de `lire_sddl_windows` naît dans le `%TEMP%` de SYSTEM,
+  sous un nom aléatoire que les utilisateurs ne peuvent pas lister.
+
+Sans conséquence au-delà de la précondition déjà connue.
+
+### Observation — Poignée de main TLS sans délai (antérieure, erratum 15)
+
+Hors périmètre : je n'en fais pas un constat de cette tâche, qui ne l'aggrave
+pas. Je la signale parce qu'elle est plus grave que le dépôt figé corrigé
+ici. La socket d'écoute est enveloppée (`serveur.py`, `contexte.wrap_socket`), donc
+la poignée de main a lieu dans `accept()`, sur le fil de `serve_forever`, **sans
+délai**. Une seule connexion TCP muette, ouverte depuis le réseau local **sans
+identifiant**, fige l'acceptation de toutes les autres : plus de dépôt, plus de
+`/sante`. Le délai de 120 s ne s'applique qu'après, dans `setup()`. **À ouvrir en
+C6, avec une gravité élevée.**
+
+## Rubriques sans constat (réaudit)
+
+1. **Données de santé.**
+   - La ligne « demande d'arrêt ignorée » va dans `journal.log` seulement, sans
+     chemin.
+   - `assurer_serveur` écrit « sante ok / SANTE MUETTE » dans `journal.log`.
+   - `technique.log` reste fermé (A12 vert au bout en bout).
+2. **Surface exposée.**
+   - Aucune route ajoutée ; `/sante` reste la seule non authentifiée.
+   - `ctypes` et `subprocess` sont importés par `serveur.py` mais ne servent que
+     le contrôle du dossier réservé, sur un chemin interne.
+   - Aucune entrée réseau n'y parvient.
+3. **Authentification.** Inchangée. Ce sont toujours les clés installées qui
+   jugent.
+4. **Écriture de fichiers.**
+   - `ecrire_atomiquement_patient` ne reprend que sur `PermissionError` et
+     relève la dernière erreur.
+   - Le temporaire `.part` est toujours effacé (`except BaseException` de
+     `ecrire_atomiquement`).
+5. **Robustesse.**
+   - 40 × 50 ms, soit au plus 2 s de reprise sur le fil de surveillance : sans
+     effet sur les dépôts.
+   - Le délai de connexion est borné.
+   - La sauvegarde reste unique, plus un renommage transitoire
+     (`sauvegarde-avant`) compté pour D7.
+6. **Navigateur.** Sans objet : `formulaire/` est inchangé.
+7. **Mises à jour.**
+   - L'ordre est conservé : rien hors de `mise-a-jour/` avant la bascule.
+   - La sauvegarde n'est adoptée qu'une fois l'arrêt accepté.
+   - Le retour arrière est éprouvé (A1, A4, A5, et S2).
+8. **Conformité.** Rien ne sort du PC. Aucun sous-traitant ni stockage nouveau.
+
+## Verdict du réaudit
+
+**CONFORME.** Les cinq constats sont corrigés, démontrés par mes sondes S1b,
+S2, S3 et S5, et tenus par des gardes qui rougissent (Y1 à Y8, R1 à R14).
+Restent quatre observations. Deux sont à porter en C5-T2b ou en C6 : le résidu
+« arrêt accepté jamais vu », et l'ordre « vider puis protéger ». La poignée de
+main TLS sans délai, antérieure à la tâche, est à ouvrir en C6 avec une gravité
+élevée.
