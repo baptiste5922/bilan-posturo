@@ -38,9 +38,15 @@ import stat
 import sys
 import tempfile
 import threading
+import time
 import unicodedata
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+
+# Module voisin, bibliothèque standard seule : le serveur lui emprunte la forme
+# d'un numéro de version et la lecture JSON stricte (C5-T2a), pour que ni la page
+# d'état ni la demande d'arrêt ne lisent autrement que le client de mise à jour.
+import paquet_signe
 
 # Le script vit dans serveur/ : la racine du projet est le dossier parent.
 RACINE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -117,6 +123,9 @@ EVENEMENTS_TECHNIQUES = frozenset({
     "DEMARRAGE", "ARRET", "TLS_REFUSE", "AUTH_REFUSEE",
     "REPONSE", "DEPOT", "ECHEC_ECRITURE", "ROTATION", "LOGO",
     "DEMARRAGE_REFUSE",
+    # Mise à jour (C5-T2a). MAJ_CONTROLE ne sert qu'en C5-T2b : déclaré ici pour
+    # ne toucher le vocabulaire qu'une fois. Aucun n'est préfixe d'un autre.
+    "MAJ_REFUSEE", "MAJ_REPORTEE", "MAJ_APPLIQUEE", "MAJ_RETOUR", "MAJ_CONTROLE",
 })
 
 # ROTATION échappe de nécessité à journaliser_technique() (interblocage
@@ -158,19 +167,21 @@ MOTIFS_REFUS_DEPOT = frozenset({
 # n'est jamais écrit. Positionné depuis la configuration dans demarrer().
 JOURNAL_TECHNIQUE_ACTIF = True
 
-# Page d'état (C4-T3) : la liste fermée des neuf informations, dans l'ordre où
+# Page d'état (C4-T3) : la liste fermée des informations, dans l'ordre où
 # la page les présente. Source dont les tests se dérivent, jamais recopiée ;
 # C3-T2 y ajoutera son champ le jour venu.
 CLES_ETAT = (
     "version", "demarre_le", "dernier_depot", "disque_libre_octets",
     "certificat_expire_le", "certificat_empreinte", "certificat_adresse",
-    "identite_cabinet", "journal_technique",
+    "identite_cabinet",
+    "maj_etape", "maj_resultat", "maj_code", "maj_le", "maj_version",
+    "journal_technique",
 )
 # Les seuls champs dont la valeur est un horodatage : les tests anti-adresse
 # en font l'exception exprimable, car « 12:34:56 » ressemble à une adresse
 # IPv6 pour le motif laxiste.
 CHAMPS_ETAT_HORODATES = frozenset({
-    "demarre_le", "dernier_depot", "certificat_expire_le"})
+    "demarre_le", "dernier_depot", "certificat_expire_le", "maj_le"})
 if not CHAMPS_ETAT_HORODATES <= set(CLES_ETAT):
     # Levée explicite, jamais `assert` (voir EVENEMENT_ROTATION plus haut).
     raise AssertionError(
@@ -185,6 +196,39 @@ QUEUE_ETAT_OCTETS = 64 * 1024
 # Sous ce nombre de jours restants, la page ajoute « à renouveler ».
 JOURS_CERTIFICAT_A_RENOUVELER = 30
 
+# Mise à jour (C5-T2a). Le dossier est nommé UNE fois ici : maj.py le reprend
+# par import, et le serveur n'y crée jamais rien (il est réservé à SYSTEM et aux
+# administrateurs par maj.py ; un serveur qui le créerait en hériterait les droits
+# de la racine). Il y lit l'état de la mise à jour et y répond à une demande
+# d'arrêt.
+NOM_DOSSIER_MAJ = "mise-a-jour"
+DOSSIER_MAJ = os.path.join(RACINE, NOM_DOSSIER_MAJ)
+ETAT_MAJ = "etat.json"
+DEMANDE_ARRET = "arret.demande"
+REPONSE_ARRET = "arret.reponse"
+# Vocabulaire fermé de l'état de la mise à jour, dont les tests se dérivent.
+ETAPES_MAJ = ("repos", "preparee", "bascule", "verification", "retour",
+              "echec-retour")
+RESULTATS_MAJ = ("appliquee", "revenue", "refusee", "reportee")
+# Ce que /etat dit quand le fichier manque ou ne se lit pas : jamais une valeur
+# recopiée du fichier.
+ETAPE_MAJ_ABSENTE = "absente"
+ETAPE_MAJ_ILLISIBLE = "illisible"
+TAILLE_MAX_ETAT_MAJ = 16 * 1024
+TAILLE_MAX_DEMANDE_ARRET = 1024
+# Au-delà, la demande d'arrêt « au démarrage » est refusée (D9 du contrat C5-T2).
+DELAI_DEMARRAGE_MAX_SECONDES = 900
+CALME_MAX_SECONDES = 86400
+# Le serveur sonde le dossier toutes les secondes ; attend au plus 30 s qu'un
+# dépôt déjà commencé s'achève avant de quitter.
+INTERVALLE_SURVEILLANCE_SECONDES = 1.0
+DELAI_FIN_DEPOTS_SECONDES = 30
+MOTIFS_ARRET = ("aucun", "depot-en-cours", "activite", "demarrage-depasse",
+                "demande-invalide")
+_JETON_ARRET = re.compile(r"[0-9a-f]{32}")
+_CODE_MAJ = re.compile(r"[A-Z_]{1,40}")
+_HORODATAGE_MAJ = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}")
+
 # État du processus lu par la page d'état. Posés dans demarrer() ; None tant
 # qu'il n'a pas tourné (tests unitaires).
 VERSION_EN_COURS = None
@@ -194,6 +238,15 @@ DERNIER_DEPOT = None
 # Ce que le serveur a CHARGÉ au démarrage (D6) : un fichier remplacé sans
 # redémarrage ne doit pas faire mentir la page sur ce qui est servi.
 CERTIFICAT_CHARGE = None
+
+# Ce que la demande d'arrêt concerté lit (C5-T2a) : un compte de dépôts en cours
+# et l'heure de la dernière requête qui n'est pas la sonde de santé. Sous un
+# verrou PROPRE : _verrou_journal n'est valable que pour les journaux, et la
+# fonction qui incrémente ne doit jamais attendre une rotation.
+_verrou_compteurs = threading.Lock()
+DEPOTS_EN_COURS = 0
+DERNIERE_ACTIVITE = None      # time.monotonic() de la dernière requête, ou None
+DEMARRE_MONOTONIC = None      # time.monotonic() du démarrage, posé dans demarrer()
 
 # Seuls ces fichiers sont servis. Le filtre double la séparation des dossiers :
 # même si la racine web venait à contenir autre chose, rien d'autre ne sortirait.
@@ -1517,8 +1570,81 @@ def dernieres_lignes_techniques():
     return lignes[-LIGNES_ETAT:]
 
 
+def _json_strict(octets):
+    """Le JSON strict de `octets` (clé en double, NaN, BOM refusés), ou ValueError.
+
+    La lecture est celle de paquet_signe : ce que le client de mise à jour a écrit
+    se relit exactement comme il le relit lui-même."""
+    try:
+        return paquet_signe._lire_json_strict(octets, "MANIFESTE_MALFORME")
+    except paquet_signe.PaquetRefuse as erreur:
+        raise ValueError(erreur.detail)
+
+
+_ETAT_MAJ_ILLISIBLE = {
+    "maj_etape": ETAPE_MAJ_ILLISIBLE, "maj_resultat": None, "maj_code": None,
+    "maj_le": None, "maj_version": None}
+_ETAT_MAJ_ABSENT = dict(_ETAT_MAJ_ILLISIBLE, maj_etape=ETAPE_MAJ_ABSENTE)
+
+
+def lire_etat_maj(dossier=None):
+    """Les cinq informations `maj_*` de /etat, lues dans `etat.json`.
+
+    Le fichier est écrit par UN AUTRE processus (maj.py) : rien n'en est recopié
+    tel quel. Chaque valeur est confrontée à un vocabulaire ou à une forme
+    fermés, et une seule valeur hors forme rend `illisible` partout (un état à
+    moitié cru serait pire qu'un état inconnu). Un chemin, une adresse, un nom
+    de fichier ne passent pas ces formes, par construction. Aucune levée : une
+    page d'état ne doit jamais coûter un diagnostic.
+    """
+    chemin = os.path.join(DOSSIER_MAJ if dossier is None else dossier, ETAT_MAJ)
+    try:
+        info = os.lstat(chemin)
+    except FileNotFoundError:
+        return dict(_ETAT_MAJ_ABSENT)
+    except OSError:
+        return dict(_ETAT_MAJ_ILLISIBLE)
+    # Fichier ordinaire exigé : un lien ou un tube nommé n'est pas lu.
+    if not stat.S_ISREG(info.st_mode):
+        return dict(_ETAT_MAJ_ILLISIBLE)
+    try:
+        with open(chemin, "rb") as f:
+            brut = f.read(TAILLE_MAX_ETAT_MAJ + 1)
+        if len(brut) > TAILLE_MAX_ETAT_MAJ:
+            return dict(_ETAT_MAJ_ILLISIBLE)
+        contenu = _json_strict(brut)
+    except (OSError, ValueError):
+        return dict(_ETAT_MAJ_ILLISIBLE)
+    if not isinstance(contenu, dict):
+        return dict(_ETAT_MAJ_ILLISIBLE)
+
+    def valeur(cle, valide):
+        brute = contenu.get(cle)
+        if brute is None:
+            return None
+        if not isinstance(brute, str) or not valide(brute):
+            raise ValueError(cle)
+        return brute
+
+    try:
+        etape = contenu.get("etape")
+        if etape not in ETAPES_MAJ:
+            raise ValueError("etape")
+        return {
+            "maj_etape": etape,
+            "maj_resultat": valeur("resultat", lambda v: v in RESULTATS_MAJ),
+            "maj_code": valeur("code", lambda v: _CODE_MAJ.fullmatch(v) is not None),
+            "maj_le": valeur(
+                "le", lambda v: _HORODATAGE_MAJ.fullmatch(v) is not None),
+            "maj_version": valeur(
+                "version", lambda v: paquet_signe._VERSION.fullmatch(v) is not None),
+        }
+    except ValueError:
+        return dict(_ETAT_MAJ_ILLISIBLE)
+
+
 def construire_etat(config, dossier_pdf):
-    """Les neuf informations de CLES_ETAT, et rien d'autre.
+    """Les informations de CLES_ETAT, et rien d'autre.
 
     Dictionnaire écrit en clair, clé par clé : ni la configuration, ni le
     dossier des PDF ne s'y sérialisent. Le chemin du dossier peut porter le
@@ -1541,6 +1667,7 @@ def construire_etat(config, dossier_pdf):
         "certificat_empreinte": charge.get("empreinte", "indisponible"),
         "certificat_adresse": verdict_adresse(charge.get("adresses", ())),
         "identite_cabinet": identite_renseignee(config),
+        **lire_etat_maj(),
         "journal_technique": dernieres_lignes_techniques(),
     }
 
@@ -1589,6 +1716,27 @@ def _texte_certificat(etat, maintenant):
     return "{} — {}".format(texte, reste)
 
 
+def _texte_mise_a_jour(etat):
+    """La ligne « Mise à jour » : l'étape, puis ce que l'on sait du dernier
+    résultat. Les valeurs ont déjà passé lire_etat_maj ; html.escape reste
+    appliqué par l'appelant, comme pour toute autre ligne."""
+    etape = etat["maj_etape"]
+    if etape == ETAPE_MAJ_ABSENTE:
+        return "aucune mise à jour enregistrée"
+    if etape == ETAPE_MAJ_ILLISIBLE:
+        return "état illisible : à signaler au support"
+    morceaux = ["étape « {} »".format(etape)]
+    if etat["maj_resultat"] is not None:
+        morceaux.append("dernier résultat : {}".format(etat["maj_resultat"]))
+    if etat["maj_code"] is not None:
+        morceaux.append("code : {}".format(etat["maj_code"]))
+    if etat["maj_version"] is not None:
+        morceaux.append("version : {}".format(etat["maj_version"]))
+    if etat["maj_le"] is not None:
+        morceaux.append("le {}".format(etat["maj_le"].replace("T", " ")))
+    return " — ".join(morceaux)
+
+
 def rendre_etat_html(etat, maintenant=None):
     """Page autonome : aucun script, aucune ressource externe. Chaque valeur
     passe par html.escape — les lignes de technique.log portent des chaînes
@@ -1624,6 +1772,7 @@ def rendre_etat_html(etat, maintenant=None):
         ("Adresse du PC et certificat", "{} — {}".format(verdict, explication)),
         ("Identité du cabinet", "renseignée" if etat["identite_cabinet"]
          else "non renseignée : l'export des bilans est refusé"),
+        ("Mise à jour", _texte_mise_a_jour(etat)),
     ]
     rangees = "\n".join(
         "<tr><th>{}</th><td>{}</td></tr>".format(
@@ -1652,6 +1801,232 @@ pre {{ background: #f4f4f4; padding: .8em; overflow-x: auto; white-space: pre-wr
 </body>
 </html>
 """.format(rangees=rangees, journal=journal)
+
+
+# --------------------------------------------------------------------------
+# Arrêt concerté pour une mise à jour (C5-T2a)
+# --------------------------------------------------------------------------
+
+# Le client de mise à jour (maj.py, un AUTRE processus) ne tue jamais le serveur :
+# il dépose une demande dans DOSSIER_MAJ, et c'est le serveur, seul à savoir s'il
+# reçoit un bilan, qui accepte ou refuse. Aucune route, aucun port : le dossier
+# est réservé à SYSTEM et aux administrateurs.
+
+def marquer_activite():
+    """Note l'heure de la dernière requête autre que la sonde de santé."""
+    global DERNIERE_ACTIVITE
+    with _verrou_compteurs:
+        DERNIERE_ACTIVITE = time.monotonic()
+
+
+def entrer_depot():
+    global DEPOTS_EN_COURS
+    with _verrou_compteurs:
+        DEPOTS_EN_COURS += 1
+
+
+def sortir_depot():
+    """Fin d'un dépôt. L'activité est notée AUSSI à la sortie : un bilan de 30 Mo
+    peut durer une minute, et le calme se mesure depuis sa fin, pas son début."""
+    global DEPOTS_EN_COURS, DERNIERE_ACTIVITE
+    with _verrou_compteurs:
+        DEPOTS_EN_COURS -= 1
+        DERNIERE_ACTIVITE = time.monotonic()
+
+
+def lire_compteurs():
+    """(dépôts en cours, dernière activité) d'un même instant."""
+    with _verrou_compteurs:
+        return DEPOTS_EN_COURS, DERNIERE_ACTIVITE
+
+
+def demande_arret_valide(demande):
+    """Vrai pour une demande exactement de la forme
+    {"jeton": <32 hex>, "calme_secondes": <entier 0..86400>, "demarrage": <bool>}.
+
+    `type() is` et non isinstance : True est un entier pour Python."""
+    return (isinstance(demande, dict)
+            and set(demande) == {"jeton", "calme_secondes", "demarrage"}
+            and isinstance(demande["jeton"], str)
+            and _JETON_ARRET.fullmatch(demande["jeton"]) is not None
+            and type(demande["calme_secondes"]) is int
+            and 0 <= demande["calme_secondes"] <= CALME_MAX_SECONDES
+            and type(demande["demarrage"]) is bool)
+
+
+def decider_arret(demande, depots_en_cours, derniere_activite, demarre_depuis_s,
+                  maintenant):
+    """(verdict, motif) d'une demande d'arrêt : fonction pure, sans serveur.
+
+    verdict : "accepte" ou "refuse" ; motif : un membre de MOTIFS_ARRET.
+    Aucun bilan n'est lu : seuls comptent un dépôt déjà commencé et l'heure de la
+    dernière requête (horloge monotone, injectée).
+
+    - un dépôt en cours refuse toujours ;
+    - « au démarrage » (PC éteint la nuit) n'accepte que dans les 900 premières
+      secondes ET si le serveur n'a reçu AUCUNE requête depuis ;
+    - sinon, le serveur doit être calme depuis `calme_secondes` (borne incluse),
+      ou n'avoir reçu aucune requête.
+    """
+    if not demande_arret_valide(demande):
+        return "refuse", "demande-invalide"
+    if depots_en_cours > 0:
+        return "refuse", "depot-en-cours"
+    if demande["demarrage"]:
+        if demarre_depuis_s > DELAI_DEMARRAGE_MAX_SECONDES:
+            return "refuse", "demarrage-depasse"
+        if derniere_activite is not None:
+            return "refuse", "activite"
+        return "accepte", "aucun"
+    if derniere_activite is None:
+        return "accepte", "aucun"
+    if maintenant - derniere_activite >= demande["calme_secondes"]:
+        return "accepte", "aucun"
+    return "refuse", "activite"
+
+
+def _effacer_fichier_de_demande(chemin):
+    """Efface ce qui occupe le nom d'une demande : fichier, lien (jamais sa
+    cible) ou dossier vide. Ce qui ne s'efface pas reste, et sera de nouveau
+    ignoré : une surveillance ne doit pas boucler sur une erreur."""
+    try:
+        os.remove(chemin)
+        return
+    except OSError:
+        pass
+    try:
+        os.rmdir(chemin)
+    except OSError:
+        pass
+
+
+def lire_demande_arret(chemin):
+    """(statut, demande) du fichier de demande : "absente", "invalide" ou "ok".
+
+    `lstat` d'abord : un fichier ordinaire est exigé, et un tube nommé ne doit
+    jamais être ouvert (l'ouverture bloquerait). Au plus 1 024 octets, JSON
+    strict. Pour "invalide", `demande` porte l'objet lu quand il l'a été, afin de
+    répondre au jeton s'il est lisible ; None sinon."""
+    try:
+        info = os.lstat(chemin)
+    except FileNotFoundError:
+        return "absente", None
+    except OSError:
+        return "invalide", None
+    if not stat.S_ISREG(info.st_mode):
+        return "invalide", None
+    try:
+        with open(chemin, "rb") as f:
+            brut = f.read(TAILLE_MAX_DEMANDE_ARRET + 1)
+    except OSError:
+        return "invalide", None
+    if len(brut) > TAILLE_MAX_DEMANDE_ARRET:
+        return "invalide", None
+    try:
+        demande = _json_strict(brut)
+    except ValueError:
+        return "invalide", None
+    if demande_arret_valide(demande):
+        return "ok", demande
+    return "invalide", demande
+
+
+def ecrire_reponse_arret(dossier, jeton, verdict, motif):
+    """Écrit `arret.reponse` atomiquement ; sans effet si le dossier manque (le
+    serveur ne le crée jamais)."""
+    corps = json.dumps({"jeton": jeton, "verdict": verdict, "motif": motif},
+                       sort_keys=True).encode("utf-8")
+    try:
+        ecrire_atomiquement(os.path.join(dossier, REPONSE_ARRET), corps)
+    except OSError:
+        pass
+
+
+class ArretConcerte(object):
+    """Ce que le fil de surveillance transmet à demarrer() : l'événement posé
+    quand une demande est acceptée, et le jeton auquel répondre « arrete »."""
+
+    def __init__(self):
+        self.evenement = threading.Event()
+        self.jeton = None
+
+
+def traiter_demande_arret(dossier, arret, demarre_depuis_s, maintenant=None):
+    """Un passage de la surveillance : lit la demande, répond, l'efface.
+
+    Rend True si l'arrêt est accepté (`arret.jeton` est alors posé). Une demande
+    malformée, d'un jeton illisible ou qui n'est pas un fichier est effacée sans
+    réponse ; d'un jeton lisible mais de forme invalide, effacée avec la réponse
+    « demande-invalide »."""
+    chemin = os.path.join(dossier, DEMANDE_ARRET)
+    statut, demande = lire_demande_arret(chemin)
+    if statut == "absente":
+        return False
+    if maintenant is None:
+        maintenant = time.monotonic()
+    depots, activite = lire_compteurs()
+    verdict, motif = decider_arret(demande, depots, activite, demarre_depuis_s,
+                                   maintenant)
+    jeton = demande.get("jeton") if isinstance(demande, dict) else None
+    if isinstance(jeton, str) and _JETON_ARRET.fullmatch(jeton):
+        ecrire_reponse_arret(dossier, jeton, verdict, motif)
+    _effacer_fichier_de_demande(chemin)
+    if verdict == "accepte":
+        arret.jeton = jeton
+        return True
+    return False
+
+
+def effacer_demandes_perimees(dossier):
+    """Au démarrage : une demande ou une réponse laissées par un processus
+    précédent ne valent rien. Sans cela, une demande oubliée arrêterait le
+    serveur dès sa relance."""
+    for nom in (DEMANDE_ARRET, REPONSE_ARRET):
+        _effacer_fichier_de_demande(os.path.join(dossier, nom))
+
+
+def surveiller_demande_arret(serveur, arret, fin, dossier=None):
+    """Corps du fil de surveillance : sonde le dossier toutes les secondes.
+
+    Sur acceptation : pose l'événement puis `serveur.shutdown()` — appelé depuis
+    CE fil, jamais depuis celui de serve_forever(), qu'il attendrait en vain.
+    Toute exception est avalée : la surveillance ne doit jamais coûter un dépôt."""
+    dossier = DOSSIER_MAJ if dossier is None else dossier
+    while not fin.is_set():
+        try:
+            demarre_depuis = (0 if DEMARRE_MONOTONIC is None
+                              else time.monotonic() - DEMARRE_MONOTONIC)
+            if traiter_demande_arret(dossier, arret, demarre_depuis):
+                arret.evenement.set()
+                serveur.shutdown()
+                return
+        except Exception:
+            pass
+        fin.wait(INTERVALLE_SURVEILLANCE_SECONDES)
+
+
+def demarrer_surveillance_arret(serveur, arret):
+    """Efface les restes d'un processus précédent, puis lance le fil (démon).
+    Rend l'événement qui l'arrête."""
+    effacer_demandes_perimees(DOSSIER_MAJ)
+    fin = threading.Event()
+    fil = threading.Thread(target=surveiller_demande_arret,
+                           args=(serveur, arret, fin),
+                           name="surveillance-arret", daemon=True)
+    fil.start()
+    return fin
+
+
+def attendre_fin_depots(delai, pas=0.05):
+    """Attend que plus aucun dépôt ne soit en cours, au plus `delai` secondes.
+    Rend True si le compte est revenu à 0."""
+    limite = time.monotonic() + delai
+    while True:
+        if lire_compteurs()[0] <= 0:
+            return True
+        if time.monotonic() >= limite:
+            return False
+        time.sleep(pas)
 
 
 # --------------------------------------------------------------------------
@@ -1912,7 +2287,15 @@ class Gestionnaire(SimpleHTTPRequestHandler):
         self.path = chemin
         return True
 
+    def noter_activite(self):
+        """Note la requête pour l'arrêt concerté, sauf la sonde de santé : la
+        tablette l'interroge en tâche de fond, et la compter interdirait à
+        jamais une mise à jour."""
+        if self.chemin_demande() != "/sante":
+            marquer_activite()
+
     def do_GET(self):
+        self.noter_activite()
         if self.chemin_demande() == "/sante":
             self.repondre_sante(avec_corps=True)
             return
@@ -1926,6 +2309,7 @@ class Gestionnaire(SimpleHTTPRequestHandler):
             super().do_GET()
 
     def do_HEAD(self):
+        self.noter_activite()
         if self.chemin_demande() == "/sante":
             self.repondre_sante(avec_corps=False)
             return
@@ -2054,6 +2438,17 @@ class Gestionnaire(SimpleHTTPRequestHandler):
     # --- POST /depot -------------------------------------------------------
 
     def do_POST(self):
+        # Le compte couvre TOUT le traitement, lecture du corps comprise : c'est
+        # elle qui dure quand la tablette envoie un bilan par un Wi-Fi faible. Le
+        # décrément est dans un finally, que la requête échoue ou non.
+        self.noter_activite()
+        entrer_depot()
+        try:
+            self.traiter_post()
+        finally:
+            sortir_depot()
+
+    def traiter_post(self):
         if not self.authentifie():
             self.exiger_authentification()
             return
@@ -2290,15 +2685,29 @@ def demarrer():
             motif_logo, config["cabinet"]["logo"]))
         journaliser_technique("LOGO", detail_refus_logo(motif_logo))
 
-    global DEMARRE_LE
+    global DEMARRE_LE, DEMARRE_MONOTONIC
     DEMARRE_LE = datetime.datetime.now().isoformat(timespec="seconds")
+    DEMARRE_MONOTONIC = time.monotonic()
     motif_arret = "autre"
+    arret_concerte = ArretConcerte()
+    fin_surveillance = None
     try:
+        # Dans le try : la surveillance est lancée là où le finally qui écrit
+        # ARRET la couvre, et jamais avant que serve_forever() soit atteint.
+        fin_surveillance = demarrer_surveillance_arret(serveur, arret_concerte)
         serveur.serve_forever()
     except KeyboardInterrupt:
         print("\nArrêt du serveur.")
         motif_arret = "interruption"
     finally:
+        if fin_surveillance is not None:
+            fin_surveillance.set()
+        if arret_concerte.evenement.is_set():
+            # Arrêt demandé par maj.py et accepté : un dépôt qui aurait commencé
+            # entre la décision et l'arrêt de la boucle est attendu avant de
+            # quitter, sans quoi la fin du processus le tuerait.
+            motif_arret = "mise-a-jour"
+            attendre_fin_depots(DELAI_FIN_DEPOTS_SECONDES)
         # Le port se libère d'abord, sans dépendre d'une écriture de
         # journal : un journal ne doit jamais coûter autre chose que
         # lui-même (§10 du contrat), et surtout pas la disponibilité du
@@ -2306,6 +2715,10 @@ def demarrer():
         serveur.server_close()
         arret_purge.set()
         journaliser_technique("ARRET", "motif={}".format(motif_arret))
+    if arret_concerte.evenement.is_set():
+        # DERNIÈRE instruction avant la sortie : « arrete » ne se lit qu'une fois
+        # la ligne ARRET écrite et le port libéré, c'est ce que maj.py attend.
+        ecrire_reponse_arret(DOSSIER_MAJ, arret_concerte.jeton, "arrete", "aucun")
     return 0
 
 

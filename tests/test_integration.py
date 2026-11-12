@@ -33,6 +33,11 @@ sys.path.insert(0, os.path.join(PROJET, "serveur"))
 
 import serveur
 
+# Depuis C5-T2a, serveur.py importe ces deux modules voisins (la forme d'un
+# numéro de version et la lecture JSON stricte, empruntées à paquet_signe) : un
+# bac à sable qui ne les copierait pas verrait le serveur mourir à l'import.
+MODULES_VOISINS = ("serveur/paquet_signe.py", "serveur/signature_ed25519.py")
+
 UTILISATEUR = "cabinét"          # accentué : couvre la régression compare_digest
 MOT_DE_PASSE = "motdepasse123"
 PDF = b"%PDF-1.4\n1 0 obj\ncontenu\n%%EOF\n"
@@ -132,6 +137,7 @@ def preparer_sandbox(config_extra=None, avant_demarrage=None):
     # absence journaliserait « LOGO refus motif=absent » dans chaque bac.
     os.makedirs(os.path.join(dossier, "formulaire", "images"))
     for nom in ("serveur/serveur.py", "serveur/generer_autorite.py",
+                MODULES_VOISINS[0], MODULES_VOISINS[1],
                 "formulaire/index.html", "formulaire/index-v1.html",
                 "formulaire/style.css",
                 "formulaire/script.js", "formulaire/schema.json",
@@ -232,6 +238,7 @@ class ServeurEnMarche(unittest.TestCase):
         os.mkdir(os.path.join(cls.dossier, "formulaire"))
         os.makedirs(os.path.join(cls.dossier, "formulaire", "images"))
         for nom in ("serveur/serveur.py", "serveur/generer_autorite.py",
+                    MODULES_VOISINS[0], MODULES_VOISINS[1],
                     "formulaire/index.html", "formulaire/index-v1.html",
                     "formulaire/style.css",
                     "formulaire/script.js", "formulaire/schema.json",
@@ -889,7 +896,7 @@ class ServeurEnMarche(unittest.TestCase):
         statut, entetes, etat = self.etat()
         self.assertEqual(statut, 200)
         self.assertEqual(entetes["content-type"], "application/json; charset=utf-8")
-        self.assertEqual(len(serveur.CLES_ETAT), 9)
+        self.assertEqual(len(serveur.CLES_ETAT), 14)
         self.assertEqual(set(etat), set(serveur.CLES_ETAT))
         # Aucune clé de configuration n'y figure (« journal_technique » est
         # un nom partagé : ici, ce sont les lignes du journal, pas le réglage).
@@ -1372,8 +1379,10 @@ class RefusDeDemarrer(unittest.TestCase):
         dossier = tempfile.mkdtemp(prefix="bilan-test-")
         self.addCleanup(shutil.rmtree, dossier, ignore_errors=True)
         os.mkdir(os.path.join(dossier, "serveur"))
-        shutil.copy(os.path.join(PROJET, "serveur", "serveur.py"),
-                    os.path.join(dossier, "serveur"))
+        for nom in ("serveur.py",) + tuple(
+                os.path.basename(m) for m in MODULES_VOISINS):
+            shutil.copy(os.path.join(PROJET, "serveur", nom),
+                        os.path.join(dossier, "serveur"))
         with open(os.path.join(dossier, "config.json"), "w") as f:
             json.dump({"port": port_libre(), "dossier_pdf": "bilans",
                        "utilisateur": "cabinet",

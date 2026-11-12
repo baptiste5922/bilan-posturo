@@ -80,6 +80,11 @@ FORMAT_MANIFESTE = 1
 TYPE_MANIFESTE = "manifeste-mise-a-jour"
 PRODUIT = "bilan-posturo"
 CHEMIN_VERSION = "formulaire/version.json"
+# Noms des deux fichiers posés à côté d'une archive (C5-T2a) : définis ICI, parce
+# que le PC du cabinet doit les connaître aussi, et que l'outil de signature
+# (outils/signer-paquet.py) les reprend par import.
+SUFFIXE_MANIFESTE = ".manifeste.json"
+SUFFIXE_SIGNATURE = ".manifeste.sig"
 
 ManifesteVerifie = namedtuple(
     "ManifesteVerifie", ("version", "version_minimale", "date", "client", "fichiers"))

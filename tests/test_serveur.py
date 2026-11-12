@@ -1229,10 +1229,12 @@ class PageEtat(unittest.TestCase):
     def test_interrupteur_par_defaut(self):
         self.assertIs(serveur.CONFIG_DEFAUT["page_etat"], True)
 
-    def test_neuf_cles_horodatage_inclus(self):
-        self.assertEqual(len(serveur.CLES_ETAT), 9)
-        self.assertEqual(len(set(serveur.CLES_ETAT)), 9)
+    def test_quatorze_cles_horodatage_inclus(self):
+        # Neuf depuis C4-T3, cinq de plus (maj_*) depuis C5-T2a.
+        self.assertEqual(len(serveur.CLES_ETAT), 14)
+        self.assertEqual(len(set(serveur.CLES_ETAT)), 14)
         self.assertTrue(serveur.CHAMPS_ETAT_HORODATES <= set(serveur.CLES_ETAT))
+        self.assertIn("maj_le", serveur.CHAMPS_ETAT_HORODATES)
 
     def test_explications_couvrent_les_verdicts(self):
         self.assertEqual(set(serveur.EXPLICATIONS_ADRESSE), serveur.VERDICTS_ADRESSE)
@@ -1407,6 +1409,8 @@ class PageEtat(unittest.TestCase):
             "certificat_expire_le": "2029-02-03T04:05:06Z",
             "certificat_empreinte": "0123456789abcdef",
             "certificat_adresse": "conforme", "identite_cabinet": True,
+            "maj_etape": "repos", "maj_resultat": "appliquee", "maj_code": None,
+            "maj_le": "2026-11-06T03:00:00", "maj_version": "1.2.0",
             "journal_technique": ["2026-11-06T08:00:00 DEMARRAGE version=1.1.0"],
         }
         etat.update(remplacements)
@@ -1626,3 +1630,560 @@ class PageEtat(unittest.TestCase):
             self.assertEqual(
                 imports_hors_bibliotheque_standard(f.read(), standard, set()),
                 ["cryptography"])
+
+
+# --------------------------------------------------------------------------
+# Mise à jour (C5-T2a) : arrêt concerté, état, vocabulaire
+# --------------------------------------------------------------------------
+
+JETON = "ab" * 16
+
+
+def demande_arret(calme=120, demarrage=False, jeton=JETON):
+    return {"jeton": jeton, "calme_secondes": calme, "demarrage": demarrage}
+
+
+class DeciderArret(unittest.TestCase):
+    """`decider_arret` : fonction pure, jouée en table (A14)."""
+
+    def test_table(self):
+        # (demande, dépôts, dernière activité, démarré depuis, maintenant) -> verdict
+        cas = [
+            ("dépôt en cours refuse, même sans activité", demande_arret(0), 1, None, 10, 1000,
+             ("refuse", "depot-en-cours")),
+            ("dépôt en cours refuse, même très calme", demande_arret(0), 3, 0.0, 10, 5000,
+             ("refuse", "depot-en-cours")),
+            ("aucune activité : accepte", demande_arret(120), 0, None, 10, 1000,
+             ("accepte", "aucun")),
+            ("activité 1 s avant : refuse", demande_arret(120), 0, 999.0, 10, 1000.0,
+             ("refuse", "activite")),
+            ("activité 119 s avant, calme 120 : refuse", demande_arret(120), 0, 881.0, 10,
+             1000.0, ("refuse", "activite")),
+            ("activité exactement 120 s avant : accepte (borne incluse)", demande_arret(120),
+             0, 880.0, 10, 1000.0, ("accepte", "aucun")),
+            ("activité 121 s avant : accepte", demande_arret(120), 0, 879.0, 10, 1000.0,
+             ("accepte", "aucun")),
+            ("calme 0 : accepte juste après une requête", demande_arret(0), 0, 1000.0, 10,
+             1000.0, ("accepte", "aucun")),
+            ("calme maximal 86400", demande_arret(86400), 0, 1000.0, 10, 1000.0 + 86399,
+             ("refuse", "activite")),
+            ("calme maximal atteint", demande_arret(86400), 0, 1000.0, 10, 1000.0 + 86400,
+             ("accepte", "aucun")),
+            ("démarrage, rien reçu, 0 s : accepte", demande_arret(0, True), 0, None, 0, 5.0,
+             ("accepte", "aucun")),
+            ("démarrage, rien reçu, 900 s : accepte (borne incluse)", demande_arret(0, True),
+             0, None, 900, 5000.0, ("accepte", "aucun")),
+            ("démarrage, rien reçu, 900,5 s : dépassé", demande_arret(0, True), 0, None,
+             900.5, 5000.0, ("refuse", "demarrage-depasse")),
+            ("démarrage, rien reçu, 3600 s : dépassé", demande_arret(0, True), 0, None, 3600,
+             5000.0, ("refuse", "demarrage-depasse")),
+            ("démarrage, une requête reçue : refuse", demande_arret(0, True), 0, 5.0, 100,
+             5000.0, ("refuse", "activite")),
+            ("démarrage, requête ancienne, calme respecté : refuse quand même",
+             demande_arret(0, True), 0, 1.0, 100, 9999.0, ("refuse", "activite")),
+            ("démarrage, requête et délai dépassé : le délai d'abord",
+             demande_arret(0, True), 0, 5.0, 1000, 5000.0, ("refuse", "demarrage-depasse")),
+            ("démarrage, dépôt en cours : le dépôt d'abord", demande_arret(0, True), 1, None,
+             10, 5000.0, ("refuse", "depot-en-cours")),
+        ]
+        for nom, demande, depots, activite, depuis, maintenant, attendu in cas:
+            with self.subTest(nom):
+                self.assertEqual(
+                    serveur.decider_arret(demande, depots, activite, depuis, maintenant),
+                    attendu)
+        self.assertGreaterEqual(len(cas), 12)
+
+    def test_demandes_invalides(self):
+        invalides = [
+            None, [], "x", 3, {},
+            {"jeton": JETON, "calme_secondes": 0},
+            dict(demande_arret(), supplement=1),
+            demande_arret(jeton="AB" * 16),
+            demande_arret(jeton="ab" * 15),
+            demande_arret(jeton="ab" * 17),
+            demande_arret(jeton="zz" * 16),
+            demande_arret(jeton=12),
+            demande_arret(calme=-1),
+            demande_arret(calme=86401),
+            demande_arret(calme=True),
+            demande_arret(calme=1.5),
+            demande_arret(calme="120"),
+            demande_arret(demarrage=1),
+            demande_arret(demarrage="oui"),
+        ]
+        for demande in invalides:
+            with self.subTest(demande=demande):
+                self.assertFalse(serveur.demande_arret_valide(demande))
+                self.assertEqual(serveur.decider_arret(demande, 0, None, 0, 1.0),
+                                 ("refuse", "demande-invalide"))
+        self.assertTrue(serveur.demande_arret_valide(demande_arret(0)))
+        self.assertTrue(serveur.demande_arret_valide(demande_arret(86400, True)))
+
+    def test_motifs_et_verdicts_du_contrat(self):
+        for motif in ("aucun", "depot-en-cours", "activite", "demarrage-depasse",
+                      "demande-invalide"):
+            self.assertIn(motif, serveur.MOTIFS_ARRET)
+        self.assertEqual(len(serveur.MOTIFS_ARRET), 5)
+
+
+class SurveillanceDeLArret(unittest.TestCase):
+    """Un passage de la surveillance sur un dossier jetable : le serveur lit,
+    répond et efface ; il ne crée jamais le dossier."""
+
+    def setUp(self):
+        self.dossier = tempfile.mkdtemp(prefix="bilan-test-arret-")
+        self.addCleanup(shutil.rmtree, self.dossier, ignore_errors=True)
+        self.demande = os.path.join(self.dossier, serveur.DEMANDE_ARRET)
+        self.reponse = os.path.join(self.dossier, serveur.REPONSE_ARRET)
+        for nom, valeur in (("DEPOTS_EN_COURS", 0), ("DERNIERE_ACTIVITE", None)):
+            patch = unittest.mock.patch.object(serveur, nom, valeur)
+            patch.start()
+            self.addCleanup(patch.stop)
+
+    def poser(self, contenu, mode="w"):
+        with open(self.demande, mode) as f:
+            f.write(contenu)
+
+    def passer(self, depuis=10):
+        arret = serveur.ArretConcerte()
+        return serveur.traiter_demande_arret(self.dossier, arret, depuis), arret
+
+    def lire_reponse(self):
+        with open(self.reponse) as f:
+            return json.load(f)
+
+    def test_demande_acceptee(self):
+        self.poser(json.dumps(demande_arret(0)))
+        accepte, arret = self.passer()
+        self.assertTrue(accepte)
+        self.assertEqual(arret.jeton, JETON)
+        self.assertEqual(self.lire_reponse(), {"jeton": JETON, "verdict": "accepte",
+                                               "motif": "aucun"})
+        self.assertFalse(os.path.exists(self.demande))
+
+    def test_demande_refusee_pendant_un_depot(self):
+        self.poser(json.dumps(demande_arret(0)))
+        with unittest.mock.patch.object(serveur, "DEPOTS_EN_COURS", 1):
+            accepte, arret = self.passer()
+        self.assertFalse(accepte)
+        self.assertIsNone(arret.jeton)
+        self.assertEqual(self.lire_reponse()["motif"], "depot-en-cours")
+        self.assertFalse(os.path.exists(self.demande))
+
+    def test_aucune_demande(self):
+        accepte, _ = self.passer()
+        self.assertFalse(accepte)
+        self.assertFalse(os.path.exists(self.reponse))
+
+    def test_demandes_ignorees_et_effacees(self):
+        cas = {
+            "malformée": lambda: self.poser("{pas du json"),
+            "tronquée": lambda: self.poser('{"jeton": "' + JETON),
+            "sans jeton": lambda: self.poser(json.dumps(
+                {"calme_secondes": 0, "demarrage": False})),
+            "jeton inconnu": lambda: self.poser(json.dumps(demande_arret(jeton="zz"))),
+            "clé en double": lambda: self.poser(
+                '{"jeton": "%s", "jeton": "%s", "calme_secondes": 0, "demarrage": false}'
+                % (JETON, JETON)),
+            "NaN": lambda: self.poser(
+                '{"jeton": "%s", "calme_secondes": NaN, "demarrage": false}' % JETON),
+            "2 Kio": lambda: self.poser(json.dumps(dict(demande_arret(0), x="y" * 2048))),
+            "octets invalides": lambda: self.poser(b"\xff\xfe\x00", mode="wb"),
+            "vide": lambda: self.poser(""),
+            "dossier": lambda: os.mkdir(self.demande),
+        }
+        for nom, poser in cas.items():
+            with self.subTest(nom):
+                poser()
+                accepte, arret = self.passer()
+                self.assertFalse(accepte)
+                self.assertIsNone(arret.jeton)
+                self.assertFalse(os.path.lexists(self.demande))
+                self.assertFalse(os.path.exists(self.reponse))
+
+    def test_forme_invalide_mais_jeton_lisible_recoit_une_reponse(self):
+        self.poser(json.dumps({"jeton": JETON, "calme_secondes": -5, "demarrage": False}))
+        accepte, _ = self.passer()
+        self.assertFalse(accepte)
+        self.assertEqual(self.lire_reponse(), {"jeton": JETON, "verdict": "refuse",
+                                               "motif": "demande-invalide"})
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "pas de tube nommé sur ce système")
+    def test_un_tube_nomme_n_est_jamais_ouvert(self):
+        os.mkfifo(self.demande)
+        accepte, _ = self.passer()       # bloquerait à l'infini si le tube était ouvert
+        self.assertFalse(accepte)
+        self.assertFalse(os.path.lexists(self.demande))
+
+    def test_un_lien_n_est_pas_suivi(self):
+        cible = os.path.join(self.dossier, "cible.json")
+        with open(cible, "w") as f:
+            json.dump(demande_arret(0), f)
+        try:
+            os.symlink(cible, self.demande)
+        except (OSError, NotImplementedError):
+            self.skipTest("lien symbolique impossible sur ce poste")
+        accepte, _ = self.passer()
+        self.assertFalse(accepte)
+        self.assertFalse(os.path.lexists(self.demande))
+        self.assertTrue(os.path.exists(cible))
+
+    def test_le_serveur_ne_cree_pas_le_dossier(self):
+        absent = os.path.join(self.dossier, "absent")
+        accepte, _ = (serveur.traiter_demande_arret(absent, serveur.ArretConcerte(), 10),
+                      None)
+        self.assertFalse(accepte)
+        serveur.ecrire_reponse_arret(absent, JETON, "refuse", "activite")
+        self.assertFalse(os.path.exists(absent))
+
+    def test_demandes_perimees_effacees_au_demarrage(self):
+        self.poser(json.dumps(demande_arret(0)))
+        with open(self.reponse, "w") as f:
+            f.write("{}")
+        serveur.effacer_demandes_perimees(self.dossier)
+        self.assertEqual(os.listdir(self.dossier), [])
+
+    def test_surveillance_arrete_le_serveur_et_pose_l_evenement(self):
+        class FauxServeur(object):
+            arrete = False
+
+            def shutdown(self):
+                FauxServeur.arrete = True
+
+        self.poser(json.dumps(demande_arret(0)))
+        arret = serveur.ArretConcerte()
+        fin = threading.Event()
+        serveur.surveiller_demande_arret(FauxServeur(), arret, fin, self.dossier)
+        self.assertTrue(FauxServeur.arrete)
+        self.assertTrue(arret.evenement.is_set())
+
+    def test_surveillance_survit_a_une_exception(self):
+        class FauxServeur(object):
+            def shutdown(self):
+                pass
+
+        appels = []
+        fin = threading.Event()
+
+        def instable(dossier, arret, depuis, maintenant=None):
+            appels.append(1)
+            if len(appels) == 1:
+                raise RuntimeError("panne d'essai")
+            fin.set()
+            return False
+
+        with unittest.mock.patch.object(serveur, "traiter_demande_arret", instable), \
+             unittest.mock.patch.object(serveur, "INTERVALLE_SURVEILLANCE_SECONDES", 0.01):
+            serveur.surveiller_demande_arret(FauxServeur(), serveur.ArretConcerte(), fin,
+                                             self.dossier)
+        self.assertEqual(len(appels), 2)
+
+    def test_attendre_fin_depots(self):
+        with unittest.mock.patch.object(serveur, "DEPOTS_EN_COURS", 0):
+            self.assertTrue(serveur.attendre_fin_depots(0.1))
+        with unittest.mock.patch.object(serveur, "DEPOTS_EN_COURS", 2):
+            self.assertFalse(serveur.attendre_fin_depots(0.15, pas=0.01))
+
+
+class CompteursDeDepots(unittest.TestCase):
+    """Le compte des dépôts en cours et l'heure de la dernière requête."""
+
+    def setUp(self):
+        for nom, valeur in (("DEPOTS_EN_COURS", 0), ("DERNIERE_ACTIVITE", None)):
+            patch = unittest.mock.patch.object(serveur, nom, valeur)
+            patch.start()
+            self.addCleanup(patch.stop)
+
+    def instance(self, chemin):
+        gestionnaire = serveur.Gestionnaire.__new__(serveur.Gestionnaire)
+        gestionnaire.path = chemin
+        return gestionnaire
+
+    def test_la_sonde_de_sante_ne_compte_pas(self):
+        for chemin in ("/sante", "/sante?x=1", "/sante#a"):
+            with self.subTest(chemin=chemin):
+                self.instance(chemin).noter_activite()
+                self.assertIsNone(serveur.DERNIERE_ACTIVITE)
+        for chemin in ("/", "/cabinet", "/etat", "/depot", "/schema.json", "/santé", "/sante/"):
+            with self.subTest(chemin=chemin):
+                serveur.DERNIERE_ACTIVITE = None
+                self.instance(chemin).noter_activite()
+                self.assertIsNotNone(serveur.DERNIERE_ACTIVITE)
+
+    def test_le_compte_couvre_tout_le_traitement_et_retombe_a_zero(self):
+        vus = []
+        gestionnaire = self.instance("/depot")
+        gestionnaire.traiter_post = lambda: vus.append(serveur.lire_compteurs()[0])
+        gestionnaire.do_POST()
+        self.assertEqual(vus, [1])
+        self.assertEqual(serveur.DEPOTS_EN_COURS, 0)
+
+    def test_le_compte_retombe_a_zero_meme_si_le_traitement_leve(self):
+        gestionnaire = self.instance("/depot")
+
+        def panne():
+            raise RuntimeError("panne d'essai")
+
+        gestionnaire.traiter_post = panne
+        with self.assertRaises(RuntimeError):
+            gestionnaire.do_POST()
+        self.assertEqual(serveur.DEPOTS_EN_COURS, 0)
+
+    def test_la_fin_d_un_depot_note_l_activite(self):
+        self.assertIsNone(serveur.DERNIERE_ACTIVITE)
+        serveur.entrer_depot()
+        self.assertIsNone(serveur.DERNIERE_ACTIVITE)
+        serveur.sortir_depot()
+        self.assertIsNotNone(serveur.DERNIERE_ACTIVITE)
+
+    def test_gardes_ast_de_do_post_do_get_do_head(self):
+        with open(serveur.__file__, encoding="utf-8") as f:
+            arbre = ast.parse(f.read())
+        methodes = {}
+        for classe in arbre.body:
+            if isinstance(classe, ast.ClassDef) and classe.name == "Gestionnaire":
+                methodes = {n.name: n for n in classe.body if isinstance(n, ast.FunctionDef)}
+
+        def premier_appel(fonction):
+            for instruction in fonction.body:
+                if isinstance(instruction, ast.Expr) and isinstance(instruction.value, ast.Call):
+                    return getattr(instruction.value.func, "attr", None)
+            return None
+
+        for nom in ("do_GET", "do_HEAD", "do_POST"):
+            with self.subTest(nom):
+                self.assertEqual(premier_appel(methodes[nom]), "noter_activite")
+        essais = [n for n in methodes["do_POST"].body if isinstance(n, ast.Try)]
+        self.assertEqual(len(essais), 1)
+        sortie = [getattr(getattr(i.value, "func", None), "id", None)
+                  for i in essais[0].finalbody if isinstance(i, ast.Expr)]
+        self.assertEqual(sortie, ["sortir_depot"])
+
+
+class EtatDeLaMiseAJour(unittest.TestCase):
+    """Les cinq clés maj_* de /etat, lues dans un fichier écrit par un AUTRE
+    processus : validées une à une, jamais recopiées (A13)."""
+
+    def setUp(self):
+        self.dossier = tempfile.mkdtemp(prefix="bilan-test-etat-maj-")
+        self.addCleanup(shutil.rmtree, self.dossier, ignore_errors=True)
+        self.fichier = os.path.join(self.dossier, serveur.ETAT_MAJ)
+
+    def ecrire(self, objet=None, brut=None):
+        with open(self.fichier, "wb") as f:
+            f.write(brut if brut is not None else json.dumps(objet).encode("utf-8"))
+
+    def lire(self):
+        return serveur.lire_etat_maj(self.dossier)
+
+    VALIDE = {"format": 1, "etape": "repos", "resultat": "appliquee", "code": None,
+              "le": "2026-11-12T03:14:15", "version": "1.2.0", "de": "1.1.0", "vers": "1.2.0",
+              "ecartees": []}
+
+    def illisible(self):
+        return {"maj_etape": "illisible", "maj_resultat": None, "maj_code": None,
+                "maj_le": None, "maj_version": None}
+
+    def test_etat_valide(self):
+        self.ecrire(self.VALIDE)
+        self.assertEqual(self.lire(), {
+            "maj_etape": "repos", "maj_resultat": "appliquee", "maj_code": None,
+            "maj_le": "2026-11-12T03:14:15", "maj_version": "1.2.0"})
+
+    def test_fichier_absent(self):
+        self.assertEqual(self.lire(), {"maj_etape": "absente", "maj_resultat": None,
+                                       "maj_code": None, "maj_le": None, "maj_version": None})
+
+    def test_dossier_absent(self):
+        self.assertEqual(serveur.lire_etat_maj(os.path.join(self.dossier, "x"))["maj_etape"],
+                         "absente")
+
+    def test_chaque_etape_du_vocabulaire(self):
+        for etape in serveur.ETAPES_MAJ:
+            with self.subTest(etape=etape):
+                self.ecrire(dict(self.VALIDE, etape=etape))
+                self.assertEqual(self.lire()["maj_etape"], etape)
+
+    def test_chaque_resultat_du_vocabulaire(self):
+        for resultat in serveur.RESULTATS_MAJ:
+            with self.subTest(resultat=resultat):
+                self.ecrire(dict(self.VALIDE, resultat=resultat))
+                self.assertEqual(self.lire()["maj_resultat"], resultat)
+
+    def test_illisible_et_rien_ailleurs(self):
+        mauvais = {
+            "tronqué": dict(brut=b'{"etape": "rep'),
+            "vide": dict(brut=b""),
+            "pas un objet": dict(objet=[1, 2]),
+            "clé en double": dict(brut=b'{"etape": "repos", "etape": "bascule"}'),
+            "NaN": dict(brut=b'{"etape": "repos", "version": NaN}'),
+            "BOM": dict(brut=b"\xef\xbb\xbf" + json.dumps(self.VALIDE).encode()),
+            "octets invalides": dict(brut=b"\xff\xfe\x00"),
+            "étape hors vocabulaire": dict(objet=dict(self.VALIDE, etape="inconnue")),
+            "étape absente": dict(objet={k: v for k, v in self.VALIDE.items() if k != "etape"}),
+            "résultat hors vocabulaire": dict(objet=dict(self.VALIDE, resultat="peut-etre")),
+            "résultat qui est un chemin": dict(objet=dict(self.VALIDE, resultat="/etc/passwd")),
+            "code en minuscules": dict(objet=dict(self.VALIDE, code="signature_invalide")),
+            "code trop long": dict(objet=dict(self.VALIDE, code="A" * 41)),
+            "code qui porte un chemin": dict(objet=dict(self.VALIDE, code="C:\\Users\\Léa")),
+            "code qui porte une adresse": dict(objet=dict(self.VALIDE, code="192.168.1.13")),
+            "horodatage hors forme": dict(objet=dict(self.VALIDE, le="hier")),
+            "horodatage avec fuseau": dict(objet=dict(self.VALIDE, le="2026-11-12T03:14:15Z")),
+            "horodatage avec saut de ligne": dict(objet=dict(self.VALIDE, le="2026-11-12T03:14:15\n")),
+            "version avec suffixe": dict(objet=dict(self.VALIDE, version="1.2.0-beta")),
+            "version avec chemin": dict(objet=dict(self.VALIDE, version="/srv/1.2.0")),
+            "version numérique": dict(objet=dict(self.VALIDE, version=120)),
+            "zéro de tête": dict(objet=dict(self.VALIDE, version="01.2.0")),
+            "chemin dans un champ": dict(objet=dict(self.VALIDE, code="CHEMIN", version="/a/b")),
+        }
+        for nom, argument in mauvais.items():
+            with self.subTest(nom):
+                self.ecrire(**argument)
+                self.assertEqual(self.lire(), self.illisible())
+
+    def test_fichier_de_plus_de_16_kio(self):
+        self.ecrire(dict(self.VALIDE, remplissage="x" * 17000))
+        self.assertGreater(os.path.getsize(self.fichier), 16 * 1024)
+        self.assertEqual(self.lire(), self.illisible())
+
+    def test_cles_supplementaires_ne_sont_jamais_recopiees(self):
+        self.ecrire(dict(self.VALIDE, chemin="/home/Dupont", ecartees=["1.0.0"]))
+        etat = self.lire()
+        self.assertEqual(sorted(etat), sorted(k for k in serveur.CLES_ETAT if k.startswith("maj_")))
+        self.assertNotIn("Dupont", json.dumps(etat))
+
+    def test_un_dossier_a_la_place_du_fichier(self):
+        os.mkdir(self.fichier)
+        self.assertEqual(self.lire(), self.illisible())
+
+    def test_un_lien_n_est_pas_lu(self):
+        cible = os.path.join(self.dossier, "cible.json")
+        with open(cible, "w") as f:
+            json.dump(self.VALIDE, f)
+        try:
+            os.symlink(cible, self.fichier)
+        except (OSError, NotImplementedError):
+            self.skipTest("lien symbolique impossible sur ce poste")
+        self.assertEqual(self.lire(), self.illisible())
+
+    def construire(self):
+        with unittest.mock.patch.object(serveur, "DOSSIER_MAJ", self.dossier), \
+             unittest.mock.patch.object(serveur, "TECHNIQUE",
+                                        os.path.join(self.dossier, "technique.log")):
+            return serveur.construire_etat(copy.deepcopy(serveur.CONFIG_DEFAUT), self.dossier)
+
+    def test_construire_etat_porte_les_cinq_cles_dans_l_ordre(self):
+        self.ecrire(self.VALIDE)
+        etat = self.construire()
+        self.assertEqual(list(etat), list(serveur.CLES_ETAT))
+        self.assertEqual((etat["maj_etape"], etat["maj_resultat"], etat["maj_version"]),
+                         ("repos", "appliquee", "1.2.0"))
+        self.assertEqual(etat["maj_le"], "2026-11-12T03:14:15")
+
+    def test_construire_etat_sans_fichier(self):
+        self.assertEqual(self.construire()["maj_etape"], "absente")
+
+    def test_construire_etat_ne_recopie_pas_un_fichier_hostile(self):
+        self.ecrire(dict(self.VALIDE, code="/home/Dupont/Bilan.pdf"))
+        etat = self.construire()
+        self.assertEqual(etat["maj_etape"], "illisible")
+        for rendu in (serveur.rendre_etat_json(etat), serveur.rendre_etat_html(etat)):
+            self.assertNotIn("Dupont", rendu)
+
+    def test_page_html_porte_la_ligne_mise_a_jour_echappee(self):
+        etat = self.construire()
+        for maj_etape, attendu in (("absente", "aucune mise à jour enregistrée"),
+                                   ("illisible", "état illisible")):
+            with self.subTest(maj_etape):
+                page = serveur.rendre_etat_html(dict(etat, maj_etape=maj_etape))
+                self.assertIn("<th>Mise à jour</th>", page)
+                self.assertIn(attendu, page)
+        page = serveur.rendre_etat_html(dict(
+            etat, maj_etape="repos", maj_resultat="appliquee", maj_version="1.2.0",
+            maj_le="2026-11-12T03:14:15", maj_code="SANTE_MUETTE"))
+        self.assertIn("dernier résultat : appliquee", page)
+        self.assertIn("version : 1.2.0", page)
+        self.assertIn("code : SANTE_MUETTE", page)
+        self.assertIn("le 2026-11-12 03:14:15", page)
+        # Même une valeur qui aurait échappé à la validation est échappée.
+        piege = serveur.rendre_etat_html(dict(etat, maj_etape="<script>x</script>"))
+        self.assertNotIn("<script>x", piege)
+        self.assertIn("&lt;script&gt;", piege)
+
+    def test_page_et_json_sans_adresse(self):
+        # Le motif du test d'intégration est importé, pas recopié.
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        from test_integration import chercher_adresse
+        self.ecrire(self.VALIDE)
+        etat = self.construire()
+        for rendu in (serveur.rendre_etat_json(etat), serveur.rendre_etat_html(etat)):
+            self.assertIsNone(chercher_adresse(rendu, ipv6=False))
+        for cle in ("maj_etape", "maj_resultat", "maj_code", "maj_version"):
+            self.assertIsNone(chercher_adresse(str(etat[cle])))
+        self.assertIn("maj_le", serveur.CHAMPS_ETAT_HORODATES)
+        # Témoin : la garde mord sur un code qui porterait une adresse.
+        self.assertIsNotNone(chercher_adresse("code 192.168.1.13", ipv6=False))
+
+
+def modules_importes(source):
+    modules = set()
+    for noeud in ast.walk(ast.parse(source)):
+        if isinstance(noeud, ast.Import):
+            modules.update(a.name for a in noeud.names)
+        elif isinstance(noeud, ast.ImportFrom) and noeud.level == 0:
+            modules.add(noeud.module)
+            modules.update("%s.%s" % (noeud.module, a.name) for a in noeud.names)
+    return modules
+
+
+class VocabulaireDeLaMiseAJour(unittest.TestCase):
+
+    def test_les_cinq_evenements_sont_declares(self):
+        for evenement in ("MAJ_REFUSEE", "MAJ_REPORTEE", "MAJ_APPLIQUEE", "MAJ_RETOUR",
+                          "MAJ_CONTROLE"):
+            self.assertIn(evenement, serveur.EVENEMENTS_TECHNIQUES)
+
+    def test_aucun_jeton_n_est_prefixe_d_un_autre(self):
+        # Un lecteur de journal cherche un jeton exact (CLAUDE.md), mais un préfixe
+        # le piégerait. DEMARRAGE / DEMARRAGE_REFUSE (C6-T7) est l'unique cas hérité :
+        # il est nommé, pour qu'un second ne passe pas inaperçu (erratum 3).
+        paires = sorted((a, b) for a in serveur.EVENEMENTS_TECHNIQUES
+                        for b in serveur.EVENEMENTS_TECHNIQUES
+                        if a != b and b.startswith(a))
+        self.assertEqual(paires, [("DEMARRAGE", "DEMARRAGE_REFUSE")])
+        for jeton in serveur.EVENEMENTS_TECHNIQUES:
+            if jeton.startswith("MAJ_"):
+                for autre in serveur.EVENEMENTS_TECHNIQUES - {jeton}:
+                    self.assertFalse(autre.startswith(jeton), (jeton, autre))
+                    self.assertFalse(jeton.startswith(autre), (jeton, autre))
+
+    def test_les_etapes_et_resultats_du_contrat(self):
+        self.assertEqual(serveur.ETAPES_MAJ, ("repos", "preparee", "bascule", "verification",
+                                              "retour", "echec-retour"))
+        self.assertEqual(serveur.RESULTATS_MAJ, ("appliquee", "revenue", "refusee", "reportee"))
+
+    def test_les_noms_du_dossier_reserve(self):
+        self.assertEqual((serveur.ETAT_MAJ, serveur.DEMANDE_ARRET, serveur.REPONSE_ARRET),
+                         ("etat.json", "arret.demande", "arret.reponse"))
+
+    def test_serveur_py_n_importe_ni_urllib_ni_http_client(self):
+        with open(serveur.__file__, encoding="utf-8") as f:
+            source = f.read()
+        interdits = [m for m in modules_importes(source)
+                     if m.split(".")[0] == "urllib" or m == "http.client"]
+        self.assertEqual(interdits, [])
+        # La garde mord.
+        for mutation in ("import urllib.request\n", "from urllib import parse\n",
+                         "import http.client\n", "from http import client\n",
+                         "def f():\n    import http.client\n"):
+            with self.subTest(mutation=mutation):
+                modules = modules_importes(mutation)
+                self.assertTrue([m for m in modules if m.split(".")[0] == "urllib"
+                                 or m == "http.client"], mutation)
+        # Ancrage : la garde voit bien les imports qui existent.
+        self.assertIn("http.server", modules_importes(source))
+
+    def test_serveur_py_importe_paquet_signe(self):
+        with open(serveur.__file__, encoding="utf-8") as f:
+            source = f.read()
+        self.assertIn("paquet_signe", modules_importes(source))

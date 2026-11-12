@@ -37,8 +37,8 @@ import paquet_signe  # noqa: E402
 
 SUFFIXE_CLE_PRIVEE = "-privee.pem"
 NOM_CLES_DE_CONFIANCE = "serveur/cles_publication.json"
-SUFFIXE_MANIFESTE = ".manifeste.json"
-SUFFIXE_SIGNATURE = ".manifeste.sig"
+SUFFIXE_MANIFESTE = paquet_signe.SUFFIXE_MANIFESTE
+SUFFIXE_SIGNATURE = paquet_signe.SUFFIXE_SIGNATURE
 
 _NOM_DE_CLE = re.compile(r"publication-[0-9]{4}[a-z0-9-]*")
 _CLIENT = re.compile(r"cabinet-[0-9]{2,}")

@@ -68,3 +68,8 @@ formulaire/images/cabinet/
 # outre `identite-cabinet.json` s'il était ajouté de force.
 identite-cabinet.json
 apercu-atelier.html
+
+# Dossier de travail du client de mise à jour (C5-T2a) : paquet copié, extrait,
+# sauvegarde, état. Il vit sur le PC du cabinet, réservé à SYSTEM et aux
+# administrateurs, jamais dans le dépôt.
+mise-a-jour/

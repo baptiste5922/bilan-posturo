@@ -135,12 +135,14 @@ rm -rf "$PAQUET"
 # vide au cabinet, exactement comme un paquet sans LICENSE le livrerait hors
 # de ses conditions d'usage. Depuis C5-T1, serveur/signature_ed25519.py et
 # serveur/paquet_signe.py y figurent aussi : sans eux, le PC du cabinet ne
-# pourrait pas vérifier la première mise à jour signée.
+# pourrait pas vérifier la première mise à jour signée. Depuis C5-T2a,
+# serveur/maj.py y figure aussi : sans le client, aucune mise à jour ne s'applique.
 for obligatoire in "$PAQUET/LICENSE" "$PAQUET/TIERS.md" \
                    "$PAQUET/formulaire/index.html" "$PAQUET/formulaire/index-v1.html" \
                    "$PAQUET/formulaire/moteur/rendu.js" "$PAQUET/formulaire/schema.json" \
                    "$PAQUET/formulaire/version.json" \
-                   "$PAQUET/serveur/signature_ed25519.py" "$PAQUET/serveur/paquet_signe.py"; do
+                   "$PAQUET/serveur/signature_ed25519.py" "$PAQUET/serveur/paquet_signe.py" \
+                   "$PAQUET/serveur/maj.py"; do
     if ! unzip -l "$PAQUET.zip" "$obligatoire" > /dev/null 2>&1; then
         # L'archive incomplète est effacée, comme pour le contrôle du schéma plus
         # bas : un BilanPosturo-*.zip laissé sur le disque a l'air d'un paquet
