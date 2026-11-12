@@ -107,8 +107,10 @@ class WindowsReel(unittest.TestCase):
         time.sleep(1.5)
         with open(battement) as f:
             self.assertEqual(f.read(), avant, "la tâche tourne encore après /End")
-        # Rien à arrêter : un code non nul, qui n'est pas une erreur.
-        self.assertFalse(pilote.arreter_de_force())
+        # Rien (plus) à arrêter : le code de sortie ne dit pas la même chose selon
+        # la version de Windows, et le client ne s'y fie pas. L'appel ne doit
+        # simplement pas lever.
+        pilote.arreter_de_force()
 
         lancer(maj._systeme32("schtasks.exe"), "/Delete", "/TN", nom, "/F")
         self.assertFalse(pilote.existe())
@@ -138,8 +140,7 @@ class WindowsReel(unittest.TestCase):
                 self.assertEqual(resultat.returncode, 0, resultat.stdout + resultat.stderr)
                 with open(enregistrement, "rb") as f:
                     brut = f.read()
-                texte = brut.decode("utf-16") if brut[:2] in (b"\xff\xfe", b"\xfe\xff") \
-                    else brut.decode("utf-8", "replace")
+                texte = maj.decoder_sortie_icacls(brut)
                 # Lecture INDÉPENDANTE de maj.sddl_est_protege : deux lecteurs qui
                 # s'accordent valent mieux qu'un seul qui se juge lui-même.
                 self.assertEqual(set(re.findall(r";;;([A-Z0-9-]+)\)", texte)), {"SY", "BA"}, texte)
