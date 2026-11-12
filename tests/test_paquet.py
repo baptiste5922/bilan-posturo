@@ -106,6 +106,12 @@ class FabricationDuPaquet(unittest.TestCase):
             self.assertTrue(any(n.endswith("/" + module) for n in noms),
                             module + " manque dans le paquet : " + ", ".join(noms))
 
+    def test_le_client_de_mise_a_jour_part_dans_le_paquet(self):
+        # C5-T2a : sans serveur/maj.py, aucune mise à jour ne s'applique au cabinet.
+        noms = self._noms_dans_le_paquet()
+        self.assertTrue(any(n.endswith("/serveur/maj.py") for n in noms),
+                        "serveur/maj.py manque dans le paquet : " + ", ".join(noms))
+
     def test_le_script_ne_signe_pas_et_n_exige_aucune_cle(self):
         # D11 : la CI fabrique l'archive sans détenir la clé de publication, et
         # l'archive reste seule : manifeste et signature viennent après.
@@ -175,6 +181,9 @@ class ClientDuPaquet(unittest.TestCase):
 
     def test_module_de_paquet_signe_absent_efface_l_archive(self):
         self._piece_de_serveur_absente_efface_l_archive("paquet_signe.py")
+
+    def test_client_de_mise_a_jour_absent_efface_l_archive(self):
+        self._piece_de_serveur_absente_efface_l_archive("maj.py")
 
     def test_client_inexistant_refuse(self):
         resultat = self._lancer("cabinet-99")
