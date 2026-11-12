@@ -1168,6 +1168,16 @@ class PiloteTache(unittest.TestCase):
 class DroitsWindows(unittest.TestCase):
     """L'analyse du SDDL que icacls /save écrit : pure, donc jouée partout."""
 
+    def test_decodage_de_la_sortie_d_icacls(self):
+        texte = "dossier\r\nD:PAI(A;OICI;FA;;;BA)(A;OICI;FA;;;SY)\r\n"
+        formes = (texte.encode("utf-16"), texte.encode("utf-16-le"), texte.encode("utf-8"))
+        for brut in formes:
+            with self.subTest(brut=brut[:6]):
+                self.assertTrue(maj.sddl_est_protege(maj.decoder_sortie_icacls(brut))[0])
+        self.assertEqual(maj.decoder_sortie_icacls(b""), "")
+        self.assertIsInstance(maj.decoder_sortie_icacls(b"\xff\xfe\xff"), str)
+        self.assertIsInstance(maj.decoder_sortie_icacls(b"\x80\x81"), str)
+
     def test_table(self):
         cas = (
             ("D:PAI(A;OICI;FA;;;BA)(A;OICI;FA;;;SY)", True),

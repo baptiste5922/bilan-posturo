@@ -429,6 +429,20 @@ def _lancer_windows(arguments, delai=60):
     return resultat.returncode
 
 
+def decoder_sortie_icacls(brut):
+    """Le texte du fichier que `icacls /save` écrit : de l'UTF-16 (avec ou sans
+    marque d'ordre des octets, selon la version de Windows), à défaut de l'UTF-8
+    ou de la page de code locale. Ne lève jamais."""
+    if brut[:2] in (b"\xff\xfe", b"\xfe\xff"):
+        return brut.decode("utf-16", "replace")
+    if b"\x00" in brut[:16]:
+        return brut.decode("utf-16-le", "replace")
+    try:
+        return brut.decode("utf-8")
+    except UnicodeDecodeError:
+        return brut.decode("latin-1")
+
+
 def _proteger_windows(dossier):
     icacls = _systeme32("icacls.exe")
     # SID plutôt que des noms : « Système » et « Administrateurs » se traduisent.
@@ -451,11 +465,12 @@ def _proteger_windows(dossier):
             pass
     if code != 0:
         raise Refus("DOSSIER_NON_PROTEGE", "icacls /save a échoué (code %d)" % code)
-    texte = brut.decode("utf-16") if brut[:2] in (b"\xff\xfe", b"\xfe\xff") \
-        else brut.decode("utf-8", "replace")
+    texte = decoder_sortie_icacls(brut)
     protege, motif = sddl_est_protege(texte)
     if not protege:
-        raise Refus("DOSSIER_NON_PROTEGE", motif)
+        # Le début de ce qui a été lu aide le support à comprendre un format
+        # inattendu ; il ne va que dans journal.log et sur la console.
+        raise Refus("DOSSIER_NON_PROTEGE", "%s (lu : %r)" % (motif, texte[:120]))
 
 
 def _proteger_posix(dossier):
