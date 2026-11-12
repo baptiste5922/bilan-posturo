@@ -142,9 +142,13 @@ class WindowsReel(unittest.TestCase):
                     else brut.decode("utf-8", "replace")
                 # Lecture INDÉPENDANTE de maj.sddl_est_protege : deux lecteurs qui
                 # s'accordent valent mieux qu'un seul qui se juge lui-même.
-                self.assertRegex(texte, r"D:P")
-                self.assertEqual(set(re.findall(r";;;([A-Z0-9-]+)\)", texte)), {"SY", "BA"})
-                self.assertTrue(maj.sddl_est_protege(texte)[0], texte)
+                self.assertEqual(set(re.findall(r";;;([A-Z0-9-]+)\)", texte)), {"SY", "BA"}, texte)
+                if cible == dossier:
+                    # Le dossier est protégé ; le fichier, lui, HÉRITE (D:AI).
+                    self.assertRegex(texte, r"D:P")
+                    self.assertTrue(maj.sddl_est_protege(texte)[0], texte)
+                else:
+                    self.assertRegex(texte, r"D:AI")
 
     def test_dossier_reserve_relu_a_chaque_fois(self):
         racine = os.path.realpath(tempfile.mkdtemp(prefix="bilan-maj-droits-"))

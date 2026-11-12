@@ -443,34 +443,102 @@ def decoder_sortie_icacls(brut):
         return brut.decode("latin-1")
 
 
-def _proteger_windows(dossier):
-    icacls = _systeme32("icacls.exe")
-    # SID plutôt que des noms : « Système » et « Administrateurs » se traduisent.
-    code = _lancer_windows([icacls, dossier, "/inheritance:r", "/grant:r",
-                            "*S-1-5-18:(OI)(CI)F", "*S-1-5-32-544:(OI)(CI)F"])
-    if code != 0:
-        raise Refus("DOSSIER_NON_PROTEGE", "icacls a refusé (code %d)" % code)
+# SID absolus des abréviations SDDL que l'on retrouve sur un dossier neuf. Les
+# autres abréviations (LA, LG…) dépendent de la machine : on retire alors le SID du
+# compte qui exécute le client (_sid_de_l_utilisateur).
+SID_DES_ABREVIATIONS = {
+    "OW": "S-1-3-4", "CO": "S-1-3-0", "WD": "S-1-1-0", "BU": "S-1-5-32-545",
+    "AU": "S-1-5-11", "IU": "S-1-5-4", "AN": "S-1-5-7", "NU": "S-1-5-2",
+    "PU": "S-1-5-32-547", "RC": "S-1-5-12", "BG": "S-1-5-32-546",
+}
+SID_SYSTEME = "S-1-5-18"
+SID_ADMINISTRATEURS = "S-1-5-32-544"
+
+
+def sids_en_trop(texte):
+    """Les comptes, hors SY et BA, que porte le SDDL d'un dossier (dans l'ordre).
+
+    Sur un dossier neuf, Windows ajoute une entrée pour le CRÉATEUR (le compte qui
+    exécute le client : abréviation `OW`, `LA`, ou son SID complet), née du dossier
+    parent et qu'un retrait de l'héritage ne supprime pas. Pure, donc testable."""
+    correspondance = re.search(r"D:([A-Z]*)((?:\([^)]*\))*)", texte)
+    if correspondance is None:
+        return []
+    trouves = []
+    for ace in _ACE.findall(correspondance.group(2)):
+        champs = ace.split(";")
+        if len(champs) >= 6 and champs[5] not in ("SY", "BA") and champs[5] not in trouves:
+            trouves.append(champs[5])
+    return trouves
+
+
+def _sortie_windows(arguments, delai=60):
+    """(code, sortie standard) d'un outil Windows lancé par son chemin absolu."""
+    resultat = subprocess.run(
+        arguments, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL, timeout=delai,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    return resultat.returncode, resultat.stdout
+
+
+def _sid_de_l_utilisateur():
+    """Le SID du compte qui exécute le client, par whoami (CSV : indépendant de la
+    langue de Windows)."""
+    code, sortie = _sortie_windows(
+        [_systeme32("whoami.exe"), "/user", "/fo", "csv", "/nh"])
+    correspondance = re.search(r"S-1-[0-9-]+", sortie.decode("utf-8", "replace"))
+    if code != 0 or correspondance is None:
+        raise Refus("DOSSIER_NON_PROTEGE", "compte courant introuvable")
+    return correspondance.group(0)
+
+
+def _lire_droits_windows(icacls, dossier):
+    """Le SDDL du dossier, relu par `icacls /save` (le fichier est effacé)."""
     fichier = os.path.join(dossier, "droits.txt")
-    try:
-        os.remove(fichier)
-    except OSError:
-        pass
+    _effacer_si_present(fichier)
     code = _lancer_windows([icacls, dossier, "/save", fichier])
     try:
         brut = lire_borne(fichier, 64 * 1024, "DOSSIER_NON_PROTEGE")
     finally:
-        try:
-            os.remove(fichier)
-        except OSError:
-            pass
+        _effacer_si_present(fichier)
     if code != 0:
         raise Refus("DOSSIER_NON_PROTEGE", "icacls /save a échoué (code %d)" % code)
-    texte = decoder_sortie_icacls(brut)
+    return decoder_sortie_icacls(brut)
+
+
+def _proteger_windows(dossier):
+    """Réserve le dossier à SYSTEM et aux administrateurs, puis RELIT les droits.
+
+    Dans l'ordre : propriétaire = Administrateurs (un dossier posé à l'avance par un
+    utilisateur resterait à lui, et un propriétaire règle ses droits à sa guise) ;
+    héritage coupé et deux entrées posées ; retrait de toute autre entrée (celle
+    du créateur) ; relecture, qui exige exactement SY et BA."""
+    icacls = _systeme32("icacls.exe")
+    etapes = (
+        [icacls, dossier, "/setowner", "*" + SID_ADMINISTRATEURS],
+        # SID plutôt que des noms : « Système » et « Administrateurs » se traduisent.
+        [icacls, dossier, "/inheritance:r", "/grant:r",
+         "*%s:(OI)(CI)F" % SID_SYSTEME, "*%s:(OI)(CI)F" % SID_ADMINISTRATEURS],
+    )
+    for arguments in etapes:
+        code = _lancer_windows(arguments)
+        if code != 0:
+            raise Refus("DOSSIER_NON_PROTEGE", "icacls a refusé %s (code %d)"
+                        % (arguments[2], code))
+    texte = _lire_droits_windows(icacls, dossier)
+    for compte in sids_en_trop(texte):
+        sid = SID_DES_ABREVIATIONS.get(compte)
+        if sid is None:
+            sid = compte if compte.startswith("S-1-") else _sid_de_l_utilisateur()
+        code = _lancer_windows([icacls, dossier, "/remove:g", "*" + sid])
+        if code != 0:
+            raise Refus("DOSSIER_NON_PROTEGE", "retrait d'une entrée refusé (code %d)" % code)
+        texte = _lire_droits_windows(icacls, dossier)
     protege, motif = sddl_est_protege(texte)
     if not protege:
         # Le début de ce qui a été lu aide le support à comprendre un format
         # inattendu ; il ne va que dans journal.log et sur la console.
-        raise Refus("DOSSIER_NON_PROTEGE", "%s (lu : %r)" % (motif, texte[:120]))
+        raise Refus("DOSSIER_NON_PROTEGE", "%s (lu : %r)" % (motif, texte[:160]))
 
 
 def _proteger_posix(dossier):

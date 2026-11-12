@@ -1168,6 +1168,32 @@ class PiloteTache(unittest.TestCase):
 class DroitsWindows(unittest.TestCase):
     """L'analyse du SDDL que icacls /save écrit : pure, donc jouée partout."""
 
+    def test_comptes_en_trop(self):
+        # Formats relevés en intégration continue sur un dossier neuf : une entrée
+        # supplémentaire pour le compte créateur (OW sous Python 3.13, LA sous 3.9).
+        cas = (
+            ("mise-a-jour\r\nD:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;OW)\r\n", ["OW"]),
+            ("D:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;LA)", ["LA"]),
+            ("D:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;S-1-5-21-1-2-3-1001)",
+             ["S-1-5-21-1-2-3-1001"]),
+            ("D:PAI(A;OICI;FA;;;BA)(A;OICI;FA;;;SY)", []),
+            ("D:PAI(A;OICI;FA;;;OW)(A;OICI;FA;;;OW)(A;OICI;FA;;;WD)", ["OW", "WD"]),
+            ("pas de droits", []),
+        )
+        for texte, attendu in cas:
+            with self.subTest(texte=texte):
+                self.assertEqual(maj.sids_en_trop(texte), attendu)
+        # Ces comptes en trop font bien refuser le dossier tant qu'ils restent.
+        self.assertFalse(maj.sddl_est_protege(cas[0][0])[0])
+
+    def test_abreviations_connues_sont_des_sid_absolus(self):
+        for abreviation, sid in maj.SID_DES_ABREVIATIONS.items():
+            with self.subTest(abreviation=abreviation):
+                self.assertRegex(sid, r"^S-1-[0-9]+(-[0-9]+)+$")
+        self.assertEqual(maj.SID_DES_ABREVIATIONS["OW"], "S-1-3-4")
+        self.assertEqual((maj.SID_SYSTEME, maj.SID_ADMINISTRATEURS),
+                         ("S-1-5-18", "S-1-5-32-544"))
+
     def test_decodage_de_la_sortie_d_icacls(self):
         texte = "dossier\r\nD:PAI(A;OICI;FA;;;BA)(A;OICI;FA;;;SY)\r\n"
         formes = (texte.encode("utf-16"), texte.encode("utf-16-le"), texte.encode("utf-8"))
