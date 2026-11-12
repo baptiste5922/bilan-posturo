@@ -88,6 +88,7 @@ class Installation(unittest.TestCase):
             # Les droits Windows sont éprouvés pour de vrai par test_maj_windows ;
             # ici, deux processus icacls par essai ralentiraient la suite pour rien.
             self.patch(maj, "_proteger_windows", lambda dossier: None)
+            self.patch(serveur, "dossier_reserve_de_confiance", lambda dossier: True)
 
     def patch(self, objet, nom, valeur):
         p = unittest.mock.patch.object(objet, nom, valeur)
@@ -707,6 +708,39 @@ class PoseEtRetour(Installation):
         self.assertGreaterEqual(premier[0], 1)
         self.assertEqual(compteur[1], 0)
         self.assertEqual(self.arbre(), avant)
+
+    def installe_ancien(self):
+        maj.preparer_dossier_prive(self.racine)
+        maj.ecrire_json(os.path.join(self.racine, "mise-a-jour", "installe.json"), {
+            "version": "1.1.0", "fichiers": {
+                "docs/Mode_emploi.md": pe.sha(self.base["docs/Mode_emploi.md"])}})
+        with open(os.path.join(self.racine, "mise-a-jour", "installe.json"), "rb") as f:
+            return f.read()
+
+    def test_le_retour_restaure_installe_json(self):
+        # X6 : une coupure entre l'écriture d'installe.json et le passage à « repos »
+        # ne doit pas laisser les fichiers gérés de la version quittée.
+        ancien = self.installe_ancien()
+        plan = self.preparer()
+        self.basculer_a_moitie(plan, 3)
+        maj.ecrire_installe(plan)
+        maj.ecrire_etat(self.racine, etape="verification")
+        self.assertNotEqual(maj.lire_installe(self.racine)["version"], "1.1.0")
+        self.patch(maj, "attendre_sante", lambda *a, **k: True)
+        with maj.contexte_serveur(self.racine):
+            self.assertTrue(maj.reprendre(self.racine, self.pilote, 8000, delai_sante=1))
+        with open(os.path.join(self.racine, "mise-a-jour", "installe.json"), "rb") as f:
+            self.assertEqual(f.read(), ancien)
+
+    def test_le_retour_efface_installe_json_quand_il_n_y_en_avait_pas(self):
+        plan = self.preparer()
+        self.basculer_a_moitie(plan, 3)
+        maj.ecrire_installe(plan)
+        maj.ecrire_etat(self.racine, etape="verification")
+        self.patch(maj, "attendre_sante", lambda *a, **k: True)
+        with maj.contexte_serveur(self.racine):
+            self.assertTrue(maj.reprendre(self.racine, self.pilote, 8000, delai_sante=1))
+        self.assertFalse(os.path.lexists(os.path.join(self.racine, "mise-a-jour", "installe.json")))
 
     def test_reprise_sans_rien_a_faire(self):
         with maj.contexte_serveur(self.racine):
@@ -1433,6 +1467,288 @@ class ExtractionSansExtract(Installation):
                     maj.extraire(plan)
         self.assertEqual(contexte.exception.code, "EXTRACTION_ALTEREE")
         self.assertEqual(os.listdir(os.path.join(self.racine, "mise-a-jour", "prepare")), [])
+
+
+# ==============================================================================
+# Réaudit C5-T2a : le serveur relancé, la sauvegarde gardée, le dossier réservé
+# ==============================================================================
+
+class GardeApresAcceptation(Installation):
+    """Dès que le serveur a accepté l'arrêt, il quitte en code 0 et la tâche
+    planifiée ne le relance pas : TOUTE sortie du client qui suit l'acceptation
+    doit relancer le serveur et vérifier /sante (constat Moyen de l'audit)."""
+
+    def setUp(self):
+        Installation.setUp(self)
+        self.patch(maj, "attendre_sante", lambda *a, **k: True)
+        self.patch(maj, "port_ferme", lambda port: True)
+
+    def accepter_puis(self, faire):
+        def demander_arret(racine, port, calme, demarrage, delai_reponse=0,
+                           delai_arret=0, acceptation=None):
+            acceptation["accepte"] = True
+            return faire()
+
+        self.patch(maj, "demander_arret", demander_arret)
+
+    def lever(self, erreur):
+        def faire():
+            raise erreur
+        return faire
+
+    def test_arret_jamais_confirme_relance_le_serveur(self):
+        self.accepter_puis(self.lever(maj.Refus("ARRET_SANS_REPONSE", "pas d'arrêt")))
+        avant = self.arbre()
+        self.assertEqual(self.appliquer(self.trio()), 3)
+        self.assertIn("demarrer", self.pilote.appels)
+        self.assertEqual(self.arbre(), avant)
+        with open(os.path.join(self.racine, "journal.log"), encoding="utf-8") as f:
+            self.assertIn("relance du serveur après abandon", f.read())
+
+    def test_exception_imprevue_relance_le_serveur_puis_se_propage(self):
+        self.accepter_puis(self.lever(RuntimeError("panne d'essai")))
+        with self.assertRaises(RuntimeError):
+            self.appliquer(self.trio())
+        self.assertIn("demarrer", self.pilote.appels)
+
+    def test_interruption_au_clavier_relance_le_serveur(self):
+        self.accepter_puis(self.lever(KeyboardInterrupt()))
+        with self.assertRaises(KeyboardInterrupt):
+            self.appliquer(self.trio())
+        self.assertIn("demarrer", self.pilote.appels)
+
+    def test_echec_de_la_substitution_de_la_sauvegarde_relance_le_serveur(self):
+        self.accepter_puis(lambda: None)
+
+        def adopter(racine):
+            raise maj.Refus("ECRITURE_IMPOSSIBLE", "disque plein")
+
+        self.patch(maj, "adopter_sauvegarde", adopter)
+        self.assertEqual(self.appliquer(self.trio()), 1)
+        self.assertIn("demarrer", self.pilote.appels)
+
+    def test_refus_du_serveur_ne_relance_rien(self):
+        # Le serveur n'a pas accepté : il tourne, rien à relancer.
+        avant = self.arbre()
+        self.assertEqual(self.appliquer(self.trio()), 3)
+        self.assertEqual(self.pilote.appels, ["existe"])
+        self.assertEqual(self.arbre(), avant)
+
+    def test_etat_bascule_impossible_a_ecrire_n_abandonne_pas_le_serveur(self):
+        self.accepter_puis(lambda: None)
+        reel = maj.ecrire_etat
+        echecs = []
+
+        def ecrire_etat(racine, **champs):
+            if champs.get("etape") == "bascule" and not echecs:
+                echecs.append(1)
+                raise OSError(5, "écriture refusée par le test")
+            return reel(racine, **champs)
+
+        self.patch(maj, "ecrire_etat", ecrire_etat)
+        avant = self.arbre()
+        self.assertEqual(self.appliquer(self.trio()), 1)
+        self.assertEqual(echecs, [1])
+        self.assertIn("MAJ_RETOUR cause=ECRITURE_IMPOSSIBLE resultat=ok de=1.1.0 vers=1.2.0",
+                      self.technique())
+        self.assertIn("demarrer", self.pilote.appels)
+        self.assertEqual(self.arbre(), avant)
+
+    def test_assurer_serveur_attend_la_fermeture_du_port(self):
+        # Un serveur qui finit de quitter répondrait encore une fois à /sante :
+        # le filet attend que le port soit fermé avant de relancer.
+        ports = iter([False, False, True])
+        self.patch(maj, "port_ferme", lambda port: next(ports))
+        self.patch(maj.time, "sleep", lambda secondes: None)
+        self.assertTrue(maj.assurer_serveur(self.pilote, 1, 5))
+        self.assertEqual(self.pilote.appels, ["demarrer"])
+        with self.assertRaises(StopIteration):
+            next(ports)
+
+    def test_assurer_serveur_ne_leve_jamais(self):
+        class Panne(PiloteFactice):
+            def demarrer(self):
+                raise RuntimeError("tâche introuvable")
+
+        self.assertFalse(maj.assurer_serveur(Panne(), 1, 1))
+
+
+class SauvegardeCourante(Installation):
+    """La sauvegarde qui permet de revenir de la version installée ne meurt que
+    quand une nouvelle bascule est acquise (constat Faible S2)."""
+
+    def preparer(self, version):
+        archive = self.trio(version)
+        with maj.contexte_serveur(self.racine):
+            maj.preparer_dossier_prive(self.racine)
+            plan = maj.controler(self.racine, archive)
+            maj.extraire(plan)
+        return plan
+
+    def inventaire(self):
+        with maj.contexte_serveur(self.racine):
+            return maj.lire_inventaire(self.racine)
+
+    def test_preparer_ne_touche_pas_a_la_courante_et_adopter_la_remplace(self):
+        with maj.contexte_serveur(self.racine):
+            maj.sauvegarder(self.preparer("1.2.0"))
+            self.assertEqual(self.inventaire()["vers"], "1.2.0")
+            maj.preparer_sauvegarde(self.preparer("1.3.0"))
+            self.assertEqual(self.inventaire()["vers"], "1.2.0")
+            self.assertTrue(os.path.isdir(os.path.join(
+                self.racine, "mise-a-jour", maj.NOM_SAUVEGARDE_NEUVE)))
+            maj.adopter_sauvegarde(self.racine)
+        self.assertEqual(self.inventaire()["vers"], "1.3.0")
+        for nom in (maj.NOM_SAUVEGARDE_NEUVE, maj.NOM_SAUVEGARDE_AVANT):
+            self.assertFalse(os.path.lexists(os.path.join(self.racine, "mise-a-jour", nom)))
+
+    def test_substitution_qui_echoue_remet_l_ancienne(self):
+        with maj.contexte_serveur(self.racine):
+            maj.sauvegarder(self.preparer("1.2.0"))
+            maj.preparer_sauvegarde(self.preparer("1.3.0"))
+            reel = os.replace
+            appels = []
+
+            def faux(source, destination, *a, **k):
+                appels.append(destination)
+                if len(appels) == 2:        # neuve -> courante
+                    raise PermissionError(13, "refusé par le test")
+                return reel(source, destination, *a, **k)
+
+            with unittest.mock.patch("os.replace", faux):
+                with self.assertRaises(maj.Refus) as contexte:
+                    maj.adopter_sauvegarde(self.racine)
+        self.assertEqual(contexte.exception.code, "ECRITURE_IMPOSSIBLE")
+        self.assertEqual(self.inventaire()["vers"], "1.2.0")
+
+    def test_un_report_ne_detruit_pas_la_sauvegarde_existante(self):
+        with maj.contexte_serveur(self.racine):
+            maj.sauvegarder(self.preparer("1.2.0"))
+        self.patch(maj, "attendre_sante", lambda *a, **k: True)
+        # L'espion de l'arrêt refuse (ARRET_REFUSE), comme un serveur occupé.
+        self.assertEqual(self.appliquer(self.trio("1.3.0")), 3)
+        self.assertIn("MAJ_REPORTEE code=ARRET_REFUSE", self.technique())
+        self.assertEqual(self.inventaire()["vers"], "1.2.0")
+        self.assertFalse(os.path.lexists(os.path.join(
+            self.racine, "mise-a-jour", maj.NOM_SAUVEGARDE_NEUVE)))
+
+    def test_un_refus_de_controle_non_plus(self):
+        with maj.contexte_serveur(self.racine):
+            maj.sauvegarder(self.preparer("1.2.0"))
+        self.assertEqual(self.appliquer(self.trio("1.1.0")), 1)
+        self.assertEqual(self.inventaire()["vers"], "1.2.0")
+
+    def test_sauvegarde_alteree_se_dit_avant_tout_arret_et_garde_l_ancienne(self):
+        with maj.contexte_serveur(self.racine):
+            maj.sauvegarder(self.preparer("1.2.0"))
+        reel = maj.empreinte_fichier
+
+        def altere(chemin):
+            octets, empreinte = reel(chemin)
+            if maj.NOM_SAUVEGARDE_NEUVE in chemin and chemin.endswith(".py"):
+                return octets, "0" * 64
+            return octets, empreinte
+
+        self.patch(maj, "empreinte_fichier", altere)
+        self.patch(maj, "attendre_sante", lambda *a, **k: True)
+        self.assertEqual(self.appliquer(self.trio("1.3.0")), 1)
+        self.assertEqual(self.demandes, [])
+        self.assertEqual(self.inventaire()["vers"], "1.2.0")
+
+
+class DossierReserve(Installation):
+    """Le contenu d'un dossier réservé qui n'est pas de confiance n'est pas cru."""
+
+    def dossier(self):
+        return os.path.join(self.racine, "mise-a-jour")
+
+    @unittest.skipIf(os.name == "nt", "propriétaire et droits POSIX ; Windows : test_maj_windows")
+    def test_contenu_pose_a_l_avance_est_vide_sans_suivre_de_lien(self):
+        dehors = tempfile.mkdtemp(prefix="bilan-maj-dehors-")
+        self.addCleanup(shutil.rmtree, dehors, True)
+        with open(os.path.join(dehors, "dehors.txt"), "w") as f:
+            f.write("ne doit jamais être effacé")
+        os.mkdir(self.dossier())
+        os.chmod(self.dossier(), 0o777)
+        with open(os.path.join(self.dossier(), "etat.json"), "w") as f:
+            json.dump({"etape": "bascule", "format": 1}, f)
+        os.makedirs(os.path.join(self.dossier(), "sauvegarde", "serveur"))
+        with open(os.path.join(self.dossier(), "sauvegarde", "inventaire.json"), "w") as f:
+            f.write("{}")
+        try:
+            os.symlink(dehors, os.path.join(self.dossier(), "lien"), target_is_directory=True)
+        except (OSError, NotImplementedError):
+            self.skipTest("lien symbolique impossible sur ce poste")
+
+        maj.preparer_dossier_prive(self.racine)
+
+        self.assertEqual(os.listdir(self.dossier()), [])
+        self.assertEqual(os.listdir(dehors), ["dehors.txt"])
+        self.assertEqual(stat.S_IMODE(os.stat(self.dossier()).st_mode), 0o700)
+        self.assertEqual(maj.lire_etat(self.racine)["etape"], "repos")
+
+    @unittest.skipIf(os.name == "nt", "propriétaire et droits POSIX ; Windows : test_maj_windows")
+    def test_dossier_de_confiance_garde_son_contenu(self):
+        maj.preparer_dossier_prive(self.racine)
+        maj.ecrire_etat(self.racine, resultat="appliquee", version="1.2.0")
+        maj.preparer_dossier_prive(self.racine)
+        self.assertEqual(maj.lire_etat(self.racine)["version"], "1.2.0")
+
+    def test_jonction_simulee_est_refusee_avant_tout_effacement(self):
+        # X7. Sous Windows, lstat rend S_IFDIR pour une jonction : la comparaison
+        # du chemin résolu est la SEULE barrière. Ici realpath envoie le dossier
+        # ailleurs, comme une jonction ; l'ancre « lstat » ne la verrait pas.
+        cible = tempfile.mkdtemp(prefix="bilan-maj-jonction-")
+        self.addCleanup(shutil.rmtree, cible, True)
+        os.mkdir(self.dossier())
+        planque = os.path.join(self.dossier(), "planque.txt")
+        with open(planque, "w") as f:
+            f.write("derrière la jonction")
+        reel = os.path.realpath
+
+        def realpath(chemin, *a, **k):
+            if os.fspath(chemin) == self.dossier():
+                return cible
+            return reel(chemin, *a, **k)
+
+        # La confiance ne doit pas être ce qui arrête : seul le contrôle du chemin
+        # résolu, fait avant, protège ce qu'il y a derrière.
+        self.patch(serveur, "dossier_reserve_de_confiance", lambda dossier: False)
+        with unittest.mock.patch("os.path.realpath", realpath):
+            with self.assertRaises(maj.Refus) as contexte:
+                maj.preparer_dossier_prive(self.racine)
+        self.assertEqual(contexte.exception.code, "DOSSIER_NON_PROTEGE")
+        self.assertIn("jonction", contexte.exception.detail)
+        self.assertTrue(os.path.exists(planque), "le contenu a été effacé à travers la jonction")
+
+    def test_dossier_qui_n_est_pas_de_confiance_apres_protection_est_refuse(self):
+        self.patch(serveur, "dossier_reserve_de_confiance", lambda dossier: False)
+        with self.assertRaises(maj.Refus) as contexte:
+            maj.preparer_dossier_prive(self.racine)
+        self.assertEqual(contexte.exception.code, "DOSSIER_NON_PROTEGE")
+
+
+class EtatSousLecture(Installation):
+
+    def test_ecrire_etat_survit_a_un_remplacement_refuse(self):
+        # La page /etat lit etat.json ; sous Windows, un remplacement pendant cette
+        # lecture est refusé. Sans reprise, ECRITURE_IMPOSSIBLE ferait défaire une
+        # version saine.
+        maj.preparer_dossier_prive(self.racine)
+        reel = os.replace
+        restant = [3]
+
+        def faux(source, destination, *a, **k):
+            if restant[0] > 0 and destination.endswith("etat.json"):
+                restant[0] -= 1
+                raise PermissionError(13, "lu par un autre processus")
+            return reel(source, destination, *a, **k)
+
+        self.patch(serveur, "PAUSE_REPRISES_SECONDES", 0)
+        with unittest.mock.patch("os.replace", faux):
+            maj.ecrire_etat(self.racine, resultat="appliquee", version="1.2.0")
+        self.assertEqual(restant, [0])
+        self.assertEqual(maj.lire_etat(self.racine)["resultat"], "appliquee")
 
 
 class Documentation(unittest.TestCase):

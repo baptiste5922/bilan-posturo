@@ -31,6 +31,10 @@ même matin, c'est deux causes possibles pour une seule panne.
    `installer-demarrage.ps1` : c'est elle que le client arrête et relance. Sans
    elle, `appliquer` refuse (`TACHE_ABSENTE`) et ne touche à rien.
 
+Le serveur n'obéit à une demande d'arrêt que si ce dossier est réservé (droits
+relus, propriétaire Administrateurs ou SYSTEM). Un dossier qui existait déjà sans
+l'être est **vidé** avant d'être protégé : son contenu n'est pas cru.
+
 Le dossier `mise-a-jour\` (à côté de `config.json`) est créé et protégé par le
 client lui-même au premier appel : seuls SYSTEM et les administrateurs y ont des
 droits. Leur propriétaire devient le groupe Administrateurs, et toute autre
@@ -62,11 +66,18 @@ Ce que fait la commande, dans l'ordre :
    fichier du cabinet.
 2. **Extraction** dans `mise-a-jour\prepare\`, tout ou rien, chaque fichier relu
    et comparé à l'empreinte signée.
-3. **Sauvegarde** de tout ce qui va être remplacé, dans `mise-a-jour\sauvegarde\`.
+3. **Sauvegarde** de tout ce qui va être remplacé : bâtie et relue dans
+   `mise-a-jour\sauvegarde-neuve\`, mais elle ne remplace la sauvegarde courante
+   (`mise-a-jour\sauvegarde\`) qu'**une fois l'arrêt accepté** : un refus ou un
+   report laisse intacte celle qui permet de revenir de la version installée.
 4. **Arrêt concerté** : le client *demande* au serveur de s'arrêter, et c'est le
    serveur qui décide. Il refuse pendant un dépôt, et tant qu'une requête (hors
    sonde de santé) date de moins de `--calme-minutes`. Refus : code de sortie 3,
-   rien n'a changé, on recommence plus tard.
+   rien n'a changé, on recommence plus tard. Un dépôt qui ne progresse plus depuis
+   deux minutes (tablette éteinte en pleine émission) ne compte plus comme « en
+   cours » ; un dépôt lent mais qui avance, si. **Dès que le serveur a accepté**,
+   il quitte (code 0) et la tâche ne le relance pas : quoi qu'il arrive ensuite, le
+   client le relance et vérifie `/sante` avant de rendre la main.
 5. **Bascule** : les fichiers sont remplacés un par un, jamais le dossier entier.
 6. **Contrôle** : la tâche relance le serveur, `/sante` doit répondre dans la
    minute, puis le nouveau client se contrôle lui-même.

@@ -114,12 +114,29 @@ class BacDeMiseAJour(unittest.TestCase):
         self.addCleanup(self.pilote.arreter)
         with open(os.path.join(self.racine, "config.json")) as f:
             self.port = json.load(f)["port"]
+        self.avant_demarrage()
         self.pilote.demarrer()
         if not maj.attendre_sante(self.port, 40):
             self.fail("le serveur du bac ne répond pas : " + self.pilote.console())
         self.courant = self.base
 
     # --- aides -------------------------------------------------------------------
+
+    def avant_demarrage(self):
+        """Pour les classes qui modifient l'installation avant que le serveur ne
+        démarre."""
+
+    def modifier_serveur(self, ancien, nouveau):
+        """Remplace un texte, présent UNE fois, dans le serveur.py de l'installation
+        (et non dans le paquet) : un serveur d'essai qui se comporte autrement à un
+        endroit précis."""
+        chemin = os.path.join(self.racine, "serveur", "serveur.py")
+        with open(chemin, "rb") as f:
+            source = f.read()
+        if source.count(ancien) != 1:
+            raise AssertionError("ancre trouvée %d fois : %r" % (source.count(ancien), ancien))
+        with open(chemin, "wb") as f:
+            f.write(source.replace(ancien, nouveau))
 
     def noter_les_traces(self):
         TRACES.append((self.racine, self.technique()))
@@ -592,8 +609,9 @@ class ArretConcerte(BacDeMiseAJour):
 
     def setUp(self):
         BacDeMiseAJour.setUp(self)
+        # Le serveur n'obéit qu'à un dossier réservé : c'est le client qui le crée.
+        maj.preparer_dossier_prive(self.racine)
         self.dossier_maj = os.path.join(self.racine, "mise-a-jour")
-        os.mkdir(self.dossier_maj)
 
     def demander(self, **champs):
         demande = {"jeton": "ab" * 16, "calme_secondes": 0, "demarrage": False}
@@ -665,6 +683,251 @@ class ArretConcerte(BacDeMiseAJour):
         self.demander(demarrage=True)
         self.assertEqual(self.lire_reponse()["motif"], "activite")
         self.assertTrue(maj.sante_repond(self.port))
+
+
+# ==============================================================================
+# Réaudit C5-T2a : abandon après l'acceptation, sauvegarde gardée, dépôt figé,
+# dossier non réservé, gardes du serveur
+# ==============================================================================
+
+class AbandonApresAcceptation(BacDeMiseAJour):
+    """Le serveur a accepté l'arrêt puis quitté en code 0 : la tâche ne le relance
+    pas. Chaque chemin d'abandon du client doit le relancer, /sante répondre à la
+    fin (sonde S1b de l'audit)."""
+
+    def avant_demarrage(self):
+        if self._testMethodName == "test_arret_jamais_confirme":
+            # La confirmation « arrete » se perd (écriture refusée, sous Windows).
+            self.modifier_serveur(
+                b'ecrire_reponse_arret(DOSSIER_MAJ, arret_concerte.jeton, "arrete", "aucun")',
+                b"pass")
+
+    def verifier_serveur_relance(self, avant, appels_avant=0):
+        self.assertTrue(maj.attendre_sante(self.port, 40), "le serveur n'a pas été relancé")
+        self.assertGreater(self.pilote.appels.count("demarrer"), appels_avant)
+        self.assertEqual(pe.instantane(self.racine), avant)
+
+    def test_arret_jamais_confirme(self):
+        avant = pe.instantane(self.racine)
+        code, _ = self.appliquer(self.trio("1.2.0"), delai_arret=3)
+        self.assertEqual(code, 3)
+        self.assertIn("MAJ_REPORTEE code=ARRET_SANS_REPONSE", self.technique())
+        self.verifier_serveur_relance(avant, appels_avant=1)
+        # La sauvegarde n'a pas été substituée : l'arrêt n'a pas abouti.
+        self.assertFalse(os.path.lexists(os.path.join(self.racine, "mise-a-jour", "sauvegarde")))
+
+    def test_etat_bascule_impossible_a_ecrire(self):
+        reel = maj.ecrire_etat
+        echecs = []
+
+        def ecrire_etat(racine, **champs):
+            if champs.get("etape") == "bascule" and not echecs:
+                echecs.append(1)
+                raise OSError(5, "écriture refusée par le test")
+            return reel(racine, **champs)
+
+        avant = pe.instantane(self.racine)
+        with unittest.mock.patch.object(maj, "ecrire_etat", ecrire_etat):
+            code, _ = self.appliquer(self.trio("1.2.0"))
+        self.assertEqual(code, 1)
+        self.assertEqual(echecs, [1])
+        self.assertIn("MAJ_RETOUR cause=ECRITURE_IMPOSSIBLE resultat=ok de=1.1.0 vers=1.2.0",
+                      self.technique())
+        self.verifier_serveur_relance(avant, appels_avant=1)
+
+    def test_exception_imprevue_entre_acceptation_et_bascule(self):
+        def adopter(racine):
+            raise RuntimeError("panne d'essai")
+
+        avant = pe.instantane(self.racine)
+        with unittest.mock.patch.object(maj, "adopter_sauvegarde", adopter):
+            with self.assertRaises(RuntimeError):
+                self.appliquer(self.trio("1.2.0"))
+        self.verifier_serveur_relance(avant, appels_avant=1)
+
+    def test_interruption_au_clavier_pendant_le_repit_apres_l_arret(self):
+        avant = pe.instantane(self.racine)
+        reel = maj.time.sleep
+
+        def dormir(secondes):
+            if secondes == maj.PAUSE_APRES_ARRET_SECONDES:
+                raise KeyboardInterrupt()
+            return reel(secondes)
+
+        with unittest.mock.patch.object(maj.time, "sleep", dormir):
+            with self.assertRaises(KeyboardInterrupt):
+                self.appliquer(self.trio("1.2.0"))
+        self.verifier_serveur_relance(avant, appels_avant=1)
+
+
+class SauvegardeApresReport(BacDeMiseAJour):
+
+    def test_un_report_ne_detruit_pas_le_retour_possible(self):
+        # Sonde S2 de l'audit : 1.2.0 appliquée ; une requête non authentifiée puis
+        # un second appliquer reporté ; revenir doit encore fonctionner.
+        initial = pe.instantane(self.racine)
+        code, _ = self.appliquer(self.trio("1.2.0"))
+        self.assertEqual(code, 0)
+        self.courant = self.dernier_contenu
+        statut, _ = self.requete("/", utilisateur=False)
+        self.assertEqual(statut, 401)
+
+        code, _ = self.appliquer(self.trio("1.3.0"), calme_secondes=3600)
+
+        self.assertEqual(code, 3)
+        self.assertIn("MAJ_REPORTEE code=ARRET_REFUSE", self.technique())
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(maj.revenir(self.racine, self.pilote, delai_sante=DELAI_SANTE), 0)
+        self.assertEqual(pe.instantane(self.racine), initial)
+        self.assertTrue(maj.sante_repond(self.port))
+
+
+class DepotFige(BacDeMiseAJour):
+    """Un dépôt qui ne progresse plus cesse de compter comme « en cours »
+    (inactivité de 2 s dans ce bac, 120 s en production) ; un dépôt lent mais
+    actif aboutit toujours, quelle que soit sa durée totale."""
+
+    def avant_demarrage(self):
+        self.modifier_serveur(b"INACTIVITE_CONNEXION_SECONDES = 120\n",
+                              b"INACTIVITE_CONNEXION_SECONDES = 2\n")
+
+    def ouvrir_depot(self, corps, nom):
+        contexte = ssl.create_default_context(cafile=os.path.join(self.racine, "autorite.crt"))
+        connexion = http.client.HTTPSConnection("127.0.0.1", self.port, context=contexte,
+                                                timeout=120)
+        self.addCleanup(connexion.close)
+        connexion.putrequest("POST", "/depot")
+        connexion.putheader("Content-Length", str(len(corps)))
+        connexion.putheader("X-Fichier", base64.b64encode(nom).decode())
+        connexion.putheader("Authorization", "Basic " + base64.b64encode(
+            ("%s:%s" % (pe.UTILISATEUR, pe.MOT_DE_PASSE)).encode()).decode())
+        connexion.endheaders()
+        return connexion
+
+    def test_un_depot_fige_ne_bloque_pas_les_mises_a_jour(self):
+        connexion = self.ouvrir_depot(PDF + b"x" * 1000, b"Bilan_fige.pdf")
+        connexion.send(PDF[:20])
+        # Il se tait. Tant que le serveur le tient pour « en cours », il refuse.
+        code, _ = self.appliquer(self.trio("1.2.0"))
+        self.assertEqual(code, 3)
+        self.assertIn("MAJ_REPORTEE code=ARRET_REFUSE", self.technique())
+        time.sleep(3.5)         # > 2 s sans un octet
+        code, sortie = self.appliquer(self.trio("1.2.0"))
+        self.assertEqual(code, 0, sortie)
+        self.assertEqual(self.etat_json()["resultat"], "appliquee")
+
+    def test_un_depot_lent_mais_actif_aboutit(self):
+        corps = PDF + os.urandom(6000)
+        connexion = self.ouvrir_depot(corps, b"Bilan_lent_actif.pdf")
+        debut = time.monotonic()
+        for i in range(0, len(corps), 750):
+            connexion.send(corps[i:i + 750])
+            time.sleep(0.8)            # jamais 2 s de silence
+        duree = time.monotonic() - debut
+        reponse = connexion.getresponse()
+        reponse.read()
+        self.assertEqual(reponse.status, 200)
+        # La durée totale dépasse largement le délai d'inactivité.
+        self.assertGreater(duree, 4)
+        with open(os.path.join(self.racine, "bilans", "Bilan_lent_actif.pdf"), "rb") as f:
+            self.assertEqual(f.read(), corps)
+
+
+class ObeissanceAuDossier(BacDeMiseAJour):
+
+    def test_demande_dans_un_dossier_non_reserve_est_ignoree(self):
+        dossier = os.path.join(self.racine, "mise-a-jour")
+        os.mkdir(dossier)
+        if os.name != "nt":
+            os.chmod(dossier, 0o777)         # n'importe qui peut y écrire
+        serveur.ecrire_atomiquement(os.path.join(dossier, "arret.demande"), json.dumps(
+            {"jeton": "ab" * 16, "calme_secondes": 0, "demarrage": False}).encode())
+        time.sleep(3)
+        self.assertTrue(maj.sante_repond(self.port))
+        self.assertIsNone(self.pilote.attendre_la_sortie(0.01))
+        self.assertEqual(self.lignes("ARRET motif=mise-a-jour"), [])
+        self.assertFalse(os.path.exists(os.path.join(dossier, "arret.reponse")))
+        self.assertFalse(os.path.exists(os.path.join(dossier, "arret.demande")))
+        with open(os.path.join(self.racine, "journal.log"), encoding="utf-8") as f:
+            self.assertIn("demande d'arrêt ignorée", f.read())
+
+    def test_la_meme_demande_est_obeie_une_fois_le_dossier_reserve(self):
+        maj.preparer_dossier_prive(self.racine)
+        serveur.ecrire_atomiquement(
+            os.path.join(self.racine, "mise-a-jour", "arret.demande"), json.dumps(
+                {"jeton": "ab" * 16, "calme_secondes": 0, "demarrage": False}).encode())
+        self.assertEqual(self.pilote.attendre_la_sortie(20), 0)
+        self.assertEqual(len(self.lignes("ARRET motif=mise-a-jour")), 1)
+
+
+class GardesDuServeur(BacDeMiseAJour):
+
+    def test_une_demande_perimee_n_arrete_pas_le_serveur_relance(self):
+        # X15 : une demande laissée par une coupure entre son écriture et sa lecture
+        # arrêterait le serveur relancé par la tâche dans la seconde, en code 0.
+        maj.preparer_dossier_prive(self.racine)
+        self.pilote.arreter()
+        serveur.ecrire_atomiquement(
+            os.path.join(self.racine, "mise-a-jour", "arret.demande"), json.dumps(
+                {"jeton": "cd" * 16, "calme_secondes": 0, "demarrage": False}).encode())
+        self.pilote.demarrer()
+        self.assertTrue(maj.attendre_sante(self.port, 40), self.pilote.console())
+        time.sleep(3)
+        self.assertTrue(maj.sante_repond(self.port))
+        self.assertIsNone(self.pilote.attendre_la_sortie(0.01))
+        self.assertNotIn("ARRET motif=mise-a-jour", self.technique())
+        self.assertFalse(os.path.exists(os.path.join(self.racine, "mise-a-jour", "arret.demande")))
+
+
+class DepotCommenceApresLaDecision(BacDeMiseAJour):
+
+    def avant_demarrage(self):
+        # Entre la décision et l'arrêt de la boucle, le serveur sert encore : trois
+        # secondes pour qu'un dépôt commence.
+        self.modifier_serveur(
+            b"                arret.evenement.set()\n                serveur.shutdown()\n",
+            b"                arret.evenement.set()\n                time.sleep(3)\n"
+            b"                serveur.shutdown()\n")
+
+    def test_un_depot_commence_apres_la_decision_est_attendu(self):
+        # X9 : sans attendre_fin_depots, la sortie du processus tuerait ce dépôt.
+        dossier = os.path.join(self.racine, "mise-a-jour")
+        maj.preparer_dossier_prive(self.racine)
+        serveur.ecrire_atomiquement(os.path.join(dossier, "arret.demande"), json.dumps(
+            {"jeton": "ab" * 16, "calme_secondes": 0, "demarrage": False}).encode())
+        chemin = os.path.join(dossier, "arret.reponse")
+        limite = time.monotonic() + 15
+        accepte = False
+        while time.monotonic() < limite and not accepte:
+            try:
+                with open(chemin) as f:
+                    accepte = json.load(f).get("verdict") == "accepte"
+            except (OSError, ValueError):
+                pass
+            time.sleep(0.02)
+        self.assertTrue(accepte, "l'arrêt n'a pas été accepté")
+
+        corps = PDF + os.urandom(3000)
+        contexte = ssl.create_default_context(cafile=os.path.join(self.racine, "autorite.crt"))
+        connexion = http.client.HTTPSConnection("127.0.0.1", self.port, context=contexte,
+                                                timeout=60)
+        self.addCleanup(connexion.close)
+        connexion.putrequest("POST", "/depot")
+        connexion.putheader("Content-Length", str(len(corps)))
+        connexion.putheader("X-Fichier", base64.b64encode(b"Bilan_apres_decision.pdf").decode())
+        connexion.putheader("Authorization", "Basic " + base64.b64encode(
+            ("%s:%s" % (pe.UTILISATEUR, pe.MOT_DE_PASSE)).encode()).decode())
+        connexion.endheaders()
+        connexion.send(corps[:1500])
+        time.sleep(4.5)            # la boucle s'arrête pendant ce temps, dépôt en cours
+        connexion.send(corps[1500:])
+        reponse = connexion.getresponse()
+        reponse.read()
+        self.assertEqual(reponse.status, 200)
+        with open(os.path.join(self.racine, "bilans", "Bilan_apres_decision.pdf"), "rb") as f:
+            self.assertEqual(f.read(), corps)
+        self.assertEqual(self.pilote.attendre_la_sortie(20), 0)
+        self.assertEqual(len(self.lignes("ARRET motif=mise-a-jour")), 1)
 
 
 # ==============================================================================

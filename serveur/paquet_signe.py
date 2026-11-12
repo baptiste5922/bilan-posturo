@@ -117,7 +117,7 @@ _ERREURS_ZIP = (zipfile.BadZipFile, zipfile.LargeZipFile, NotImplementedError,
 
 # `re.fullmatch` et des classes ASCII explicites : `$` accepterait un saut de ligne
 # final, et `\d` des chiffres d'autres écritures.
-_VERSION = re.compile(r"(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})")
+MOTIF_VERSION = re.compile(r"(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})\.(0|[1-9][0-9]{0,5})")
 _SEGMENT = re.compile(r"[A-Za-z0-9_-][A-Za-z0-9._-]*")
 _RESERVES_WINDOWS = frozenset(
     ["CON", "PRN", "AUX", "NUL"]
@@ -133,7 +133,7 @@ def analyser_version(texte):
     """
     if not isinstance(texte, str):
         raise PaquetRefuse("VERSION_MALFORMEE", "version absente ou de mauvais type")
-    correspondance = _VERSION.fullmatch(texte)
+    correspondance = MOTIF_VERSION.fullmatch(texte)
     if correspondance is None:
         raise PaquetRefuse("VERSION_MALFORMEE",
                            "forme attendue X.Y.Z, reçu %r" % (texte[:40],))
@@ -183,7 +183,7 @@ def _refuser_constante(nom):
     raise ValueError("constante JSON interdite : %s" % nom)
 
 
-def _lire_json_strict(octets, code):
+def lire_json_strict(octets, code):
     """Décode et analyse du JSON, en refusant tout ce qui prête à deux lectures.
 
     UTF-8 strict sans BOM, aucune clé en double (deux lecteurs retiendraient l'une
@@ -227,7 +227,7 @@ def charger_cles_de_confiance(octets):
 
     if type(octets) is not bytes or len(octets) > TAILLE_MAX_CLES:
         refuser("fichier absent, de mauvais type ou trop grand")
-    contenu = _lire_json_strict(octets, "CLES_DE_CONFIANCE_INVALIDES")
+    contenu = lire_json_strict(octets, "CLES_DE_CONFIANCE_INVALIDES")
     if not isinstance(contenu, dict) or set(contenu) != {"format", "cles"}:
         refuser("clés attendues : format, cles")
     if type(contenu["format"]) is not int or contenu["format"] != 1:
@@ -295,7 +295,7 @@ def lire_manifeste(octets, signature, cles):
         raise PaquetRefuse("SIGNATURE_INVALIDE",
                            "aucune clé de confiance ne valide cette signature")
 
-    manifeste = _lire_json_strict(octets, "MANIFESTE_MALFORME")
+    manifeste = lire_json_strict(octets, "MANIFESTE_MALFORME")
     if not isinstance(manifeste, dict):
         raise PaquetRefuse("MANIFESTE_MALFORME", "objet JSON attendu")
     # Type et format d'abord : un format futur aura d'autres clés, et doit être
@@ -596,7 +596,7 @@ def _verifier_contenu(fichier, manifeste, fichiers):
     if contenu_version is None:
         raise PaquetRefuse("VERSION_INCOHERENTE",
                            "%s absent du manifeste" % (CHEMIN_VERSION,))
-    contenu = _lire_json_strict(contenu_version, "VERSION_INCOHERENTE")
+    contenu = lire_json_strict(contenu_version, "VERSION_INCOHERENTE")
     if not isinstance(contenu, dict) or contenu.get("version") != manifeste["version"]:
         raise PaquetRefuse("VERSION_INCOHERENTE",
                            "%s ne porte pas la version du manifeste" % (CHEMIN_VERSION,))

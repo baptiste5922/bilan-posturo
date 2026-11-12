@@ -123,6 +123,8 @@ NOM_TELECHARGEMENT = "telechargement"
 NOM_PREPARE = "prepare"
 NOM_SAUVEGARDE = "sauvegarde"
 NOM_SAUVEGARDE_NEUVE = "sauvegarde-neuve"
+# Même longueur que « sauvegarde-neuve » : ses chemins comptent pour D7 au même titre.
+NOM_SAUVEGARDE_AVANT = "sauvegarde-avant"
 NOM_VERROU = "verrou"
 NOM_INSTALLE = "installe.json"
 NOM_INVENTAIRE = "inventaire.json"
@@ -335,16 +337,19 @@ def ecrire_exclusif(chemin, octets, mode=0o600):
 
 
 def ecrire_json(chemin, objet):
-    """Écriture atomique : temporaire, fsync, remplacement."""
+    """Écriture atomique : temporaire, fsync, remplacement, repris si le
+    remplacement est refusé. Le serveur relit etat.json (page /etat) : sous Windows,
+    un remplacement pendant cette lecture échoue momentanément, et sans reprise une
+    consultation de la page au mauvais instant ferait défaire une version saine."""
     corps = (json.dumps(objet, ensure_ascii=True, sort_keys=True, indent=2)
              + "\n").encode("utf-8")
-    serveur.ecrire_atomiquement(chemin, corps)
+    serveur.ecrire_atomiquement_patient(chemin, corps)
 
 
 def lire_json(chemin, limite, code):
     octets = lire_borne(chemin, limite, code)
     try:
-        return paquet_signe._lire_json_strict(octets, "MANIFESTE_MALFORME")
+        return paquet_signe.lire_json_strict(octets, "MANIFESTE_MALFORME")
     except paquet_signe.PaquetRefuse as erreur:
         raise Refus(code, erreur.detail)
 
@@ -389,33 +394,15 @@ def maintenant_iso():
 # Dossier réservé et verrou
 # --------------------------------------------------------------------------
 
-_ACE = re.compile(r"\(([^)]*)\)")
-
-
-def sddl_est_protege(texte):
-    """(vrai, motif) : le SDDL d'un dossier est-il protégé et réservé à SY et BA ?
-
-    `D:P…` : protégé, donc sans héritage. Seules des entrées autorisantes (A) pour
-    SY (SYSTEM) et BA (Administrateurs). Pure, donc testable sans Windows."""
-    correspondance = re.search(r"D:([A-Z]*)((?:\([^)]*\))*)", texte)
-    if correspondance is None:
-        return False, "pas de liste de droits (DACL)"
-    if "P" not in correspondance.group(1):
-        return False, "droits hérités du dossier parent"
-    sids = set()
-    for ace in _ACE.findall(correspondance.group(2)):
-        champs = ace.split(";")
-        if len(champs) < 6 or champs[0] != "A":
-            return False, "entrée de droits inattendue"
-        sids.add(champs[5])
-    if sids != {"SY", "BA"}:
-        return False, "comptes inattendus : %s" % ",".join(sorted(sids))
-    return True, ""
-
-
-def _systeme32(nom):
-    base = os.environ.get("SystemRoot") or r"C:\Windows"
-    return os.path.join(base, "System32", nom)
+# La lecture et l'analyse des droits sont écrites dans serveur.py, qui les utilise
+# aussi pour décider d'obéir à une demande d'arrêt : une seule règle, deux usages.
+# Les noms restent disponibles ici pour les tests et pour les lecteurs de ce module.
+sddl_est_protege = serveur.sddl_est_protege
+sids_en_trop = serveur.sids_en_trop
+decoder_sortie_icacls = serveur.decoder_sortie_icacls
+_systeme32 = serveur.chemin_systeme32
+SID_SYSTEME = serveur.SID_SYSTEME
+SID_ADMINISTRATEURS = serveur.SID_ADMINISTRATEURS
 
 
 def _lancer_windows(arguments, delai=60):
@@ -429,20 +416,6 @@ def _lancer_windows(arguments, delai=60):
     return resultat.returncode
 
 
-def decoder_sortie_icacls(brut):
-    """Le texte du fichier que `icacls /save` écrit : de l'UTF-16 (avec ou sans
-    marque d'ordre des octets, selon la version de Windows), à défaut de l'UTF-8
-    ou de la page de code locale. Ne lève jamais."""
-    if brut[:2] in (b"\xff\xfe", b"\xfe\xff"):
-        return brut.decode("utf-16", "replace")
-    if b"\x00" in brut[:16]:
-        return brut.decode("utf-16-le", "replace")
-    try:
-        return brut.decode("utf-8")
-    except UnicodeDecodeError:
-        return brut.decode("latin-1")
-
-
 # SID absolus des abréviations SDDL que l'on retrouve sur un dossier neuf. Les
 # autres abréviations (LA, LG…) dépendent de la machine : on retire alors le SID du
 # compte qui exécute le client (_sid_de_l_utilisateur).
@@ -451,25 +424,6 @@ SID_DES_ABREVIATIONS = {
     "AU": "S-1-5-11", "IU": "S-1-5-4", "AN": "S-1-5-7", "NU": "S-1-5-2",
     "PU": "S-1-5-32-547", "RC": "S-1-5-12", "BG": "S-1-5-32-546",
 }
-SID_SYSTEME = "S-1-5-18"
-SID_ADMINISTRATEURS = "S-1-5-32-544"
-
-
-def sids_en_trop(texte):
-    """Les comptes, hors SY et BA, que porte le SDDL d'un dossier (dans l'ordre).
-
-    Sur un dossier neuf, Windows ajoute une entrée pour le CRÉATEUR (le compte qui
-    exécute le client : abréviation `OW`, `LA`, ou son SID complet), née du dossier
-    parent et qu'un retrait de l'héritage ne supprime pas. Pure, donc testable."""
-    correspondance = re.search(r"D:([A-Z]*)((?:\([^)]*\))*)", texte)
-    if correspondance is None:
-        return []
-    trouves = []
-    for ace in _ACE.findall(correspondance.group(2)):
-        champs = ace.split(";")
-        if len(champs) >= 6 and champs[5] not in ("SY", "BA") and champs[5] not in trouves:
-            trouves.append(champs[5])
-    return trouves
 
 
 def _sortie_windows(arguments, delai=60):
@@ -492,18 +446,11 @@ def _sid_de_l_utilisateur():
     return correspondance.group(0)
 
 
-def _lire_droits_windows(icacls, dossier):
-    """Le SDDL du dossier, relu par `icacls /save` (le fichier est effacé)."""
-    fichier = os.path.join(dossier, "droits.txt")
-    _effacer_si_present(fichier)
-    code = _lancer_windows([icacls, dossier, "/save", fichier])
+def _lire_droits_windows(dossier):
     try:
-        brut = lire_borne(fichier, 64 * 1024, "DOSSIER_NON_PROTEGE")
-    finally:
-        _effacer_si_present(fichier)
-    if code != 0:
-        raise Refus("DOSSIER_NON_PROTEGE", "icacls /save a échoué (code %d)" % code)
-    return decoder_sortie_icacls(brut)
+        return serveur.lire_sddl_windows(dossier)
+    except OSError as erreur:
+        raise Refus("DOSSIER_NON_PROTEGE", "droits illisibles : %r" % (erreur,))
 
 
 def _proteger_windows(dossier):
@@ -511,7 +458,7 @@ def _proteger_windows(dossier):
 
     Dans l'ordre : propriétaire = Administrateurs (un dossier posé à l'avance par un
     utilisateur resterait à lui, et un propriétaire règle ses droits à sa guise) ;
-    héritage coupé et deux entrées posées ; retrait de toute autre entrée (celle
+    héritage coupé et deux entrées ; retrait de toute autre entrée (celle
     du créateur) ; relecture, qui exige exactement SY et BA."""
     icacls = _systeme32("icacls.exe")
     etapes = (
@@ -525,7 +472,7 @@ def _proteger_windows(dossier):
         if code != 0:
             raise Refus("DOSSIER_NON_PROTEGE", "icacls a refusé %s (code %d)"
                         % (arguments[2], code))
-    texte = _lire_droits_windows(icacls, dossier)
+    texte = _lire_droits_windows(dossier)
     for compte in sids_en_trop(texte):
         sid = SID_DES_ABREVIATIONS.get(compte)
         if sid is None:
@@ -533,7 +480,7 @@ def _proteger_windows(dossier):
         code = _lancer_windows([icacls, dossier, "/remove:g", "*" + sid])
         if code != 0:
             raise Refus("DOSSIER_NON_PROTEGE", "retrait d'une entrée refusé (code %d)" % code)
-        texte = _lire_droits_windows(icacls, dossier)
+        texte = _lire_droits_windows(dossier)
     protege, motif = sddl_est_protege(texte)
     if not protege:
         # Le début de ce qui a été lu aide le support à comprendre un format
@@ -553,17 +500,38 @@ def _proteger_posix(dossier):
         raise Refus("DOSSIER_NON_PROTEGE", "le dossier appartient à un autre compte")
 
 
-def preparer_dossier_prive(racine):
-    """Crée au besoin le dossier réservé et en contrôle les droits (D4).
+def vider_contenu(dossier):
+    """Efface tout ce que contient `dossier`, sans suivre de lien (un lien est
+    retiré, jamais sa cible). Le dossier lui-même reste."""
+    for nom in os.listdir(dossier):
+        chemin = os.path.join(dossier, nom)
+        info = os.lstat(chemin)
+        if stat.S_ISDIR(info.st_mode) and not stat.S_ISLNK(info.st_mode):
+            shutil.rmtree(chemin)
+        else:
+            os.remove(chemin)
 
-    Refuse un lien ou une jonction (le chemin résolu doit être celui attendu),
-    puis pose et RELIT les droits : un dossier hérité de l'utilisateur du cabinet
-    laisserait n'importe quel programme de sa session déposer un paquet que SYSTEM
-    installerait."""
+
+def preparer_dossier_prive(racine):
+    """Crée au besoin le dossier réservé, en contrôle les droits et le contenu (D4).
+
+    Refuse un lien ou une jonction (le chemin résolu doit être celui attendu), et
+    ce AVANT toute écriture ou tout effacement : vider un dossier atteint par une
+    jonction détruirait ce qui se trouve ailleurs. Un dossier qui existe déjà sans
+    être de confiance (propriétaire ou droits : `serveur.dossier_reserve_de_confiance`)
+    a pu être rempli par n'importe qui avant la première protection : son contenu
+    (un état « bascule », une sauvegarde de son choix) serait « restauré » par
+    SYSTEM. Il est donc VIDÉ, puis protégé. Un dossier déjà de confiance garde son
+    contenu : c'est l'état, la sauvegarde et le verrou des mises à jour précédentes.
+    Enfin les droits sont posés et RELUS : un dossier hérité de l'utilisateur du
+    cabinet laisserait n'importe quel programme de sa session déposer un paquet que
+    SYSTEM installerait."""
     dossier = dossier_maj(racine)
+    existait = True
     try:
         info = os.lstat(dossier)
     except FileNotFoundError:
+        existait = False
         try:
             os.mkdir(dossier, 0o700)
         except OSError as erreur:
@@ -574,17 +542,26 @@ def preparer_dossier_prive(racine):
         if not stat.S_ISDIR(info.st_mode):
             raise Refus("DOSSIER_NON_PROTEGE", "pas un dossier ordinaire")
     try:
-        attendu = serveur.forme_comparable(os.path.join(
+        # L'attendu n'est pas résolu : le résoudre comme `reel` le détournerait de
+        # la même façon qu'une jonction, et rien ne différerait jamais.
+        attendu = serveur.forme_non_resolue(os.path.join(
             os.path.realpath(racine), serveur.NOM_DOSSIER_MAJ))
         reel = serveur.forme_comparable(dossier)
     except (OSError, ValueError) as erreur:
         raise Refus("DOSSIER_NON_PROTEGE", "illisible : %r" % (erreur,))
     if attendu != reel:
         raise Refus("DOSSIER_NON_PROTEGE", "lien ou jonction vers un autre dossier")
+    if existait and not serveur.dossier_reserve_de_confiance(dossier):
+        try:
+            vider_contenu(dossier)
+        except OSError as erreur:
+            raise Refus("DOSSIER_NON_PROTEGE", "contenu non vidable : %r" % (erreur,))
     if os.name == "nt":
         _proteger_windows(dossier)
     else:
         _proteger_posix(dossier)
+    if not serveur.dossier_reserve_de_confiance(dossier):
+        raise Refus("DOSSIER_NON_PROTEGE", "le dossier n'est pas de confiance après protection")
 
 
 @contextlib.contextmanager
@@ -622,7 +599,7 @@ def etat_par_defaut():
 
 def _version_ou_none(valeur):
     return valeur is None or (isinstance(valeur, str)
-                              and paquet_signe._VERSION.fullmatch(valeur) is not None)
+                              and paquet_signe.MOTIF_VERSION.fullmatch(valeur) is not None)
 
 
 def lire_etat(racine):
@@ -984,13 +961,14 @@ def _effacer_si_present(chemin):
         pass
 
 
-def sauvegarder(plan):
-    """Sauvegarde ce que la mise à jour va toucher (étape 8).
+def preparer_sauvegarde(plan):
+    """Bâtit et vérifie la sauvegarde de ce que la mise à jour va toucher (étape 8),
+    dans `sauvegarde-neuve/`, SANS toucher à la sauvegarde existante.
 
     Ensemble : les chemins du nouveau manifeste, réunis à ceux d'installe.json.
-    Chaque fichier présent est COPIÉ (jamais déplacé), relu et haché. Bâtie à
-    côté puis substituée : l'ancienne sauvegarde n'est effacée qu'APRÈS la réussite
-    de la nouvelle. Une seule est gardée."""
+    Chaque fichier présent est COPIÉ (jamais déplacé), relu et haché. Un défaut se
+    dit ici, avant tout arrêt du serveur. La substitution est `adopter_sauvegarde`,
+    qui n'a lieu qu'une fois l'arrêt accepté."""
     racine = plan.racine
     installe = lire_installe(racine)
     ensemble = set(plan.fichiers)
@@ -1028,12 +1006,39 @@ def sauvegarder(plan):
     except Refus:
         shutil.rmtree(neuve, ignore_errors=True)
         raise
-    ancienne = chemin_maj(racine, NOM_SAUVEGARDE)
+
+
+def adopter_sauvegarde(racine):
+    """Substitue la sauvegarde bâtie à la sauvegarde courante.
+
+    Appelée une fois l'arrêt ACCEPTÉ, jamais avant : la sauvegarde courante est ce
+    qui permet de revenir de la version installée, et une tentative refusée ou
+    reportée ne doit pas la détruire. Une seule sauvegarde est gardée. L'ancienne
+    est écartée par un renommage (et non effacée d'abord) : si la substitution
+    échoue, elle est remise en place."""
+    neuve = chemin_maj(racine, NOM_SAUVEGARDE_NEUVE)
+    courante = chemin_maj(racine, NOM_SAUVEGARDE)
+    avant = chemin_maj(racine, NOM_SAUVEGARDE_AVANT)
     try:
-        shutil.rmtree(ancienne, ignore_errors=True)
-        os.replace(neuve, ancienne)
+        shutil.rmtree(avant, ignore_errors=True)
+        if os.path.lexists(courante):
+            os.replace(courante, avant)
+        try:
+            os.replace(neuve, courante)
+        except OSError:
+            if os.path.lexists(avant) and not os.path.lexists(courante):
+                os.replace(avant, courante)
+            raise
     except OSError as erreur:
         raise Refus("ECRITURE_IMPOSSIBLE", "sauvegarde non substituée : %r" % (erreur,))
+    shutil.rmtree(avant, ignore_errors=True)
+
+
+def sauvegarder(plan):
+    """Bâtit puis adopte la sauvegarde : les deux temps d'un seul geste, pour les
+    appelants qui n'ont pas d'arrêt à attendre (essais)."""
+    preparer_sauvegarde(plan)
+    adopter_sauvegarde(plan.racine)
 
 
 def lire_inventaire(racine):
@@ -1152,7 +1157,12 @@ def sante_repond(port, delai_connexion=3):
 
     Par la boucle locale, en TLS sans vérification du certificat (D14) : le
     certificat du cabinet couvre son adresse sur le réseau, pas 127.0.0.1. La
-    sonde n'envoie aucun identifiant et ne lit qu'un corps fixe."""
+    sonde n'envoie aucun identifiant et ne lit qu'un corps fixe.
+
+    Elle ne prouve pas QUI répond : pendant que le serveur est arrêté (la bascule),
+    n'importe quel processus local peut écouter sur ce port, sans être
+    administrateur. L'effet se limite à tromper ce verdict de santé (l'auto-contrôle
+    tourne quand même, et rien ne sort) ; le contrat le dit à l'erratum 12."""
     if port is None:
         return False
     contexte = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
@@ -1225,11 +1235,15 @@ def _lire_reponse_arret(racine, jeton):
 
 def demander_arret(racine, port, calme_secondes, demarrage,
                    delai_reponse=DELAI_REPONSE_ARRET_SECONDES,
-                   delai_arret=DELAI_ARRET_SECONDES):
+                   delai_arret=DELAI_ARRET_SECONDES, acceptation=None):
     """Demande au serveur de s'arrêter ; c'est LUI qui décide (D9).
 
     Aucun arrêt forcé ici (D16). Refus du serveur : ARRET_REFUSE. Pas de réponse :
-    ARRET_SANS_REPONSE, et le serveur tourne peut-être encore : on n'y touche pas."""
+    ARRET_SANS_REPONSE, et le serveur tourne peut-être encore : on n'y touche pas.
+
+    `acceptation` (un dict) reçoit `accepte = True` dès que le serveur a accepté :
+    à partir de là il quitte avec le code 0, que la tâche planifiée ne relance pas,
+    et TOUTE sortie de l'appelant doit passer par `assurer_serveur`."""
     jeton = secrets.token_hex(16)
     demande = chemin_maj(racine, serveur.DEMANDE_ARRET)
     _effacer_si_present(chemin_maj(racine, serveur.REPONSE_ARRET))
@@ -1246,6 +1260,8 @@ def demander_arret(racine, port, calme_secondes, demarrage,
         raise Refus("ARRET_SANS_REPONSE", "le serveur n'a pas répondu")
     if reponse["verdict"] == "refuse":
         raise Refus("ARRET_REFUSE", "motif : %s" % reponse["motif"][:40])
+    if acceptation is not None:
+        acceptation["accepte"] = True
     limite = time.monotonic() + delai_arret
     while time.monotonic() < limite:
         reponse = _lire_reponse_arret(racine, jeton)
@@ -1254,6 +1270,31 @@ def demander_arret(racine, port, calme_secondes, demarrage,
             return
         time.sleep(0.05)
     raise Refus("ARRET_SANS_REPONSE", "le serveur ne s'est pas arrêté à temps")
+
+
+def assurer_serveur(pilote, port, delai_sante, delai_fermeture=10):
+    """Relance le serveur qui a accepté l'arrêt, et vérifie /sante. Rend le verdict.
+
+    Le serveur est sorti en code 0 : la tâche planifiée (`-RestartCount`) ne relance
+    que sur échec. Si le client abandonne après l'acceptation (arrêt jamais
+    confirmé, exception, console fermée), personne d'autre ne le fera. On attend
+    d'abord que le port soit fermé : un serveur qui finit de quitter répondrait
+    encore une fois à /sante et ferait croire à tort qu'il tourne. `/Run` d'une
+    tâche déjà en marche est sans effet. Aucune levée : c'est un filet."""
+    try:
+        limite = time.monotonic() + delai_fermeture
+        while not port_ferme(port) and time.monotonic() < limite:
+            time.sleep(0.2)
+        pilote.demarrer()
+        sain = attendre_sante(port, delai_sante, relancer=pilote.demarrer)
+    except Exception:
+        sain = False
+    try:
+        serveur.journaliser("{} relance du serveur après abandon de la mise à jour : {}\n"
+                            .format(maintenant_iso(), "sante ok" if sain else "SANTE MUETTE"))
+    except Exception:
+        pass
+    return sain
 
 
 # --------------------------------------------------------------------------
@@ -1275,7 +1316,7 @@ def _restaurer(racine, pilote, port, delai_sante):
     if inventaire["installe"]:
         octets = lire_borne(os.path.join(sauvegarde, NOM_INSTALLE), 4 * 1024 * 1024,
                             "SAUVEGARDE_ALTEREE")
-        serveur.ecrire_atomiquement(installe, octets)
+        serveur.ecrire_atomiquement_patient(installe, octets)
     else:
         _effacer_si_present(installe)
     effacer_pycache(racine)
@@ -1371,9 +1412,11 @@ def empreinte_des_cles(racine):
 def basculer(plan, pilote, delai_sante, delai_auto_controle):
     """Étape 11 : remplace les fichiers, relance, juge. Tout échec défait."""
     racine = plan.racine
-    ecrire_etat(racine, etape="bascule", de=plan.installee, vers=plan.version)
     prepare = chemin_maj(racine, NOM_PREPARE)
     try:
+        # Dans le try : un état qui ne s'écrit pas ne doit pas laisser le serveur
+        # arrêté (il l'est déjà, et la tâche ne le relancera pas).
+        ecrire_etat(racine, etape="bascule", de=plan.installee, vers=plan.version)
         poser_fichiers(racine, prepare,
                        dict((r, v[1]) for r, v in plan.fichiers.items()),
                        "EXTRACTION_ALTEREE")
@@ -1453,14 +1496,28 @@ def appliquer(racine, chemin_archive, pilote, calme_secondes=CALME_SECONDES_DEFA
         if not reprendre(racine, pilote, port, delai_sante):
             raise Refus("RETOUR_IMPOSSIBLE", "le retour arrière précédent a échoué")
         plan = controler(racine, chemin_archive)
-        extraire(plan)
-        sauvegarder(plan)
-        _pilote_requis(pilote)
-        if not attendre_sante(plan.port, DELAI_SERVEUR_PRESENT_SECONDES, 0.5):
-            raise Refus("SERVEUR_ABSENT", "le serveur ne répond pas : rien n'est mis à jour")
-        demander_arret(racine, plan.port, calme_secondes, demarrage,
-                       delai_reponse, delai_arret)
-        return basculer(plan, pilote, delai_sante, delai_auto_controle)
+        acceptation = {"accepte": False}
+        try:
+            extraire(plan)
+            preparer_sauvegarde(plan)
+            _pilote_requis(pilote)
+            if not attendre_sante(plan.port, DELAI_SERVEUR_PRESENT_SECONDES, 0.5):
+                raise Refus("SERVEUR_ABSENT", "le serveur ne répond pas : rien n'est mis à jour")
+            demander_arret(racine, plan.port, calme_secondes, demarrage,
+                           delai_reponse, delai_arret, acceptation)
+            # Seulement maintenant : la sauvegarde courante est celle qui permet de
+            # revenir de la version installée.
+            adopter_sauvegarde(racine)
+            return basculer(plan, pilote, delai_sante, delai_auto_controle)
+        except BaseException:
+            # Toute sortie postérieure à une acceptation relance le serveur : il a
+            # quitté en code 0, la tâche planifiée ne le fera pas. (basculer relance
+            # lui-même dans tous ses chemins ; ce filet couvre ce qui l'entoure.)
+            if acceptation["accepte"]:
+                assurer_serveur(pilote, plan.port, delai_sante)
+            raise
+        finally:
+            shutil.rmtree(chemin_maj(racine, NOM_SAUVEGARDE_NEUVE), ignore_errors=True)
 
     with contexte_serveur(racine):
         return executer(racine, travail)

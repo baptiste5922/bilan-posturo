@@ -20,6 +20,7 @@ Le certificat, lui, se fabrique avec generer_autorite.py.
 import argparse
 import base64
 import binascii
+import ctypes
 import datetime
 import getpass
 import hashlib
@@ -35,6 +36,7 @@ import socket
 import socketserver
 import ssl
 import stat
+import subprocess
 import sys
 import tempfile
 import threading
@@ -223,6 +225,20 @@ CALME_MAX_SECONDES = 86400
 # dépôt déjà commencé s'achève avant de quitter.
 INTERVALLE_SURVEILLANCE_SECONDES = 1.0
 DELAI_FIN_DEPOTS_SECONDES = 30
+# Délai d'INACTIVITÉ d'une connexion : seul le silence compte, jamais la durée
+# totale. Chaque lecture ou écriture sur la socket reçoit ce délai, si bien qu'un
+# bilan de plusieurs Mo envoyé lentement par un Wi-Fi faible aboutit tant que des
+# octets arrivent. Une tablette qui se tait (mise en veille, Wi-Fi perdu) lâche le
+# fil au bout de ce délai : sans lui, un dépôt figé resterait compté « en cours »
+# et refuserait toute mise à jour jusqu'au redémarrage du serveur (C5-T2a).
+INACTIVITE_CONNEXION_SECONDES = 120
+# Reprises d'une écriture atomique dont le remplacement est refusé : sous Windows,
+# CPython ouvre ses fichiers sans FILE_SHARE_DELETE, et un os.replace sur un
+# fichier que l'autre processus lit à cet instant échoue (PermissionError).
+REPRISES_ECRITURE = 40
+PAUSE_REPRISES_SECONDES = 0.05
+SID_SYSTEME = "S-1-5-18"
+SID_ADMINISTRATEURS = "S-1-5-32-544"
 MOTIFS_ARRET = ("aucun", "depot-en-cours", "activite", "demarrage-depasse",
                 "demande-invalide")
 _JETON_ARRET = re.compile(r"[0-9a-f]{32}")
@@ -589,6 +605,15 @@ def forme_comparable(chemin):
         "NFC", os.path.normcase(os.path.realpath(chemin)))
 
 
+def forme_non_resolue(chemin):
+    """Forme normalisée en casse puis en NFC d'un chemin, SANS le résoudre.
+
+    L'autre moitié de forme_comparable : comparer un chemin résolu à ce qu'on
+    attendait à l'écrire est la seule manière de voir qu'un lien ou une jonction
+    l'a détourné. Comparer deux chemins résolus ne voit rien."""
+    return unicodedata.normalize("NFC", os.path.normcase(chemin))
+
+
 def motif_refus_racine_web(racine_web, racine_cabinet, dossier_pdf):
     """None si la racine web résolue ne contient ni la racine du cabinet ni le
     dossier des bilans ; sinon un motif de MOTIFS_REFUS_DEMARRAGE. Jamais de
@@ -789,6 +814,25 @@ def ecrire_atomiquement(destination, contenu):
         except OSError:
             pass
         raise
+
+
+def ecrire_atomiquement_patient(destination, contenu, tentatives=None, pause=None):
+    """ecrire_atomiquement, repris quand le remplacement est refusé.
+
+    Pour les fichiers d'échange entre le serveur et le client de mise à jour
+    (arret.reponse, etat.json), que l'autre processus relit en permanence : un
+    PermissionError au remplacement est momentané. Après `tentatives` essais, la
+    dernière erreur est relevée."""
+    tentatives = REPRISES_ECRITURE if tentatives is None else tentatives
+    pause = PAUSE_REPRISES_SECONDES if pause is None else pause
+    for essai in range(tentatives):
+        try:
+            ecrire_atomiquement(destination, contenu)
+            return
+        except PermissionError:
+            if essai == tentatives - 1:
+                raise
+            time.sleep(pause)
 
 
 # --------------------------------------------------------------------------
@@ -1576,7 +1620,7 @@ def _json_strict(octets):
     La lecture est celle de paquet_signe : ce que le client de mise à jour a écrit
     se relit exactement comme il le relit lui-même."""
     try:
-        return paquet_signe._lire_json_strict(octets, "MANIFESTE_MALFORME")
+        return paquet_signe.lire_json_strict(octets, "MANIFESTE_MALFORME")
     except paquet_signe.PaquetRefuse as erreur:
         raise ValueError(erreur.detail)
 
@@ -1637,7 +1681,7 @@ def lire_etat_maj(dossier=None):
             "maj_le": valeur(
                 "le", lambda v: _HORODATAGE_MAJ.fullmatch(v) is not None),
             "maj_version": valeur(
-                "version", lambda v: paquet_signe._VERSION.fullmatch(v) is not None),
+                "version", lambda v: paquet_signe.MOTIF_VERSION.fullmatch(v) is not None),
         }
     except ValueError:
         return dict(_ETAT_MAJ_ILLISIBLE)
@@ -1812,6 +1856,167 @@ pre {{ background: #f4f4f4; padding: .8em; overflow-x: auto; white-space: pre-wr
 # reçoit un bilan, qui accepte ou refuse. Aucune route, aucun port : le dossier
 # est réservé à SYSTEM et aux administrateurs.
 
+# --- Protection du dossier réservé ----------------------------------------------
+#
+# Le serveur n'obéit à une demande d'arrêt que posée dans un dossier dont il a
+# vérifié la protection. Ces fonctions sont partagées avec maj.py, qui les utilise
+# pour protéger le dossier puis le relire : la règle est écrite UNE fois.
+
+_ACE = re.compile(r"\(([^)]*)\)")
+
+
+def sddl_est_protege(texte):
+    """(vrai, motif) : le SDDL d'un dossier est-il protégé et réservé à SY et BA ?
+
+    `D:P…` : protégé, donc sans héritage. Seules des entrées autorisantes (A) pour
+    SY (SYSTEM) et BA (Administrateurs). Pure, donc testable sans Windows."""
+    correspondance = re.search(r"D:([A-Z]*)((?:\([^)]*\))*)", texte)
+    if correspondance is None:
+        return False, "pas de liste de droits (DACL)"
+    if "P" not in correspondance.group(1):
+        return False, "droits hérités du dossier parent"
+    sids = set()
+    for ace in _ACE.findall(correspondance.group(2)):
+        champs = ace.split(";")
+        if len(champs) < 6 or champs[0] != "A":
+            return False, "entrée de droits inattendue"
+        sids.add(champs[5])
+    if sids != {"SY", "BA"}:
+        return False, "comptes inattendus : %s" % ",".join(sorted(sids))
+    return True, ""
+
+
+def sids_en_trop(texte):
+    """Les comptes, hors SY et BA, que porte le SDDL d'un dossier (dans l'ordre).
+
+    Sur un dossier neuf, Windows ajoute une entrée pour le CRÉATEUR (le compte qui
+    exécute le client : abréviation `OW`, `LA`, ou son SID complet), née du dossier
+    parent et qu'un retrait de l'héritage ne supprime pas. Pure, donc testable."""
+    correspondance = re.search(r"D:([A-Z]*)((?:\([^)]*\))*)", texte)
+    if correspondance is None:
+        return []
+    trouves = []
+    for ace in _ACE.findall(correspondance.group(2)):
+        champs = ace.split(";")
+        if len(champs) >= 6 and champs[5] not in ("SY", "BA") and champs[5] not in trouves:
+            trouves.append(champs[5])
+    return trouves
+
+
+def decoder_sortie_icacls(brut):
+    """Le texte du fichier que `icacls /save` écrit : de l'UTF-16 (avec ou sans
+    marque d'ordre des octets, selon la version de Windows), à défaut de l'UTF-8
+    ou de la page de code locale. Ne lève jamais."""
+    if brut[:2] in (b"\xff\xfe", b"\xfe\xff"):
+        return brut.decode("utf-16", "replace")
+    if b"\x00" in brut[:16]:
+        return brut.decode("utf-16-le", "replace")
+    try:
+        return brut.decode("utf-8")
+    except UnicodeDecodeError:
+        return brut.decode("latin-1")
+
+
+def chemin_systeme32(nom):
+    base = os.environ.get("SystemRoot") or r"C:\Windows"
+    return os.path.join(base, "System32", nom)
+
+
+def lire_sddl_windows(dossier):
+    """Le SDDL du dossier, relu par `icacls /save` (OSError si icacls échoue).
+
+    Le fichier d'enregistrement naît dans un dossier TEMPORAIRE PRIVÉ, jamais dans
+    `dossier` : celui-ci peut ne pas être de confiance (c'est justement ce que l'on
+    vérifie), et rien n'y doit être écrit ni lu à la place d'autre chose."""
+    prive = tempfile.mkdtemp(prefix="bilan-droits-")
+    try:
+        fichier = os.path.join(prive, "droits.txt")
+        resultat = subprocess.run(
+            [chemin_systeme32("icacls.exe"), dossier, "/save", fichier],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL, timeout=60,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        if resultat.returncode != 0:
+            raise OSError("icacls /save a échoué (code %d)" % resultat.returncode)
+        with open(fichier, "rb") as f:
+            brut = f.read(64 * 1024 + 1)
+        if len(brut) > 64 * 1024:
+            raise OSError("sortie d'icacls démesurée")
+        return decoder_sortie_icacls(brut)
+    finally:
+        shutil.rmtree(prive, ignore_errors=True)
+
+
+def proprietaire_windows(chemin):
+    """Le SID (texte) du propriétaire d'un fichier ou dossier, par l'API Windows.
+
+    Pas d'outil à lancer : `icacls /save` n'écrit pas le propriétaire, et un
+    affichage de `dir /q` se traduit. OSError si l'API échoue."""
+    advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    pointeur = ctypes.c_void_p
+    advapi32.GetNamedSecurityInfoW.argtypes = [
+        ctypes.c_wchar_p, ctypes.c_int, ctypes.c_uint32, ctypes.POINTER(pointeur),
+        ctypes.POINTER(pointeur), ctypes.POINTER(pointeur), ctypes.POINTER(pointeur),
+        ctypes.POINTER(pointeur)]
+    advapi32.GetNamedSecurityInfoW.restype = ctypes.c_uint32
+    advapi32.ConvertSidToStringSidW.argtypes = [pointeur, ctypes.POINTER(ctypes.c_wchar_p)]
+    advapi32.ConvertSidToStringSidW.restype = ctypes.c_int
+    kernel32.LocalFree.argtypes = [pointeur]
+    kernel32.LocalFree.restype = pointeur
+    proprietaire, descripteur = pointeur(), pointeur()
+    # SE_FILE_OBJECT = 1, OWNER_SECURITY_INFORMATION = 1
+    code = advapi32.GetNamedSecurityInfoW(
+        chemin, 1, 1, ctypes.byref(proprietaire), None, None, None,
+        ctypes.byref(descripteur))
+    if code != 0:
+        raise OSError("propriétaire illisible (code %d)" % code)
+    try:
+        texte = ctypes.c_wchar_p()
+        if not advapi32.ConvertSidToStringSidW(proprietaire, ctypes.byref(texte)):
+            raise OSError("SID illisible")
+        sid = texte.value
+        kernel32.LocalFree(ctypes.cast(texte, pointeur))
+        return sid
+    finally:
+        kernel32.LocalFree(descripteur)
+
+
+def dossier_reserve_de_confiance(dossier):
+    """Vrai si `dossier` est un vrai dossier (ni lien ni jonction) réservé à un
+    compte de confiance : on peut y lire une demande d'arrêt, y relire un état.
+
+    - Windows : le SDDL est protégé et ne porte que SY et BA (`D:P`), ET le
+      propriétaire est SYSTEM ou Administrateurs (un propriétaire règle ses droits
+      à sa guise : le dossier qu'un utilisateur a créé n'est jamais de confiance,
+      quelle que soit sa liste de droits du moment).
+    - Ailleurs : propriétaire = le compte qui exécute, ou root, et ni le groupe ni
+      les autres ne peuvent y écrire. Critère volontairement plus lâche que le
+      0700 que pose maj.py (un 0755 appartenant au compte du serveur reste
+      inaccessible en écriture à autrui) : on vérifie ce dont dépend la sécurité.
+    Aucune levée : un doute est un « non »."""
+    try:
+        info = os.lstat(dossier)
+        if not stat.S_ISDIR(info.st_mode):
+            return False
+        # Résolu, le chemin doit être celui que l'on a écrit : ni lien, ni jonction.
+        # L'attendu n'est PAS résolu : le résoudre aussi le détournerait de la même
+        # façon, et la comparaison ne verrait plus rien.
+        attendu = os.path.join(os.path.realpath(os.path.dirname(dossier)),
+                               os.path.basename(dossier))
+        if forme_comparable(dossier) != forme_non_resolue(attendu):
+            return False
+        if os.name == "nt":
+            protege, _ = sddl_est_protege(lire_sddl_windows(dossier))
+            return protege and proprietaire_windows(dossier) in (
+                SID_SYSTEME, SID_ADMINISTRATEURS)
+        if hasattr(os, "geteuid") and info.st_uid not in (0, os.geteuid()):
+            return False
+        return stat.S_IMODE(info.st_mode) & 0o022 == 0
+    except (OSError, ValueError):
+        return False
+
+
 def marquer_activite():
     """Note l'heure de la dernière requête autre que la sonde de santé."""
     global DERNIERE_ACTIVITE
@@ -1937,9 +2142,14 @@ def ecrire_reponse_arret(dossier, jeton, verdict, motif):
     corps = json.dumps({"jeton": jeton, "verdict": verdict, "motif": motif},
                        sort_keys=True).encode("utf-8")
     try:
-        ecrire_atomiquement(os.path.join(dossier, REPONSE_ARRET), corps)
+        ecrire_atomiquement_patient(os.path.join(dossier, REPONSE_ARRET), corps)
     except OSError:
         pass
+
+
+# Une seule ligne de journal par processus, pour ne pas noyer le journal sous un
+# programme qui reposerait le fichier toutes les secondes.
+_PROTECTION_SIGNALEE = False
 
 
 class ArretConcerte(object):
@@ -1959,6 +2169,21 @@ def traiter_demande_arret(dossier, arret, demarre_depuis_s, maintenant=None):
     réponse ; d'un jeton lisible mais de forme invalide, effacée avec la réponse
     « demande-invalide »."""
     chemin = os.path.join(dossier, DEMANDE_ARRET)
+    if not os.path.lexists(chemin):
+        return False
+    # Le dossier doit être réservé à SYSTEM et aux administrateurs : sinon un
+    # programme de la session du cabinet pourrait arrêter ce serveur en posant un
+    # fichier. Une demande dans un dossier qui n'est pas de confiance est effacée
+    # sans réponse.
+    if not dossier_reserve_de_confiance(dossier):
+        global _PROTECTION_SIGNALEE
+        if not _PROTECTION_SIGNALEE:
+            _PROTECTION_SIGNALEE = True
+            journaliser("{} demande d'arrêt ignorée : le dossier de mise à jour "
+                        "n'est pas réservé aux administrateurs\n".format(
+                            datetime.datetime.now().isoformat(timespec="seconds")))
+        _effacer_fichier_de_demande(chemin)
+        return False
     statut, demande = lire_demande_arret(chemin)
     if statut == "absente":
         return False
@@ -2119,6 +2344,9 @@ class Gestionnaire(SimpleHTTPRequestHandler):
     # /sante et la 401 comprises, sans qu'il ait à s'authentifier.
     server_version = "bilan-posturo"
     sys_version = ""
+    # Délai d'inactivité de chaque connexion (StreamRequestHandler.timeout, posé
+    # sur la socket par setup()) : voir INACTIVITE_CONNEXION_SECONDES.
+    timeout = INACTIVITE_CONNEXION_SECONDES
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=FORMULAIRE, **kwargs)

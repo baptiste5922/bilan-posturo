@@ -1739,6 +1739,13 @@ class SurveillanceDeLArret(unittest.TestCase):
             patch = unittest.mock.patch.object(serveur, nom, valeur)
             patch.start()
             self.addCleanup(patch.stop)
+        if os.name == "nt":
+            # Un dossier jetable n'y est pas réservé aux administrateurs ; la
+            # vérification réelle est éprouvée par tests/test_maj_windows.py.
+            patch = unittest.mock.patch.object(
+                serveur, "dossier_reserve_de_confiance", lambda dossier: True)
+            patch.start()
+            self.addCleanup(patch.stop)
 
     def poser(self, contenu, mode="w"):
         with open(self.demande, mode) as f:
@@ -2123,6 +2130,215 @@ class EtatDeLaMiseAJour(unittest.TestCase):
         self.assertIn("maj_le", serveur.CHAMPS_ETAT_HORODATES)
         # Témoin : la garde mord sur un code qui porterait une adresse.
         self.assertIsNotNone(chercher_adresse("code 192.168.1.13", ipv6=False))
+
+
+class ObeissanceALaDemandeDArret(unittest.TestCase):
+    """Le serveur n'obéit qu'à une demande posée dans un dossier réservé (C5-T2a,
+    réaudit) : sinon un programme de la session du cabinet l'arrêterait."""
+
+    def setUp(self):
+        self.dossier = tempfile.mkdtemp(prefix="bilan-test-confiance-")
+        self.addCleanup(shutil.rmtree, self.dossier, ignore_errors=True)
+        self.demande = os.path.join(self.dossier, serveur.DEMANDE_ARRET)
+        for nom, valeur in (("DEPOTS_EN_COURS", 0), ("DERNIERE_ACTIVITE", None),
+                            ("_PROTECTION_SIGNALEE", False),
+                            ("JOURNAL", os.path.join(self.dossier, "journal.log")),
+                            ("TECHNIQUE", os.path.join(self.dossier, "technique.log"))):
+            patch = unittest.mock.patch.object(serveur, nom, valeur)
+            patch.start()
+            self.addCleanup(patch.stop)
+        patch = unittest.mock.patch.object(serveur, "ecrire_stderr", lambda ligne: None)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def poser_demande(self):
+        with open(self.demande, "w") as f:
+            json.dump(demande_arret(0), f)
+
+    def test_demande_dans_un_dossier_qui_n_est_pas_de_confiance_est_ignoree(self):
+        self.poser_demande()
+        with unittest.mock.patch.object(serveur, "dossier_reserve_de_confiance",
+                                        lambda dossier: False):
+            arret = serveur.ArretConcerte()
+            self.assertFalse(serveur.traiter_demande_arret(self.dossier, arret, 10))
+        self.assertIsNone(arret.jeton)
+        self.assertFalse(os.path.lexists(self.demande))
+        self.assertFalse(os.path.exists(os.path.join(self.dossier, serveur.REPONSE_ARRET)))
+        with open(serveur.JOURNAL, encoding="utf-8") as f:
+            self.assertIn("demande d'arrêt ignorée", f.read())
+
+    def test_la_meme_demande_est_acceptee_dans_un_dossier_de_confiance(self):
+        self.poser_demande()
+        with unittest.mock.patch.object(serveur, "dossier_reserve_de_confiance",
+                                        lambda dossier: True):
+            self.assertTrue(serveur.traiter_demande_arret(
+                self.dossier, serveur.ArretConcerte(), 10))
+
+    def test_le_refus_n_est_journalise_qu_une_fois(self):
+        with unittest.mock.patch.object(serveur, "dossier_reserve_de_confiance",
+                                        lambda dossier: False):
+            for _ in range(3):
+                self.poser_demande()
+                serveur.traiter_demande_arret(self.dossier, serveur.ArretConcerte(), 10)
+        with open(serveur.JOURNAL, encoding="utf-8") as f:
+            self.assertEqual(f.read().count("demande d'arrêt ignorée"), 1)
+
+    def test_la_verification_a_lieu_avant_toute_lecture(self):
+        # Même un fichier illisible, ou énorme, n'est pas lu dans un dossier
+        # qui n'est pas de confiance : il est seulement effacé.
+        with open(self.demande, "wb") as f:
+            f.write(b"x" * 100000)
+        lectures = []
+        reel = serveur.lire_demande_arret
+        with unittest.mock.patch.object(serveur, "dossier_reserve_de_confiance",
+                                        lambda dossier: False), \
+             unittest.mock.patch.object(serveur, "lire_demande_arret",
+                                        lambda c: lectures.append(c) or reel(c)):
+            serveur.traiter_demande_arret(self.dossier, serveur.ArretConcerte(), 10)
+        self.assertEqual(lectures, [])
+
+    @unittest.skipIf(os.name == "nt", "critère POSIX : propriétaire et droits")
+    def test_criteres_posix(self):
+        def dossier_avec(mode):
+            chemin = tempfile.mkdtemp(prefix="bilan-test-mode-", dir=self.dossier)
+            os.chmod(chemin, mode)
+            return chemin
+
+        for mode, attendu in ((0o700, True), (0o750, True), (0o755, True),
+                              (0o770, False), (0o775, False), (0o777, False),
+                              (0o702, False), (0o722, False)):
+            with self.subTest(mode=oct(mode)):
+                self.assertEqual(serveur.dossier_reserve_de_confiance(dossier_avec(mode)),
+                                 attendu)
+
+    @unittest.skipIf(os.name == "nt", "critère POSIX : propriétaire et droits")
+    def test_proprietaire_etranger_ou_lien_ou_fichier_refuses(self):
+        propre = tempfile.mkdtemp(prefix="bilan-test-mode-", dir=self.dossier)
+        os.chmod(propre, 0o700)
+        self.assertTrue(serveur.dossier_reserve_de_confiance(propre))
+        # Le dossier d'un autre compte (ni le nôtre, ni root) n'est pas de confiance.
+        autre = os.geteuid() + 4242
+        reel = os.lstat(propre)
+        faux = os.stat_result((reel.st_mode, reel.st_ino, reel.st_dev, reel.st_nlink,
+                               autre, reel.st_gid, reel.st_size, reel.st_atime,
+                               reel.st_mtime, reel.st_ctime))
+        with unittest.mock.patch.object(serveur.os, "lstat", lambda c: faux):
+            self.assertFalse(serveur.dossier_reserve_de_confiance(propre))
+        fichier = os.path.join(self.dossier, "fichier")
+        with open(fichier, "w") as f:
+            f.write("x")
+        self.assertFalse(serveur.dossier_reserve_de_confiance(fichier))
+        lien = os.path.join(self.dossier, "lien")
+        try:
+            os.symlink(propre, lien)
+        except (OSError, NotImplementedError):
+            self.skipTest("lien symbolique impossible sur ce poste")
+        self.assertFalse(serveur.dossier_reserve_de_confiance(lien))
+        self.assertFalse(serveur.dossier_reserve_de_confiance(os.path.join(self.dossier, "absent")))
+
+    def test_jonction_simulee_n_est_pas_de_confiance(self):
+        # Sous Windows, lstat rend S_IFDIR pour une jonction : seule la comparaison
+        # du chemin résolu à celui qu'on a écrit la voit. Simulée ici par realpath.
+        cible = tempfile.mkdtemp(prefix="bilan-test-jonction-", dir=self.dossier)
+        reserve = os.path.join(self.dossier, "mise-a-jour")
+        os.mkdir(reserve)
+        os.chmod(reserve, 0o700)
+        reel = os.path.realpath
+
+        def realpath(chemin, *a, **k):
+            return cible if os.fspath(chemin) == reserve else reel(chemin, *a, **k)
+
+        with unittest.mock.patch.object(serveur, "lire_sddl_windows",
+                                        lambda d: "D:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)"), \
+             unittest.mock.patch.object(serveur, "proprietaire_windows",
+                                        lambda d: serveur.SID_ADMINISTRATEURS):
+            self.assertTrue(serveur.dossier_reserve_de_confiance(reserve))
+            with unittest.mock.patch("os.path.realpath", realpath):
+                self.assertFalse(serveur.dossier_reserve_de_confiance(reserve))
+
+    def test_la_surveillance_efface_les_restes_au_demarrage(self):
+        # X15 : une demande ou une réponse laissées par un processus précédent
+        # arrêteraient le serveur relancé dans la seconde.
+        with open(self.demande, "w") as f:
+            json.dump(demande_arret(0), f)
+        reponse = os.path.join(self.dossier, serveur.REPONSE_ARRET)
+        with open(reponse, "w") as f:
+            f.write("{}")
+
+        class FauxServeur(object):
+            def shutdown(self):
+                raise RuntimeError("ne doit pas être appelé")
+
+        with unittest.mock.patch.object(serveur, "DOSSIER_MAJ", self.dossier):
+            fin = serveur.demarrer_surveillance_arret(FauxServeur(), serveur.ArretConcerte())
+        fin.set()
+        self.assertFalse(os.path.lexists(self.demande))
+        self.assertFalse(os.path.lexists(reponse))
+
+
+class EcrituresPatientes(unittest.TestCase):
+    """Sous Windows, un os.replace sur un fichier que l'autre processus lit à cet
+    instant est refusé : les fichiers d'échange sont repris."""
+
+    def setUp(self):
+        self.dossier = tempfile.mkdtemp(prefix="bilan-test-patient-")
+        self.addCleanup(shutil.rmtree, self.dossier, ignore_errors=True)
+
+    def remplacement_refuse(self, fois):
+        reel = os.replace
+        etat = {"restant": fois, "appels": 0}
+
+        def faux(source, destination, *a, **k):
+            etat["appels"] += 1
+            if etat["restant"] > 0:
+                etat["restant"] -= 1
+                raise PermissionError(13, "refusé par le test")
+            return reel(source, destination, *a, **k)
+
+        return etat, unittest.mock.patch("os.replace", faux)
+
+    def test_remplacement_momentanement_refuse(self):
+        destination = os.path.join(self.dossier, "x.json")
+        etat, patch = self.remplacement_refuse(3)
+        with patch:
+            serveur.ecrire_atomiquement_patient(destination, b"{}", tentatives=10, pause=0)
+        self.assertEqual(etat["appels"], 4)
+        with open(destination, "rb") as f:
+            self.assertEqual(f.read(), b"{}")
+        self.assertEqual([n for n in os.listdir(self.dossier) if n.endswith(".part")], [])
+
+    def test_refus_durable_leve_apres_les_tentatives(self):
+        destination = os.path.join(self.dossier, "x.json")
+        etat, patch = self.remplacement_refuse(100)
+        with patch, self.assertRaises(PermissionError):
+            serveur.ecrire_atomiquement_patient(destination, b"{}", tentatives=4, pause=0)
+        self.assertEqual(etat["appels"], 4)
+        self.assertEqual(os.listdir(self.dossier), [])
+
+    def test_une_autre_erreur_n_est_pas_reprise(self):
+        etat = {"appels": 0}
+
+        def faux(*a, **k):
+            etat["appels"] += 1
+            raise OSError(28, "disque plein")
+
+        with unittest.mock.patch("os.replace", faux), self.assertRaises(OSError):
+            serveur.ecrire_atomiquement_patient(
+                os.path.join(self.dossier, "x"), b"{}", tentatives=10, pause=0)
+        self.assertEqual(etat["appels"], 1)
+
+    def test_la_reponse_d_arret_survit_a_un_remplacement_refuse(self):
+        etat, patch = self.remplacement_refuse(2)
+        with patch, unittest.mock.patch.object(serveur, "PAUSE_REPRISES_SECONDES", 0):
+            serveur.ecrire_reponse_arret(self.dossier, JETON, "arrete", "aucun")
+        with open(os.path.join(self.dossier, serveur.REPONSE_ARRET)) as f:
+            self.assertEqual(json.load(f)["verdict"], "arrete")
+        self.assertEqual(etat["appels"], 3)
+
+    def test_delai_d_inactivite_des_connexions(self):
+        # Inactivité, pas durée : posé sur la socket, il s'applique à chaque lecture.
+        self.assertEqual(serveur.INACTIVITE_CONNEXION_SECONDES, 120)
+        self.assertEqual(serveur.Gestionnaire.timeout, serveur.INACTIVITE_CONNEXION_SECONDES)
 
 
 def modules_importes(source):

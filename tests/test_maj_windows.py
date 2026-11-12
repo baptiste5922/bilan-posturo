@@ -171,6 +171,70 @@ class WindowsReel(unittest.TestCase):
             maj._lancer_windows = reel
         self.assertEqual(contexte.exception.code, "DOSSIER_NON_PROTEGE")
 
+    def racine_jetable(self):
+        racine = os.path.realpath(tempfile.mkdtemp(prefix="bilan-maj-droits-"))
+        self.addCleanup(shutil.rmtree, racine, True)
+        return racine
+
+    def test_confiance_du_serveur_dans_le_dossier_reserve(self):
+        # Le serveur n'obéit qu'à un dossier de confiance : SDDL D:P + SY + BA ET
+        # propriétaire SYSTEM ou Administrateurs.
+        racine = self.racine_jetable()
+        dossier = os.path.join(racine, serveur.NOM_DOSSIER_MAJ)
+        os.mkdir(dossier)
+        self.assertFalse(serveur.dossier_reserve_de_confiance(dossier),
+                         "un dossier créé sans protection ne doit pas être de confiance")
+        maj.preparer_dossier_prive(racine)
+        self.assertTrue(serveur.dossier_reserve_de_confiance(dossier))
+        self.assertIn(serveur.proprietaire_windows(dossier),
+                      (serveur.SID_SYSTEME, serveur.SID_ADMINISTRATEURS))
+        self.assertEqual(serveur.proprietaire_windows(dossier), serveur.SID_ADMINISTRATEURS)
+        self.assertFalse(serveur.dossier_reserve_de_confiance(os.path.join(racine, "absent")))
+        fichier = os.path.join(racine, "fichier.txt")
+        with open(fichier, "w") as f:
+            f.write("x")
+        self.assertFalse(serveur.dossier_reserve_de_confiance(fichier))
+
+    def test_proprietaire_de_la_racine_jetable_se_lit(self):
+        racine = self.racine_jetable()
+        sid = serveur.proprietaire_windows(racine)
+        self.assertRegex(sid, r"^S-1-5-")
+
+    def test_contenu_pose_dans_un_dossier_non_reserve_est_vide(self):
+        racine = self.racine_jetable()
+        dossier = os.path.join(racine, serveur.NOM_DOSSIER_MAJ)
+        os.mkdir(dossier)
+        with open(os.path.join(dossier, "etat.json"), "w") as f:
+            f.write('{"etape": "bascule"}')
+        os.makedirs(os.path.join(dossier, "sauvegarde"))
+        maj.preparer_dossier_prive(racine)
+        self.assertEqual(os.listdir(dossier), [])
+        # Une fois de confiance, le contenu est gardé.
+        with open(os.path.join(dossier, "etat.json"), "w") as f:
+            f.write('{"etape": "repos"}')
+        maj.preparer_dossier_prive(racine)
+        self.assertEqual(os.listdir(dossier), ["etat.json"])
+
+    def test_vraie_jonction_a_la_place_du_dossier_reserve(self):
+        # Sous Windows, lstat rend S_IFDIR pour une jonction : la comparaison du
+        # chemin résolu est la seule barrière, et rien derrière la jonction ne doit
+        # être effacé ni protégé.
+        racine = self.racine_jetable()
+        cible = self.racine_jetable()
+        with open(os.path.join(cible, "derriere.txt"), "w") as f:
+            f.write("derrière la jonction")
+        jonction = os.path.join(racine, serveur.NOM_DOSSIER_MAJ)
+        resultat = lancer(maj._systeme32("cmd.exe"), "/c", "mklink", "/J", jonction, cible)
+        self.assertEqual(resultat.returncode, 0, resultat.stdout + resultat.stderr)
+        with self.assertRaises(maj.Refus) as contexte:
+            maj.preparer_dossier_prive(racine)
+        self.assertEqual(contexte.exception.code, "DOSSIER_NON_PROTEGE")
+        self.assertEqual(os.listdir(cible), ["derriere.txt"])
+        self.assertFalse(serveur.dossier_reserve_de_confiance(jonction))
+        # Retirer la jonction ne supprime pas la cible.
+        os.rmdir(jonction)
+        self.assertEqual(os.listdir(cible), ["derriere.txt"])
+
     def test_paquet_essai_est_importable_sous_windows(self):
         # Le bout en bout fabrique ses paquets sans sh ni zip : il tourne ici aussi.
         self.assertTrue(callable(pe.fabriquer_trio))
