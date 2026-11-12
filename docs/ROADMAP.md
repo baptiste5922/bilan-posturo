@@ -1141,6 +1141,16 @@ avant toute nouvelle fonctionnalité. La fiabilité est la marge.
 
 ### C5-T2 — Client de mise à jour
 
+> **État : C5-T2a implémentée le 12 novembre 2026, en attente d'audit** (branche
+> `c5-t2a-application` ; contrat `docs/contrats/C5-T2.md`, errata au §13 ;
+> fiches `docs/mise-a-jour.md` et `docs/essais/C5-T2-windows.md`). Tâche
+> **découpée** : **C5-T2a** (application locale d'un paquet signé, arrêt
+> concerté du serveur, retour arrière, traces, `/etat`) puis **C5-T2b**
+> (téléchargement, plage horaire, seconde tâche planifiée), qui ne s'ouvre
+> qu'après l'audit CONFORME et la revue de la première. Aucun appel réseau, aucune
+> seconde tâche planifiée en C5-T2a. Rien n'en part au cabinet avant la visite de
+> C1-T4b.
+
 > **Décision du 3 novembre 2026 :** le PC tire les mises à jour lui-même et
 > n'installe qu'un paquet signé. Seul flux sortant : du code public, jamais
 > une donnée de santé. C'est à écrire tel quel dans le contrat de

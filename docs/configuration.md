@@ -180,8 +180,11 @@ est conservé à l'atelier hors dépôt, puis posé **sur le PC du cabinet** :
 3. redémarrer le serveur, recharger la page sur la tablette, exporter un bilan
    d'essai et regarder la première page.
 
-Une mise à jour qui remplace `formulaire/` efface ce dossier (point à traiter
-par C5) : après une réinstallation, reposer le fichier.
+Une mise à jour ne touche jamais ce dossier (C5-T2a) : le client de mise à jour
+refuse tout chemin sous `formulaire/images/cabinet/`, quelle que soit la casse,
+même dans un paquet signé, et remplace les fichiers un par un au lieu de
+remplacer `formulaire/`. Après une réinstallation **à la main** (dossier
+recopié), en revanche, reposer le fichier.
 
 **Où lire un refus** :
 
@@ -207,3 +210,24 @@ pas seulement le logo. Sous Windows, une différence de casse seule dans l'URL
 
 **Retour arrière** : mettre `"logo": "images/favicon.jpeg"` (ou `""`) dans
 `config.json` et relancer le serveur.
+
+## 8. Le bloc `mise_a_jour` (C5-T2a)
+
+```json
+"mise_a_jour": { "client": "cabinet-01" }
+```
+
+Une seule clé en C5-T2a, **obligatoire pour appliquer un paquet** :
+
+| Clé | Forme | Rôle |
+|---|---|---|
+| `client` | `cabinet-NN` (au moins deux chiffres) | le client auquel ce PC appartient. Un paquet signé pour un autre client est refusé (`CLIENT_DIFFERENT`). |
+
+Sans ce bloc, `python serveur\maj.py appliquer` refuse (`CLIENT_NON_CONFIGURE`)
+et **rien d'autre ne change** : le serveur ignore ce bloc, un `config.json`
+qui le porte reste lisible par une version plus ancienne. Les clés `adresse`,
+`plage`, `calme_minutes`, `au_demarrage` et `proxy` appartiennent à C5-T2b
+(téléchargement) et ne sont pas encore lues.
+
+La marche à suivre complète (amorçage à la visite, application à la main, lecture
+de l'état, retour arrière) est dans `docs/mise-a-jour.md`.
