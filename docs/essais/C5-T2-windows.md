@@ -202,7 +202,9 @@ echo $LASTEXITCODE
 Le client n'en dépend pas (une erreur de cette relance est avalée : elle ne défait
 jamais une version saine), mais le code permet de le confirmer. Le test automatisé
 `tests.test_maj_windows` l'imprime aussi dans le journal de la CI, sur une tâche
-jetable.
+jetable : relevé le 12 novembre 2026 sous `windows-latest`, **code 0** (le second
+`/Run` d'une tâche en marche est ignoré sans erreur). À confirmer ici sur la tâche
+du serveur.
 
 | Intervalle ARRET → DEMARRAGE | |
 |---|---|

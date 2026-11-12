@@ -174,3 +174,51 @@ rouge 68/68, aucune mutation survivante.**
   résoudre `/var` (lien vers `/private/var` sous macOS) et rougissait pour une autre
   raison que la mutation. Corrigé (`realpath` du dossier jetable), puis rejouée :
   rouge dans les deux modes.
+
+
+## Revue de C5-T2a : mutations R15 à R22
+
+Rejouées le 12 novembre 2026 après les corrections de `docs/revues/C5-T2a.md`, sur
+une copie `git ls-files -z` + `git init` sans `origin` du dépôt au commit « Corrige la
+revue », même harnais (ancre unique, témoin vert avant la mutation, restauration par
+`cp` et empreinte vérifiée, `python3` et `python3 -O`). Les 42 ancres des mutations M1
+à R22 ont été revérifiées uniques sur le code corrigé.
+
+| # | Mutation | Où | Remarque visée |
+|---|---|---|---|
+| R15 | D12 : `effacer_pycache` ne fait plus rien | `maj.py:effacer_pycache` | Important 2 de la revue |
+| R16 | D12 : la bascule n'appelle plus `effacer_pycache` | `maj.py:basculer` | Important 2 |
+| R17 | D12 : le retour n'appelle plus `effacer_pycache` | `maj.py:_restaurer` | Important 2 |
+| R18 | la relance de `attendre_sante` peut interrompre l'attente (`try/except` retiré) | `maj.py:attendre_sante` | Important 3 |
+| R19 | la lecture du corps n'attrape plus l'expiration du délai | `serveur.py:traiter_post` | Mineur : délai de 120 s |
+| R20 | une connexion préouverte qui expire n'est plus muette | `serveur.py:Gestionnaire.log_error` | Mineur : délai de 120 s |
+| R21 | la fiche d'essai cite un nom de clé que l'outil refuse | `docs/essais/C5-T2-windows.md` | Important 1 |
+| R22 | la réponse d'un transfert interrompu peut lever sur une tablette partie | `serveur.py:traiter_post` | Mineur : délai de 120 s |
+
+Seize exécutions (8 mutations × 2 modes) : **témoin vert 16/16, mutation rouge 16/16,
+aucune survivante.**
+
+| # | Mutation | Mode | Témoin (copie intacte) | Mutée | Tests rouges |
+|---|---|---|---|---|---|
+| R15 | D12 : effacer_pycache ne fait plus rien | python3 | vert | rouge | test_effacer_pycache_ne_vise_que_celui_du_serveur (PoseEtRetour)<br>test_la_bascule_efface_pycache (PoseEtRetour)<br>test_le_cabinet_survit_a_trois_montees (TroisMontees)<br>test_le_retour_efface_pycache (PoseEtRetour) |
+| R15 | D12 : effacer_pycache ne fait plus rien | python3 -O | vert | rouge | test_effacer_pycache_ne_vise_que_celui_du_serveur (PoseEtRetour)<br>test_la_bascule_efface_pycache (PoseEtRetour)<br>test_le_cabinet_survit_a_trois_montees (TroisMontees)<br>test_le_retour_efface_pycache (PoseEtRetour) |
+| R16 | D12 : la bascule n'appelle plus effacer_pycache | python3 | vert | rouge | test_la_bascule_efface_pycache (PoseEtRetour)<br>test_le_cabinet_survit_a_trois_montees (TroisMontees) |
+| R16 | D12 : la bascule n'appelle plus effacer_pycache | python3 -O | vert | rouge | test_la_bascule_efface_pycache (PoseEtRetour)<br>test_le_cabinet_survit_a_trois_montees (TroisMontees) |
+| R17 | D12 : le retour n'appelle plus effacer_pycache | python3 | vert | rouge | test_le_retour_efface_pycache (PoseEtRetour) |
+| R17 | D12 : le retour n'appelle plus effacer_pycache | python3 -O | vert | rouge | test_le_retour_efface_pycache (PoseEtRetour) |
+| R18 | la relance de attendre_sante peut interrompre l'attente (try/except retiré) | python3 | vert | rouge | test_une_erreur_de_la_relance_n_interrompt_pas_l_attente (ArretCoteClient)<br>test_une_relance_en_erreur_n_empeche_pas_le_verdict_negatif (ArretCoteClient) |
+| R18 | la relance de attendre_sante peut interrompre l'attente (try/except retiré) | python3 -O | vert | rouge | test_une_erreur_de_la_relance_n_interrompt_pas_l_attente (ArretCoteClient)<br>test_une_relance_en_erreur_n_empeche_pas_le_verdict_negatif (ArretCoteClient) |
+| R19 | la lecture du corps n'attrape plus l'expiration du délai | python3 | vert | rouge | test_depot_qui_s_arrete_est_un_transfert_interrompu (ExpirationDesConnexions)<br>test_expiration_pendant_le_corps_est_un_transfert_interrompu (ExpirationDuDelaiDInactivite)<br>test_expiration_puis_reponse_impossible_ne_leve_pas (ExpirationDuDelaiDInactivite) |
+| R19 | la lecture du corps n'attrape plus l'expiration du délai | python3 -O | vert | rouge | test_depot_qui_s_arrete_est_un_transfert_interrompu (ExpirationDesConnexions)<br>test_expiration_pendant_le_corps_est_un_transfert_interrompu (ExpirationDuDelaiDInactivite)<br>test_expiration_puis_reponse_impossible_ne_leve_pas (ExpirationDuDelaiDInactivite) |
+| R20 | une connexion préouverte qui expire n'est plus muette | python3 | vert | rouge | test_connexion_jamais_utilisee_est_muette_dans_les_deux_journaux (ExpirationDuDelaiDInactivite)<br>test_connexion_preouverte_et_jamais_utilisee_est_muette (ExpirationDesConnexions) |
+| R20 | une connexion préouverte qui expire n'est plus muette | python3 -O | vert | rouge | test_connexion_jamais_utilisee_est_muette_dans_les_deux_journaux (ExpirationDuDelaiDInactivite)<br>test_connexion_preouverte_et_jamais_utilisee_est_muette (ExpirationDesConnexions) |
+| R21 | la fiche d'essai cite un nom de clé que l'outil refuse | python3 | vert | rouge | test_la_fiche_d_essai_cite_un_nom_de_cle_et_des_options_qui_existent (Documentation) |
+| R21 | la fiche d'essai cite un nom de clé que l'outil refuse | python3 -O | vert | rouge | test_la_fiche_d_essai_cite_un_nom_de_cle_et_des_options_qui_existent (Documentation) |
+| R22 | la réponse d'un transfert interrompu peut lever sur une tablette partie | python3 | vert | rouge | test_expiration_puis_reponse_impossible_ne_leve_pas (ExpirationDuDelaiDInactivite) |
+| R22 | la réponse d'un transfert interrompu peut lever sur une tablette partie | python3 -O | vert | rouge | test_expiration_puis_reponse_impossible_ne_leve_pas (ExpirationDuDelaiDInactivite) |
+
+R15 à R17 sont les trois mutations que la revue disait manquer à la liste de D12 : le
+pilote d'essai lance le serveur en `-B` et la comparaison de l'arbre ignore
+`__pycache__`, si bien que seul un `.pyc` planté à la main avant la bascule et avant
+le retour rend l'effacement visible. R18 éprouve la relance qui n'interrompt jamais
+l'attente de `/sante`.
