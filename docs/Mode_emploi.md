@@ -280,6 +280,14 @@ Il tourne et se purge exactement comme l'autre journal : archivé au-delà de
 (`"conservation_journaux_mois"`, voir plus haut). Une seule durée vaut pour
 les deux fichiers.
 
+Un envoi de bilan qui s'arrête en pleine émission (tablette mise en veille,
+Wi-Fi perdu) et reste silencieux plus de deux minutes est abandonné par le
+serveur : `technique.log` porte alors la ligne `DEPOT refus
+motif=transfert-interrompu`, sans adresse, et la tablette renvoie le bilan. Un
+envoi lent mais qui avance n'est jamais coupé, quelle que soit sa durée. Une
+connexion que le navigateur ouvre par anticipation et n'utilise pas ne laisse
+aucune ligne.
+
 Pour le désactiver (il ne devrait pas y avoir de raison, mais le retour en
 arrière existe) : ouvrir `config.json` à la racine, ajouter ou mettre à
 `false` la ligne `"journal_technique"`, enregistrer, relancer le serveur. Le
@@ -315,6 +323,13 @@ Elle dit, ligne à ligne :
   porte que `localhost`, ou il n'a pas pu être lu) ;
 - **Identité du cabinet** — « non renseignée » signifie que l'export des
   bilans est refusé : lancer `python serveur/serveur.py --config` ;
+- **Mise à jour** — où en est la dernière mise à jour du serveur
+  (`docs/mise-a-jour.md`) : « aucune mise à jour enregistrée » tant qu'aucune n'a
+  été tentée ; sinon l'étape (`repos` : rien en cours), le dernier résultat
+  (`appliquee`, `revenue` : défaite seule, `refusee`, `reportee`), un code en
+  majuscules qui dit pourquoi, la version concernée et la date. **`echec-retour`**
+  ou **`état illisible`** demandent une intervention : lancer
+  `python serveur\maj.py etat` et suivre `docs/mise-a-jour.md` ;
 - les **30 dernières lignes de `technique.log`**.
 
 Rien de ce qui s'y lit n'identifie une patiente, un patient, un fichier ou une

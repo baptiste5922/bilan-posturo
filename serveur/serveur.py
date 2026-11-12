@@ -242,8 +242,8 @@ SID_ADMINISTRATEURS = "S-1-5-32-544"
 MOTIFS_ARRET = ("aucun", "depot-en-cours", "activite", "demarrage-depasse",
                 "demande-invalide")
 _JETON_ARRET = re.compile(r"[0-9a-f]{32}")
-_CODE_MAJ = re.compile(r"[A-Z_]{1,40}")
-_HORODATAGE_MAJ = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}")
+MOTIF_CODE_MAJ = re.compile(r"[A-Z_]{1,40}")
+MOTIF_HORODATAGE_MAJ = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}")
 
 # État du processus lu par la page d'état. Posés dans demarrer() ; None tant
 # qu'il n'a pas tourné (tests unitaires).
@@ -1677,9 +1677,9 @@ def lire_etat_maj(dossier=None):
         return {
             "maj_etape": etape,
             "maj_resultat": valeur("resultat", lambda v: v in RESULTATS_MAJ),
-            "maj_code": valeur("code", lambda v: _CODE_MAJ.fullmatch(v) is not None),
+            "maj_code": valeur("code", lambda v: MOTIF_CODE_MAJ.fullmatch(v) is not None),
             "maj_le": valeur(
-                "le", lambda v: _HORODATAGE_MAJ.fullmatch(v) is not None),
+                "le", lambda v: MOTIF_HORODATAGE_MAJ.fullmatch(v) is not None),
             "maj_version": valeur(
                 "version", lambda v: paquet_signe.MOTIF_VERSION.fullmatch(v) is not None),
         }
@@ -2381,6 +2381,17 @@ class Gestionnaire(SimpleHTTPRequestHandler):
         self._code_reponse_technique = code
         super().log_request(code, size)
 
+    def log_error(self, format, *args):
+        # Une connexion qui expire SANS avoir envoyé de requête (un navigateur en
+        # ouvre une par anticipation, et n'en fait parfois rien) est muette : la
+        # bibliothèque en ferait une ligne avec l'adresse du client dans
+        # journal.log, et une ligne « REPONSE … code=0 » dans technique.log, le
+        # fichier qui circule, que le support ne saurait pas lire. Un dépôt qui
+        # s'arrête en pleine émission, lui, est tracé par traiter_post.
+        if format.startswith("Request timed out"):
+            return
+        super().log_error(format, *args)
+
     def log_message(self, format, *args):
         # La sonde de santé est interrogée toutes les quelques dizaines de
         # secondes par chaque tablette allumée : la journaliser noierait les
@@ -2705,13 +2716,23 @@ class Gestionnaire(SimpleHTTPRequestHandler):
                                {"erreur": "Fichier trop volumineux"})
             return
 
-        contenu = self.rfile.read(taille)
+        try:
+            contenu = self.rfile.read(taille)
+        except OSError:
+            # Délai d'inactivité (INACTIVITE_CONNEXION_SECONDES) ou connexion
+            # rompue : même cas qu'une coupure, et même trace, fermée et sans
+            # adresse. Sans cette capture, la bibliothèque écrirait « Request timed
+            # out » avec l'adresse du client et une ligne REPONSE code=0.
+            contenu = b""
         if len(contenu) != taille:
             # Connexion coupée en cours d'envoi : le PDF serait tronqué.
             journaliser_technique("DEPOT",
                                   detail_refus_depot("transfert-interrompu"))
-            self.repondre_json(HTTPStatus.BAD_REQUEST,
-                               {"erreur": "Transfert interrompu"})
+            try:
+                self.repondre_json(HTTPStatus.BAD_REQUEST,
+                                   {"erreur": "Transfert interrompu"})
+            except OSError:
+                pass            # la tablette n'est plus là pour la lire
             return
 
         # Le nom voyage en base64 : un en-tête HTTP ne transporte pas

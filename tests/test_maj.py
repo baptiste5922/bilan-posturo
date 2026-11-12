@@ -709,6 +709,45 @@ class PoseEtRetour(Installation):
         self.assertEqual(compteur[1], 0)
         self.assertEqual(self.arbre(), avant)
 
+    def planter_pycache(self):
+        """Un .pyc que personne n'a le droit de réutiliser : D12 (une restauration
+        dans la même seconde, à taille égale, ferait réutiliser un .pyc de la
+        version quittée). Le pilote d'essai lance le serveur en -B : sans ce
+        fichier posé à la main, aucun test ne verrait l'effacement."""
+        dossier = os.path.join(self.racine, "serveur", "__pycache__")
+        os.makedirs(dossier, exist_ok=True)
+        chemin = os.path.join(dossier, "serveur.cpython-39.pyc")
+        with open(chemin, "wb") as f:
+            f.write(b"\x00pyc de la version quittee")
+        return dossier
+
+    def test_effacer_pycache_ne_vise_que_celui_du_serveur(self):
+        dossier = self.planter_pycache()
+        autre = os.path.join(self.racine, "formulaire", "__pycache__")
+        os.makedirs(autre)
+        maj.effacer_pycache(self.racine)
+        self.assertFalse(os.path.lexists(dossier))
+        self.assertTrue(os.path.isdir(autre))
+        maj.effacer_pycache(self.racine)        # idempotent, et sans levée
+
+    def test_la_bascule_efface_pycache(self):
+        plan = self.preparer()
+        dossier = self.planter_pycache()
+        self.patch(maj, "attendre_sante", lambda *a, **k: True)
+        self.patch(maj, "lancer_auto_controle", lambda racine, delai: None)
+        with maj.contexte_serveur(self.racine):
+            self.assertEqual(maj.basculer(plan, self.pilote, 1, 1), 0)
+        self.assertFalse(os.path.lexists(dossier))
+
+    def test_le_retour_efface_pycache(self):
+        plan = self.preparer()
+        self.basculer_a_moitie(plan, 3)
+        dossier = self.planter_pycache()
+        self.patch(maj, "attendre_sante", lambda *a, **k: True)
+        with maj.contexte_serveur(self.racine):
+            self.assertTrue(maj.reprendre(self.racine, self.pilote, 8000, delai_sante=1))
+        self.assertFalse(os.path.lexists(dossier))
+
     def installe_ancien(self):
         maj.preparer_dossier_prive(self.racine)
         maj.ecrire_json(os.path.join(self.racine, "mise-a-jour", "installe.json"), {
@@ -905,6 +944,31 @@ class ArretCoteClient(Installation):
         relances.clear()
         self.assertTrue(maj.attendre_sante(1, 5, relancer=lambda: relances.append(1)))
         self.assertEqual(relances, [])
+
+    def test_une_erreur_de_la_relance_n_interrompt_pas_l_attente(self):
+        # schtasks /Run sur une tâche DÉJÀ en marche (un serveur lent à démarrer)
+        # peut rendre un code non nul, donc TACHE_ABSENTE : le verdict reste celui
+        # de la sonde, jamais celui du filet.
+        reponses = iter([False, False, False, True])
+        self.patch(maj, "sante_repond", lambda port, delai_connexion=3: next(reponses))
+        appels = []
+
+        def relancer():
+            appels.append(1)
+            raise maj.Refus("TACHE_ABSENTE", "code non nul d'un /Run sur une tâche en marche")
+
+        self.assertTrue(maj.attendre_sante(1, 5, intervalle=0.02, relancer=relancer,
+                                           intervalle_relance=0.01))
+        self.assertGreaterEqual(len(appels), 1)
+
+    def test_une_relance_en_erreur_n_empeche_pas_le_verdict_negatif(self):
+        self.patch(maj, "sante_repond", lambda port, delai_connexion=3: False)
+
+        def relancer():
+            raise RuntimeError("panne d'essai")
+
+        self.assertFalse(maj.attendre_sante(1, 0.3, intervalle=0.02, relancer=relancer,
+                                            intervalle_relance=0.01))
 
     def test_sante_sans_serveur(self):
         import socket
@@ -1775,6 +1839,56 @@ class Documentation(unittest.TestCase):
             with self.subTest(commande=commande):
                 self.assertIn(commande, aide.getvalue())
         self.assertTrue(citees >= {"appliquer", "revenir", "reprendre", "etat"})
+
+    def outil_de_signature(self):
+        import importlib.util
+        specification = importlib.util.spec_from_file_location(
+            "signer_paquet_essai", os.path.join(PROJET, "outils", "signer-paquet.py"))
+        module = importlib.util.module_from_spec(specification)
+        specification.loader.exec_module(module)
+        return module
+
+    def test_la_fiche_d_essai_cite_un_nom_de_cle_et_des_options_qui_existent(self):
+        # Le défaut relevé à la revue : la fiche demandait un nom de clé que l'outil
+        # refuse. Les noms, sous-commandes et options citées sont lus dans l'outil.
+        fiche = self.lire("docs", "essais", "C5-T2-windows.md")
+        outil = self.outil_de_signature()
+        noms = re.findall(r"--nom (\S+)", fiche)
+        self.assertTrue(noms, "aucune clé citée : la garde ne garderait rien")
+        for nom in noms:
+            self.assertIsNotNone(outil._NOM_DE_CLE.fullmatch(nom), nom)
+        lignes = fiche.splitlines()
+        commandes = []          # (sous-commande, texte de la commande, continuations comprises)
+        for numero, ligne in enumerate(lignes):
+            trouve = re.search(r"signer-paquet\.py (generer-cle|signer|verifier)", ligne)
+            if trouve:
+                texte, k = ligne, numero
+                while lignes[k].rstrip().endswith("\\") and k + 1 < len(lignes):
+                    k += 1
+                    texte += " " + lignes[k]
+                commandes.append((trouve.group(1), texte))
+        self.assertGreaterEqual(len(commandes), 3)
+        for sous_commande, texte in commandes:
+            aide = subprocess.run(
+                [sys.executable, "-B", os.path.join(PROJET, "outils", "signer-paquet.py"),
+                 sous_commande, "--help"], capture_output=True, text=True, timeout=60).stdout
+            for option in sorted(set(re.findall(r" (--[a-z][a-z-]+)", texte))):
+                self.assertIn(option, aide, "%s %s" % (sous_commande, option))
+        # Les options obligatoires de `signer` sont toutes citées.
+        for obligatoire in ("--cle", "--client", "--version-minimale"):
+            self.assertIn(obligatoire, fiche)
+
+    def test_aucune_cle_d_essai_n_est_versionnee(self):
+        # La liste de confiance est la racine de confiance du parc : la vraie se
+        # commite une fois (docs/cle-publication.md, §4), celle d'un essai jamais.
+        suivis = subprocess.run(
+            ["git", "ls-files", "-z", "--", "serveur/cles_publication.json"],
+            cwd=PROJET, capture_output=True)
+        if suivis.returncode != 0 or not suivis.stdout.strip(b"\0"):
+            return          # pas encore de vraie clé : rien à contrôler
+        with open(os.path.join(PROJET, "serveur", "cles_publication.json"), encoding="utf-8") as f:
+            noms = [c["nom"] for c in json.load(f)["cles"]]
+        self.assertEqual([n for n in noms if "essai" in n], [])
 
     def test_la_fiche_de_configuration_ne_dit_plus_qu_une_mise_a_jour_efface_le_logo(self):
         texte = self.lire("docs", "configuration.md")

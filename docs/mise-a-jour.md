@@ -170,10 +170,23 @@ la tablette, le favori « Formulaire — secours V1 » reste le premier recours.
 
 Arrêter la tâche `BilanPosturo`, puis recopier à la main le contenu de
 `mise-a-jour\sauvegarde\` sur la racine d'installation (mêmes sous-dossiers :
-`serveur\`, `formulaire\`, `docs\`), **sauf** `inventaire.json` et `installe.json`
-(propres au client). Effacer ensuite `serveur\__pycache__`, redémarrer la tâche,
-et vérifier `/sante` puis `/etat`. Les fichiers listés dans `absents` de
-`inventaire.json` sont ceux que la mise à jour avait *ajoutés* : les supprimer.
+`serveur\`, `formulaire\`, `docs\`), **sauf** `inventaire.json` et `installe.json`,
+qui ne se recopient pas sur la racine mais se traitent à part :
+
+- les fichiers listés dans `absents` de `inventaire.json` sont ceux que la mise à
+  jour avait *ajoutés* : les supprimer ;
+- `installe.json` (la liste des fichiers que la dernière mise à jour a posés) doit
+  redire ce qui est maintenant sur le disque. Si `inventaire.json` porte
+  `"installe": true`, recopier `mise-a-jour\sauvegarde\installe.json` sur
+  `mise-a-jour\installe.json`. S'il porte `"installe": false` (il n'y en avait pas
+  avant cette mise à jour), **effacer** `mise-a-jour\installe.json`. Oublier ce
+  geste ferait juger, à la montée suivante, `SCHEMA_MODIFIE_LOCALEMENT` sur un
+  schéma que personne n'a retouché, et effacer les fichiers d'une liste périmée ;
+- laisser `etat.json` à `repos` (ou lancer `python serveur\maj.py reprendre`, qui
+  n'a alors rien à faire).
+
+Effacer ensuite `serveur\__pycache__`, redémarrer la tâche, et vérifier `/sante`
+puis `/etat`.
 
 ## 7. Ce que le client ne fait pas (encore)
 

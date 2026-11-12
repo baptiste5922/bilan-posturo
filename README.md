@@ -155,8 +155,9 @@ exist for SYSTEM.
 | `mot_de_passe` | PBKDF2 digest, never the password itself |
 | `certificat` / `cle_privee` | Paths to the TLS files |
 | `journal_technique` | `true` by default; `false` turns off the second, non-identifying log (see below) |
-| `page_etat` | `true` by default; `false` switches off the authenticated diagnostic page `GET /etat`, which then answers as if it did not exist. Only `true` enables it. The page is read-only (version, start time, last delivery, free disk, certificate validity, practice identity, last lines of `technique.log`) and shows no address or file name; details in `docs/Mode_emploi.md`, "La page d'état" |
+| `page_etat` | `true` by default; `false` switches off the authenticated diagnostic page `GET /etat`, which then answers as if it did not exist. Only `true` enables it. The page is read-only (version, start time, last delivery, free disk, certificate validity, practice identity, state of the last software update, last lines of `technique.log`) and shows no address or file name; details in `docs/Mode_emploi.md`, "La page d'état" |
 | `conservation_journaux_mois` | Retention of both logs, in months of 30 days: an integer from 1 to 120, `6` by default (anything else falls back to 6). Each log is archived past 5 MB or one month; an archive is deleted once its first line is older than this minus one day; checked at startup, at each rotation, at most once a day on write, and every six hours while the server runs |
+| `mise_a_jour` | `{"client": "cabinet-NN"}`: the client this PC belongs to. Required by `serveur/maj.py` to apply a signed update package (C5-T2a); a package signed for another client is refused. The server ignores the block. Details in `docs/configuration.md`, section 8, and `docs/mise-a-jour.md` (French) |
 | `cabinet` | Practice identity (name, address, email, phone, logo path, file-naming template), set by `--config`, served by `GET /cabinet` (authenticated). The logo path is checked once at startup: only `images/cabinet/<name>.png|jpg` or the default `images/favicon.jpeg`; a refused logo means no logo, never a broken export. Details: `docs/configuration.md` |
 
 ---
@@ -237,6 +238,7 @@ bilans/              health data
 Bilan_entrants/
 BilanPosturo-*.zip   distribution archives
 BilanPosturo-*.zip.manifeste.json  .manifeste.sig   signed manifest of an archive (names the client)
+mise-a-jour/         the update client's working folder on the practice PC (copied package, backup, state), reserved to SYSTEM and administrators
 formulaire/images/cabinet/   the client's own logo, placed on the practice PC only
 identite-cabinet.json  apercu-atelier.html   workshop files of a client, kept outside the repository
 node_modules/        build-time only; formulaire/lib/ is committed
@@ -272,7 +274,8 @@ bilan-posturo/
 │   ├── serveur.py          HTTPS server and delivery endpoint
 │   ├── generer_autorite.py certificate authority + server certificate
 │   ├── signature_ed25519.py  Ed25519 verification, pure Python (C5-T1)
-│   └── paquet_signe.py     checks a signed update package; extracts nothing
+│   ├── paquet_signe.py     checks a signed update package; extracts nothing
+│   └── maj.py              update client: applies a signed package, rolls back by itself (C5-T2a)
 ├── docs/                   practitioner guides, French and English
 ├── outils/
 │   ├── faire-paquet.sh     builds the archive to install at the practice:

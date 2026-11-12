@@ -12,12 +12,81 @@ La partie **A** (application locale) conditionne la livraison de C5-T2a au
 prospect. La partie **B** (téléchargement, plage horaire, magasin de certificats)
 sera ajoutée par C5-T2b : elle n'est pas à remplir ici.
 
-**Clés d'essai.** Cet essai n'utilise **jamais** la vraie clé de publication.
-Sur le poste de développement, fabriquer une clé jetable
-(`python3 outils/signer-paquet.py generer-cle --dossier <dossier hors dépôt> --nom publication-essai`),
-signer deux paquets d'essai avec elle (`signer`, version N+1 puis N+2), et poser
-sa partie *publique* dans `serveur\cles_publication.json` de la VM
-(`docs/cle-publication.md`). Ne pas copier la clé privée sur la VM.
+## Fabriquer les paquets d'essai (sur le poste de développement)
+
+**La clé d'essai ne touche jamais le dépôt.** Ni la clé privée, ni sa liste de
+confiance `serveur/cles_publication.json` ne se posent dans votre dépôt de travail :
+ce fichier est la racine de confiance de tout le parc, il n'est pas ignoré par Git,
+et il ne se commite qu'une fois, avec la **vraie** clé, dans un commit dédié
+(`docs/cle-publication.md`, §4). Tout ce qui suit se passe dans une **copie jetable
+hors du dépôt**, faite par `git ls-files -z` (jamais `cp -r` : la racine du dépôt
+porte les données réelles d'un cabinet). Un test (`tests.test_maj`,
+`Documentation`) refuse qu'une clé nommée `…-essai` soit un jour suivie par Git.
+
+La séquence a été déroulée telle quelle, le 12 novembre 2026, sur une copie du dépôt
+(macOS, Python 3.14 avec `cryptography`) ; elle produit cinq dossiers de paquets.
+
+```sh
+# 1. Copie jetable, HORS du dépôt (dossier à effacer à la fin de l'essai).
+ESSAI=$(mktemp -d)
+mkdir "$ESSAI/depot" "$ESSAI/cles" "$ESSAI/paquets"
+git ls-files -z | tar -c --null -T - -f - | tar -x -C "$ESSAI/depot" -f -
+cd "$ESSAI/depot"          # à partir d'ici, plus rien ne touche le dépôt
+
+# 2. Clé jetable. Le nom doit suivre « publication-AAAA… ». La clé privée est
+#    écrite dans $ESSAI/cles (hors de la copie : l'outil refuse tout dossier sous
+#    le dépôt, copie comprise). La sortie standard est la liste de confiance.
+PHRASE='une-phrase-d-essai-de-plus-de-vingt-signes'
+printf '%s\n' "$PHRASE" | python3 outils/signer-paquet.py generer-cle \
+    --dossier "$ESSAI/cles" --nom publication-2026-essai --phrase-stdin \
+    > serveur/cles_publication.json
+
+# 3. Un paquet par version : monter la version, fabriquer, signer, ranger.
+fabriquer() {      # $1 = version, $2 = dossier de rangement
+    printf '{\n  "version": "%s"\n}\n' "$1" > formulaire/version.json
+    sh outils/faire-paquet.sh cabinet-01 > /dev/null
+    mkdir -p "$ESSAI/paquets/$2"
+    printf '%s\n' "$PHRASE" | python3 outils/signer-paquet.py signer \
+        --cle "$ESSAI/cles/publication-2026-essai-privee.pem" \
+        --client cabinet-01 --version-minimale 1.1.0 --phrase-stdin \
+        BilanPosturo-*.zip > "$ESSAI/paquets/$2/signature.txt"
+    mv BilanPosturo-*.zip* "$ESSAI/paquets/$2/"
+}
+
+# N : le paquet à INSTALLER sur la VM (version 1.1.0, non signé : il embarque la
+# liste de confiance d'essai, ce qui est tout ce que le client installé lui demande).
+printf '{\n  "version": "1.1.0"\n}\n' > formulaire/version.json
+sh outils/faire-paquet.sh cabinet-01 > /dev/null
+mkdir "$ESSAI/paquets/n" && mv BilanPosturo-*.zip "$ESSAI/paquets/n/"
+
+fabriquer 1.2.0 n1      # N+1, pour A1
+fabriquer 1.3.0 n2      # N+2, pour A3 (remplace aussi maj.py : A4)
+
+# N+3, volumineux (12 Mio) pour allonger la bascule : A7.
+mkdir formulaire/remplissage
+i=0; while [ $i -lt 60 ]; do head -c 200000 /dev/urandom > formulaire/remplissage/f$i.bin; i=$((i+1)); done
+fabriquer 1.4.0 n3
+
+# N+4, cassé exprès (le serveur sort aussitôt) : A8.
+printf 'import sys\nsys.exit(1)\n' > serveur/serveur.py
+fabriquer 1.5.0 n4
+```
+
+Chaque dossier `n1` à `n4` contient `BilanPosturo-AAAA-MM-JJ.zip`, son
+`.manifeste.json` et son `.manifeste.sig` : **les trois doivent rester côte à côte**
+quand on les copie sur la VM, sous le même nom. Relire `signature.txt` (la liste
+des fichiers signés) ; contrôler un paquet comme le fera le cabinet :
+
+```sh
+python3 outils/signer-paquet.py verifier --cles serveur/cles_publication.json \
+    --version-installee 1.1.0 --client cabinet-01 \
+    "$ESSAI/paquets/n1/BilanPosturo-AAAA-MM-JJ.zip"      # PAQUET ACCEPTÉ 1.2.0
+```
+
+Sur la VM : installer le paquet `n` selon `docs/LISEZMOI.txt`. Sa liste de confiance
+`serveur\cles_publication.json` est celle d'essai : c'est elle qui jugera N+1.
+**Ne copiez jamais la clé privée** (`$ESSAI/cles`) sur la VM. L'essai fini, effacez
+`$ESSAI` et la VM.
 
 ---
 
@@ -27,11 +96,10 @@ sa partie *publique* dans `serveur\cles_publication.json` de la VM
 
 - Windows 10 ou 11, sans installation antérieure de l'application.
 - Python 3.9 ou plus, avec « Add python.exe to PATH ».
-- Paquet N produit par `sh outils/faire-paquet.sh cabinet-01`, installé dans
-  `C:\BilanPosturo` selon `docs/LISEZMOI.txt`, tâche `BilanPosturo` installée.
+- Paquet N (dossier `n`, voir plus haut), installé dans `C:\BilanPosturo` selon
+  `docs/LISEZMOI.txt`, tâche `BilanPosturo` installée.
 - `config.json` complété : `"mise_a_jour": { "client": "cabinet-01" }`.
-- Deux paquets signés N+1 et N+2 (numéros de version supérieurs, par exemple en
-  bumpant `formulaire/version.json`) et leurs `.manifeste.json` / `.manifeste.sig`.
+- Les paquets signés N+1 à N+4 (dossiers `n1` à `n4`), avec leurs trois fichiers.
 - Une session **administrateur**, et un second compte **utilisateur standard**.
 
 | Champ | Valeur |
@@ -39,14 +107,14 @@ sa partie *publique* dans `serveur\cles_publication.json` de la VM
 | Date de l'essai | |
 | Version de Windows (`winver`) | |
 | Version de Python (`python --version`) | |
-| Version N / N+1 / N+2 | |
+| Version N / N+1 / N+2 | 1.1.0 / 1.2.0 / 1.3.0 (si fabriqués comme ci-dessus) |
 | Opérateur | |
 
 ### A1. Application en console administrateur
 
 ```powershell
 cd C:\BilanPosturo
-python serveur\maj.py appliquer C:\essai\BilanPosturo-N1.zip
+python serveur\maj.py appliquer C:\essai\n1\BilanPosturo-AAAA-MM-JJ.zip
 echo $LASTEXITCODE
 python serveur\maj.py etat
 ```
@@ -83,12 +151,19 @@ leur destination pour hériter des droits du dossier : erratum 1 du contrat).
 
 ### A3. Sous le compte SYSTEM
 
-Créer une tâche de test qui lance la commande sous SYSTEM, puis la démarrer :
+Créer une tâche de test qui lance la commande sous SYSTEM, puis la démarrer. Le
+compte SYSTEM n'a pas le `PATH` de votre session (une installation de Python « pour
+moi seulement » n'y est pas) : on donne le chemin **absolu** de `python.exe`, comme
+l'installateur du produit le fait pour `pythonw.exe`.
 
 ```powershell
-schtasks /Create /TN BilanPosturo-essai-maj /RU SYSTEM /SC ONCE /ST 23:59 /TR "python C:\BilanPosturo\serveur\maj.py appliquer C:\essai\BilanPosturo-N2.zip" /F
+$python = (Get-Command python).Source     # ex. C:\Python313\python.exe
+schtasks /Create /TN BilanPosturo-essai-maj /RU SYSTEM /SC ONCE /ST 23:59 /TR "$python C:\BilanPosturo\serveur\maj.py appliquer C:\essai\n2\BilanPosturo-AAAA-MM-JJ.zip" /F
 schtasks /Run /TN BilanPosturo-essai-maj
 ```
+
+(Le chemin de `python.exe` ne doit pas contenir d'espace, sans quoi il faudrait
+protéger les guillemets de `/TR` ; réinstaller Python dans `C:\Python313` au besoin.)
 
 Attendu : mise à jour N+2 appliquée, `maj.py etat` donne `appliquee`. Supprimer la
 tâche ensuite (`schtasks /Delete /TN BilanPosturo-essai-maj /F`).
@@ -115,9 +190,24 @@ l'arrêt, et relance la tâche toutes les 5 s tant que `/sante` reste muette. No
 si une relance a été nécessaire (le journal de la tâche, Observateur
 d'événements › Planificateur de tâches).
 
+Relever aussi **le code de sortie de `schtasks /Run` sur la tâche du serveur déjà en
+marche** (le client le rappelle toutes les 5 s tant que `/sante` est muette, et un
+serveur lent à démarrer est une tâche en marche) :
+
+```powershell
+schtasks /Run /TN BilanPosturo
+echo $LASTEXITCODE
+```
+
+Le client n'en dépend pas (une erreur de cette relance est avalée : elle ne défait
+jamais une version saine), mais le code permet de le confirmer. Le test automatisé
+`tests.test_maj_windows` l'imprime aussi dans le journal de la CI, sur une tâche
+jetable.
+
 | Intervalle ARRET → DEMARRAGE | |
 |---|---|
 | Une relance a-t-elle été nécessaire ? | |
+| Code de `schtasks /Run` sur la tâche en marche | |
 
 ### A6. Dépôt depuis un navigateur pendant `appliquer`
 
@@ -132,8 +222,8 @@ PDF arrive intact dans `bilans\`. Rejouer `appliquer` après le dépôt.
 
 ### A7. Coupure pendant la bascule
 
-Lancer `appliquer` d'un paquet N+3 volumineux (ajouter des fichiers dans `docs\`
-pour allonger la bascule), **débrancher la VM** (arrêt brutal) pendant
+Lancer `appliquer` du paquet N+3 (dossier `n3`, volumineux : 12 Mio de fichiers dans
+`formulaire\remplissage\`, pour allonger la bascule), **débrancher la VM** (arrêt brutal) pendant
 `etat` = `bascule`, puis redémarrer. Attendu : à la reconnexion, `python
 serveur\maj.py etat` dit `bascule` ; `python serveur\maj.py reprendre` ramène
 chaque fichier à l'état d'avant, `/sante` répond, la version n'est **pas** écartée.
@@ -143,8 +233,7 @@ chaque fichier à l'état d'avant, `/sante` répond, la version n'est **pas** é
 
 ### A8. Un paquet cassé revient seul
 
-Appliquer un paquet N+4 dont `serveur\serveur.py` sort immédiatement (fabriqué
-exprès). Attendu : au bout d'une minute, `MAJ_RETOUR cause=SANTE_MUETTE
+Appliquer le paquet N+4 (dossier `n4`) dont `serveur\serveur.py` sort immédiatement. Attendu : au bout d'une minute, `MAJ_RETOUR cause=SANTE_MUETTE
 resultat=ok`, serveur d'avant relancé, `/etat` dit `revenue`, et un second
 `appliquer` du même paquet rend `VERSION_ECARTEE` sans arrêter le serveur.
 

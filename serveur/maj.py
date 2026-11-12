@@ -617,10 +617,10 @@ def lire_etat(racine):
         and (contenu.get("resultat") is None or contenu["resultat"] in serveur.RESULTATS_MAJ)
         and (contenu.get("code") is None or (
             isinstance(contenu["code"], str)
-            and serveur._CODE_MAJ.fullmatch(contenu["code"]) is not None))
+            and serveur.MOTIF_CODE_MAJ.fullmatch(contenu["code"]) is not None))
         and (contenu.get("le") is None or (
             isinstance(contenu["le"], str)
-            and serveur._HORODATAGE_MAJ.fullmatch(contenu["le"]) is not None))
+            and serveur.MOTIF_HORODATAGE_MAJ.fullmatch(contenu["le"]) is not None))
         and all(_version_ou_none(contenu.get(cle)) for cle in ("version", "de", "vers"))
         and isinstance(contenu.get("ecartees", []), list)
         and len(contenu.get("ecartees", [])) <= VERSIONS_ECARTEES_MAX
@@ -923,7 +923,7 @@ def extraire(plan):
         if isinstance(erreur, Refus):
             raise
         raise Refus("EXTRACTION_ALTEREE", "extraction impossible : %r" % (erreur,))
-    except paquet_signe._ERREURS_ZIP as erreur:
+    except paquet_signe.ERREURS_ZIP as erreur:
         shutil.rmtree(prepare, ignore_errors=True)
         os.makedirs(prepare, exist_ok=True)
         raise Refus("EXTRACTION_ALTEREE", "archive illisible : %r" % (erreur,))
@@ -1191,7 +1191,13 @@ def attendre_sante(port, delai, intervalle=INTERVALLE_SANTE_SECONDES, relancer=N
     /Run lancé alors que l'instance précédente finit de quitter est ignoré SANS
     erreur. Relancer à intervalle est inoffensif (une instance qui tourne ignore
     la demande) et rattrape ce cas ; un serveur qui ne démarre vraiment pas reste
-    muet jusqu'au bout."""
+    muet jusqu'au bout.
+
+    Le filet n'interrompt JAMAIS l'attente : le verdict reste celui de la sonde. Un
+    /Run sur une tâche déjà en marche (un serveur lent à démarrer : antivirus,
+    premier import de Python) peut rendre un code non nul, que `demarrer` traduit en
+    TACHE_ABSENTE ; laissé s'échapper, il ferait défaire une version saine, et userait
+    les trois tentatives d'un retour. Toute erreur de `relancer` est donc avalée."""
     debut = time.monotonic()
     limite = debut + delai
     prochaine_relance = debut + intervalle_relance
@@ -1202,7 +1208,10 @@ def attendre_sante(port, delai, intervalle=INTERVALLE_SANTE_SECONDES, relancer=N
         if maintenant >= limite:
             return False
         if relancer is not None and maintenant >= prochaine_relance:
-            relancer()
+            try:
+                relancer()
+            except Exception:
+                pass
             prochaine_relance = maintenant + intervalle_relance
         time.sleep(min(intervalle, max(0.0, limite - time.monotonic())))
 

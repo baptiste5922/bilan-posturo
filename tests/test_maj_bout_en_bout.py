@@ -22,6 +22,7 @@ import json
 import os
 import re
 import shutil
+import socket
 import ssl
 import subprocess
 import sys
@@ -138,6 +139,17 @@ class BacDeMiseAJour(unittest.TestCase):
         with open(chemin, "wb") as f:
             f.write(source.replace(ancien, nouveau))
 
+    def planter_pycache(self):
+        """Un .pyc que personne n'a le droit de réutiliser (D12). Le pilote d'essai
+        lance le serveur en -B, donc aucun n'existe jamais : sans celui-ci posé à
+        la main, rien ne verrait l'effacement. Rend son chemin."""
+        dossier = os.path.join(self.racine, "serveur", "__pycache__")
+        os.makedirs(dossier, exist_ok=True)
+        chemin = os.path.join(dossier, "serveur.cpython-39.pyc")
+        with open(chemin, "wb") as f:
+            f.write(b"\x00pyc de la version quittee")
+        return dossier
+
     def noter_les_traces(self):
         TRACES.append((self.racine, self.technique()))
 
@@ -233,6 +245,7 @@ class Retour(BacDeMiseAJour):
         )
         for nom, version, modifs, cause in variantes:
             with self.subTest(variante=nom):
+                pycache = self.planter_pycache()
                 avant = pe.instantane(self.racine)
                 journaux_avant = pe.contenu_des_journaux(self.racine)
                 archive = self.trio(version, modifs, base=self.base)
@@ -243,6 +256,8 @@ class Retour(BacDeMiseAJour):
                 self.assertEqual(pe.instantane(self.racine), avant)
                 self.assertTrue(maj.sante_repond(self.port),
                                 "le serveur restauré ne répond pas")
+                # D12 : le retour efface le .pyc de la version quittée.
+                self.assertFalse(os.path.lexists(pycache))
                 self.assertIn(
                     "MAJ_RETOUR cause=%s resultat=ok de=1.1.0 vers=%s" % (cause, version),
                     self.technique())
@@ -285,8 +300,10 @@ class DepotEnCours(BacDeMiseAJour):
             ("%s:%s" % (pe.UTILISATEUR, pe.MOT_DE_PASSE)).encode()).decode())
         connexion.endheaders()
         connexion.send(corps[:moitie])
-        # Le serveur est dans do_POST, son corps à moitié lu. Le test attend que le
-        # compte le dise plutôt que de dormir un temps fixe.
+        # Le serveur est dans do_POST, son corps à moitié lu. Le compte des dépôts
+        # n'est lisible d'aucun autre processus : il n'y a rien à attendre d'autre
+        # qu'un court délai. 0,5 s suffit, car appliquer met bien plus longtemps à
+        # fabriquer le paquet, le contrôler et écrire sa demande d'arrêt.
         time.sleep(0.5)
 
         archive = self.trio("1.2.0")
@@ -339,6 +356,7 @@ class TroisMontees(BacDeMiseAJour):
         for relatif in possessions:
             self.assertIn(relatif, avant)
 
+        pycache = self.planter_pycache()
         schema = self.base["formulaire/schema.json"]
         etapes = (("1.2.0", {}), ("1.3.0", {"formulaire/schema.json": schema + b"\n"}),
                   ("1.4.0", {}))
@@ -347,6 +365,9 @@ class TroisMontees(BacDeMiseAJour):
             code, sortie = self.appliquer(archive)
             self.assertEqual(code, 0, sortie)
             self.courant = self.dernier_contenu
+            # D12 : la bascule efface le .pyc de la version quittée.
+            self.assertFalse(os.path.lexists(pycache), version)
+            pycache = self.planter_pycache()
 
         apres = pe.instantane(self.racine)
         for relatif in possessions:
@@ -782,14 +803,16 @@ class SauvegardeApresReport(BacDeMiseAJour):
         self.assertTrue(maj.sante_repond(self.port))
 
 
-class DepotFige(BacDeMiseAJour):
-    """Un dépôt qui ne progresse plus cesse de compter comme « en cours »
-    (inactivité de 2 s dans ce bac, 120 s en production) ; un dépôt lent mais
-    actif aboutit toujours, quelle que soit sa durée totale."""
+class BacAInactiviteCourte(BacDeMiseAJour):
+    """Un bac dont le délai d'inactivité des connexions est réduit (120 s en
+    production), pour éprouver ce qui se passe quand il expire."""
+
+    INACTIVITE_BAC = 8
 
     def avant_demarrage(self):
-        self.modifier_serveur(b"INACTIVITE_CONNEXION_SECONDES = 120\n",
-                              b"INACTIVITE_CONNEXION_SECONDES = 2\n")
+        self.modifier_serveur(
+            b"INACTIVITE_CONNEXION_SECONDES = 120\n",
+            ("INACTIVITE_CONNEXION_SECONDES = %d\n" % self.INACTIVITE_BAC).encode())
 
     def ouvrir_depot(self, corps, nom):
         contexte = ssl.create_default_context(cafile=os.path.join(self.racine, "autorite.crt"))
@@ -804,33 +827,93 @@ class DepotFige(BacDeMiseAJour):
         connexion.endheaders()
         return connexion
 
+
+class DepotFige(BacAInactiviteCourte):
+    """Un dépôt qui ne progresse plus cesse de compter comme « en cours »
+    (inactivité de 8 s dans ce bac, 120 s en production) ; un dépôt lent mais
+    actif aboutit toujours, quelle que soit sa durée totale.
+
+    8 s et non 2 : le premier appliquer (fabriquer le paquet, le contrôler,
+    l'extraire, sauvegarder une centaine de fichiers) doit atteindre sa demande
+    d'arrêt AVANT l'expiration, y compris sur un exécuteur aux disques lents. Si cet
+    essai échoue un jour, le capturer : ne jamais le relancer à l'aveugle."""
+
     def test_un_depot_fige_ne_bloque_pas_les_mises_a_jour(self):
         connexion = self.ouvrir_depot(PDF + b"x" * 1000, b"Bilan_fige.pdf")
         connexion.send(PDF[:20])
+        silence_depuis = time.monotonic()
         # Il se tait. Tant que le serveur le tient pour « en cours », il refuse.
         code, _ = self.appliquer(self.trio("1.2.0"))
-        self.assertEqual(code, 3)
+        refus_apres = time.monotonic() - silence_depuis
+        self.assertEqual(
+            code, 3, "le premier appliquer a pris %.1f s pour une inactivité de %d s"
+            % (refus_apres, self.INACTIVITE_BAC))
         self.assertIn("MAJ_REPORTEE code=ARRET_REFUSE", self.technique())
-        time.sleep(3.5)         # > 2 s sans un octet
+        # Silence complet : plus de dix secondes sans un octet, soit deux de plus
+        # que le délai du bac.
+        time.sleep(max(0.0, silence_depuis + self.INACTIVITE_BAC + 2.5 - time.monotonic()))
         code, sortie = self.appliquer(self.trio("1.2.0"))
         self.assertEqual(code, 0, sortie)
         self.assertEqual(self.etat_json()["resultat"], "appliquee")
 
     def test_un_depot_lent_mais_actif_aboutit(self):
-        corps = PDF + os.urandom(6000)
+        morceau = 600
+        corps = PDF + os.urandom(12 * morceau - len(PDF))
         connexion = self.ouvrir_depot(corps, b"Bilan_lent_actif.pdf")
         debut = time.monotonic()
-        for i in range(0, len(corps), 750):
-            connexion.send(corps[i:i + 750])
-            time.sleep(0.8)            # jamais 2 s de silence
+        for i in range(0, len(corps), morceau):
+            connexion.send(corps[i:i + morceau])
+            time.sleep(0.8)            # jamais plus de 0,8 s de silence
         duree = time.monotonic() - debut
         reponse = connexion.getresponse()
         reponse.read()
         self.assertEqual(reponse.status, 200)
-        # La durée totale dépasse largement le délai d'inactivité.
-        self.assertGreater(duree, 4)
+        # La durée totale dépasse le délai d'inactivité : seul le silence compte.
+        self.assertGreater(duree, self.INACTIVITE_BAC + 1)
         with open(os.path.join(self.racine, "bilans", "Bilan_lent_actif.pdf"), "rb") as f:
             self.assertEqual(f.read(), corps)
+
+
+class ExpirationDesConnexions(BacAInactiviteCourte):
+    """Ce que l'expiration écrit, vue dans un bac : une connexion jamais utilisée
+    (un navigateur en ouvre une par anticipation) ne laisse AUCUNE ligne ; un dépôt
+    qui s'arrête laisse la trace fermée d'un transfert interrompu, sans adresse
+    dans technique.log."""
+
+    INACTIVITE_BAC = 2
+
+    def journal(self):
+        with open(os.path.join(self.racine, "journal.log"), encoding="utf-8") as f:
+            return f.read()
+
+    def test_connexion_preouverte_et_jamais_utilisee_est_muette(self):
+        technique_avant, journal_avant = self.technique(), self.journal()
+        contexte = ssl.create_default_context(cafile=os.path.join(self.racine, "autorite.crt"))
+        brut = socket.create_connection(("127.0.0.1", self.port), 10)
+        tls = contexte.wrap_socket(brut, server_hostname="127.0.0.1")
+        self.addCleanup(tls.close)
+        time.sleep(self.INACTIVITE_BAC + 1.5)
+        self.assertEqual(self.technique(), technique_avant)
+        self.assertEqual(self.journal(), journal_avant)
+        self.assertTrue(maj.sante_repond(self.port))
+
+    def test_depot_qui_s_arrete_est_un_transfert_interrompu(self):
+        connexion = self.ouvrir_depot(PDF + b"x" * 1000, b"Bilan_coupe.pdf")
+        connexion.send(PDF[:20])
+        time.sleep(self.INACTIVITE_BAC + 1.5)
+        technique = self.technique()
+        self.assertIn("DEPOT refus motif=transfert-interrompu", technique)
+        self.assertNotIn("code=0", technique)
+        self.assertNotIn("timed out", technique)
+        self.assertIsNone(chercher_adresse(technique))
+        # La page d'état, qui circule en capture, n'en dit pas plus.
+        etat = self.etat_http()
+        self.assertIsNone(chercher_adresse("\n".join(etat["journal_technique"])))
+        # Le journal nominatif garde la ligne de la réponse, pas « Request timed out ».
+        self.assertNotIn("timed out", self.journal())
+        bilans = os.path.join(self.racine, "bilans")
+        self.assertEqual([n for n in os.listdir(bilans) if n.endswith(".part")], [])
+        self.assertNotIn("Bilan_coupe.pdf", os.listdir(bilans))
 
 
 class ObeissanceAuDossier(BacDeMiseAJour):

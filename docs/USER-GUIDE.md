@@ -265,6 +265,13 @@ It rotates and is purged exactly like the other log: archived past 5 MB or one
 month, and no line kept beyond six months (`"conservation_journaux_mois"`, see
 above). A single duration applies to both files.
 
+An assessment upload that stops mid-way (tablet asleep, Wi-Fi lost) and stays
+silent for more than two minutes is dropped by the server: `technique.log` then
+carries the line `DEPOT refus motif=transfert-interrompu`, with no address, and
+the tablet sends the assessment again. A slow upload that keeps moving is never
+cut, whatever its total duration. A connection the browser opens in advance and
+never uses leaves no line at all.
+
 To switch it off (there should be no reason to, but the fallback exists): open
 `config.json` at the root, add or set the `"journal_technique"` line to
 `false`, save, restart the server. The file already written can stay as is;
@@ -299,6 +306,13 @@ It tells, line by line:
   carries `localhost`, or it could not be read);
 - **Practice identity** — "not filled in" means assessment export is refused:
   run `python serveur/serveur.py --config`;
+- **Update** ("Mise à jour") — where the last server update stands
+  (`docs/mise-a-jour.md`, French): "no update recorded" until one is tried;
+  otherwise the stage (`repos`: nothing under way), the last result (`appliquee`,
+  `revenue`: rolled back by itself, `refusee`, `reportee`), an upper-case code
+  that says why, the version concerned and the date. **`echec-retour`** or
+  **"state unreadable"** need a hand: run `python serveur\maj.py etat` and follow
+  `docs/mise-a-jour.md`;
 - the **last 30 lines of `technique.log`**.
 
 Nothing it shows identifies a patient, a file or an address: it can be

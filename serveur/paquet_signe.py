@@ -106,7 +106,7 @@ class PaquetRefuse(Exception):
 
 # Erreurs que `zipfile` et `zlib` lèvent sur une archive abîmée ou hostile. Une
 # archive qui ne se lit pas est un refus, jamais une exception qui remonte.
-_ERREURS_ZIP = (zipfile.BadZipFile, zipfile.LargeZipFile, NotImplementedError,
+ERREURS_ZIP = (zipfile.BadZipFile, zipfile.LargeZipFile, NotImplementedError,
                 RuntimeError, EOFError, OSError, zlib.error, ValueError,
                 struct.error, OverflowError)
 
@@ -542,12 +542,12 @@ def _verifier_contenu(fichier, manifeste, fichiers):
     # 6. Ouverture et gardes par entrée.
     try:
         archive = zipfile.ZipFile(fichier)
-    except _ERREURS_ZIP as erreur:
+    except ERREURS_ZIP as erreur:
         raise PaquetRefuse("ARCHIVE_ILLISIBLE", "archive illisible : %s" % (erreur,))
     with archive:
         try:
             entrees = archive.infolist()
-        except _ERREURS_ZIP as erreur:
+        except ERREURS_ZIP as erreur:
             raise PaquetRefuse("ARCHIVE_ILLISIBLE", "archive illisible : %s" % (erreur,))
         presents, dossiers = _controler_entrees(entrees)
         _refuser_fichier_et_dossier_de_meme_nom(presents, dossiers)
@@ -583,7 +583,7 @@ def _verifier_contenu(fichier, manifeste, fichiers):
                 with archive.open(entree, "r") as flux:
                     empreinte, lus, donnees = _lire_borne(
                         flux, attendu["taille"], garder=(nom == chemin_version))
-            except _ERREURS_ZIP as erreur:
+            except ERREURS_ZIP as erreur:
                 raise PaquetRefuse("FICHIER_ALTERE",
                                    "lecture impossible de %r : %s" % (nom, erreur))
             if lus != attendu["taille"] or empreinte != attendu["sha256"]:

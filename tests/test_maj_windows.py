@@ -99,6 +99,26 @@ class WindowsReel(unittest.TestCase):
             time.sleep(0.2)
         self.assertTrue(os.path.exists(marque), "la tâche n'a pas démarré")
 
+        # /Run sur une tâche DÉJÀ en marche (-MultipleInstances IgnoreNew côté
+        # serveur ; ici le défaut de schtasks /Create) : c'est ce que le client
+        # envoie toutes les 5 s tant que /sante est muette, et un serveur lent à
+        # démarrer est justement une tâche en marche. Le vrai code de sortie est
+        # relevé dans le journal de la CI. Le test n'en dépend pas : attendre_sante
+        # avale toute erreur de cette relance, pour ne jamais défaire une version saine.
+        code_second_run = pilote._schtasks("/Run", "/TN", nom)
+        print("[C5-T2a] schtasks /Run sur une tâche déjà en marche : code de sortie %d"
+              % code_second_run, file=sys.stderr)
+        try:
+            pilote.demarrer()
+            second_demarrer = "n'a pas levé"
+        except maj.Refus as erreur:
+            second_demarrer = "a levé " + erreur.code
+        print("[C5-T2a] PiloteTachePlanifiee.demarrer() sur une tâche déjà en marche : %s"
+              % second_demarrer, file=sys.stderr)
+        self.assertIsInstance(code_second_run, int)
+        with open(os.path.join(dossier, "battement.txt")) as f:
+            self.assertTrue(f.read().strip().isdigit(), "la tâche ne bat plus")
+
         self.assertTrue(pilote.arreter_de_force())
         time.sleep(1.5)
         battement = os.path.join(dossier, "battement.txt")

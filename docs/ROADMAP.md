@@ -1141,7 +1141,7 @@ avant toute nouvelle fonctionnalité. La fiabilité est la marge.
 
 ### C5-T2 — Client de mise à jour
 
-> **État : C5-T2a implémentée le 12 novembre 2026, en attente d'audit** (branche
+> **État : C5-T2a auditée CONFORME (au réaudit), revue le 12 novembre 2026** (branche
 > `c5-t2a-application` ; contrat `docs/contrats/C5-T2.md`, errata au §13 ;
 > fiches `docs/mise-a-jour.md` et `docs/essais/C5-T2-windows.md`). Tâche
 > **découpée** : **C5-T2a** (application locale d'un paquet signé, arrêt
@@ -1150,6 +1150,13 @@ avant toute nouvelle fonctionnalité. La fiabilité est la marge.
 > qu'après l'audit CONFORME et la revue de la première. Aucun appel réseau, aucune
 > seconde tâche planifiée en C5-T2a. Rien n'en part au cabinet avant la visite de
 > C1-T4b.
+>
+> **À traiter avec C5-T2b** (revue de C5-T2a) : une mort brutale du processus de
+> `maj.py` (console fermée, `taskkill`) entre l'acceptation de l'arrêt et l'écriture
+> de l'étape `bascule` laisse le serveur arrêté sans que `reprendre` le voie (l'état
+> est encore `preparee`). Écrire l'étape, ou un drapeau « arrêt accepté », dès
+> l'acceptation, ou faire relancer par `reprendre` un serveur muet : sans opérateur
+> devant la console, personne ne le verrait.
 
 > **Décision du 3 novembre 2026 :** le PC tire les mises à jour lui-même et
 > n'installe qu'un paquet signé. Seul flux sortant : du code public, jamais

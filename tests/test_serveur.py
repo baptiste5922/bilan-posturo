@@ -623,6 +623,94 @@ class DepotEchecEcritureSansFuite(unittest.TestCase):
             self.assertIn(nom, f.read())
 
 
+class ExpirationDuDelaiDInactivite(unittest.TestCase):
+    """Ce que le délai d'inactivité (INACTIVITE_CONNEXION_SECONDES) écrit dans les
+    journaux, figé : rien pour une connexion jamais utilisée ; pour un dépôt qui
+    s'arrête en pleine émission, la trace fermée d'un transfert interrompu, sans
+    adresse dans technique.log."""
+
+    def setUp(self):
+        self.dossier = tempfile.mkdtemp(prefix="bilan-test-expiration-")
+        self.addCleanup(shutil.rmtree, self.dossier, ignore_errors=True)
+        self.technique = os.path.join(self.dossier, "technique.log")
+        self.journal = os.path.join(self.dossier, "journal.log")
+        for nom, valeur in (("TECHNIQUE", self.technique), ("JOURNAL", self.journal),
+                            ("ecrire_stderr", lambda ligne: None)):
+            patch = unittest.mock.patch.object(serveur, nom, valeur)
+            patch.start()
+            self.addCleanup(patch.stop)
+
+    def lire(self, chemin):
+        try:
+            with open(chemin, encoding="utf-8") as f:
+                return f.read()
+        except OSError:
+            return ""
+
+    def gestionnaire(self, corps_lu):
+        instance = serveur.Gestionnaire.__new__(serveur.Gestionnaire)
+        instance.command = "POST"
+        instance.path = "/depot"
+        instance.requestline = "POST /depot HTTP/1.1"
+        instance.client_address = ("192.0.2.77", 51234)
+        instance.request_version = "HTTP/1.1"
+        instance.close_connection = True
+        instance.silencieux = False
+        instance.config = {"utilisateur": "cabinet",
+                           "mot_de_passe": serveur.hacher("motdepasse123")}
+        instance.dossier_pdf = self.dossier
+        jeton = base64.b64encode(b"cabinet:motdepasse123").decode("ascii")
+        instance.headers = email.message_from_string(
+            "Content-Length: 5000\nAuthorization: Basic {}\n".format(jeton))
+        instance.rfile = corps_lu
+        instance.wfile = io.BytesIO()
+        return instance
+
+    def test_connexion_jamais_utilisee_est_muette_dans_les_deux_journaux(self):
+        # La bibliothèque appelle log_error("Request timed out: %r", …) quand la
+        # lecture de la ligne de requête expire.
+        instance = self.gestionnaire(io.BytesIO())
+        instance.command = None
+        instance.log_error("Request timed out: %r", socket.timeout("timed out"))
+        self.assertEqual(self.lire(self.technique), "")
+        self.assertEqual(self.lire(self.journal), "")
+
+    def test_les_autres_erreurs_restent_tracees(self):
+        instance = self.gestionnaire(io.BytesIO())
+        instance.log_error("code %d, message %s", 404, "File not found")
+        self.assertIn("File not found", self.lire(self.journal))
+
+    def test_expiration_pendant_le_corps_est_un_transfert_interrompu(self):
+        class Muet(object):
+            def read(self, n=-1):
+                raise socket.timeout("The read operation timed out")
+
+        instance = self.gestionnaire(Muet())
+        instance.do_POST()
+        technique = self.lire(self.technique)
+        self.assertIn("DEPOT refus motif=transfert-interrompu", technique)
+        # Aucune adresse, aucune ligne code=0 dans le fichier qui circule.
+        self.assertNotIn("192.0.2.77", technique)
+        self.assertNotIn("code=0", technique)
+        self.assertNotIn("timed out", technique)
+        self.assertEqual([n for n in os.listdir(self.dossier) if n.endswith(".part")], [])
+        self.assertEqual(serveur.DEPOTS_EN_COURS, 0)
+
+    def test_expiration_puis_reponse_impossible_ne_leve_pas(self):
+        class Muet(object):
+            def read(self, n=-1):
+                raise ConnectionResetError(104, "rompue")
+
+        instance = self.gestionnaire(Muet())
+
+        def casse(*a, **k):
+            raise BrokenPipeError(32, "tablette partie")
+
+        instance.repondre_json = casse
+        instance.do_POST()
+        self.assertIn("transfert-interrompu", self.lire(self.technique))
+
+
 class ConfigurationCabinet(unittest.TestCase):
     """Bloc "cabinet" (C2-T1) : fusion profonde, liste blanche, classe de route.
 
