@@ -2137,7 +2137,9 @@ class ObeissanceALaDemandeDArret(unittest.TestCase):
     réaudit) : sinon un programme de la session du cabinet l'arrêterait."""
 
     def setUp(self):
-        self.dossier = tempfile.mkdtemp(prefix="bilan-test-confiance-")
+        # realpath : sous macOS /var est un lien vers /private/var, et la
+        # comparaison « résolu / écrit » ne doit pas rougir pour cette seule raison.
+        self.dossier = os.path.realpath(tempfile.mkdtemp(prefix="bilan-test-confiance-"))
         self.addCleanup(shutil.rmtree, self.dossier, ignore_errors=True)
         self.demande = os.path.join(self.dossier, serveur.DEMANDE_ARRET)
         for nom, valeur in (("DEPOTS_EN_COURS", 0), ("DERNIERE_ACTIVITE", None),
