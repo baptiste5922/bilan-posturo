@@ -620,3 +620,103 @@ Restent quatre observations. Deux sont à porter en C5-T2b ou en C6 : le résidu
 « arrêt accepté jamais vu », et l'ordre « vider puis protéger ». La poignée de
 main TLS sans délai, antérieure à la tâche, est à ouvrir en C6 avec une gravité
 élevée.
+
+---
+
+# Contrôle des corrections de revue
+
+**Date :** 2026-11-13  **Périmètre :** `git diff a085b59..8991a2f`, ciblé sur
+`serveur/serveur.py` (`Gestionnaire.log_error`, `traiter_post`), `serveur/maj.py`
+(`attendre_sante`) et `docs/essais/C5-T2-windows.md`. Le reste de la plage (noms
+rendus publics, guides, documentation) a été parcouru sans constat.
+**Verdict :** CONFORME
+
+**CI `43276781553`** relue : tête `8991a2f`, 7 jobs verts.
+
+## Ce qui a été éprouvé
+
+Copie `git ls-files -z` de `8991a2f`, sans `origin`. Chaque mutation est jouée
+avec témoin et restauration contrôlée par SHA-256, en `python3` et en `python3 -O`.
+
+| # | Mutation | Rougit |
+|---|---|---|
+| Z1 | `log_error` muet pour **toute** erreur | `ExpirationDuDelaiDInactivite.test_les_autres_erreurs_restent_tracees` |
+| Z2 | filtre retiré (l'expiration est journalisée comme avant) | `test_connexion_jamais_utilisee_est_muette_dans_les_deux_journaux` |
+| Z3 | expiration du corps non rattrapée dans `traiter_post` | `test_expiration_pendant_le_corps_est_un_transfert_interrompu`, `test_expiration_puis_reponse_impossible_ne_leve_pas` |
+| Z4 | une relance en erreur rend « sain » | `ArretCoteClient.test_une_relance_en_erreur_n_empeche_pas_le_verdict_negatif` |
+| clé | `cles_publication.json` portant `publication-2026-essai` | test vert tant que le fichier n'est pas suivi ; **rouge** une fois `git add` fait, aussi sous `-O` (`Documentation.test_aucune_cle_d_essai_n_est_versionnee`) |
+
+## 1. `log_error` et les journaux — sans constat
+
+**Ce qui est rendu muet.** La surcharge ne retient que le **format** littéral de
+la bibliothèque, `"Request timed out: %r"`. Ce texte fixe est écrit par
+`BaseHTTPRequestHandler.handle_one_request`. Le contenu venu du client passe
+dans `args`, jamais dans `format` : aucune requête ne peut se faire passer pour
+une expiration.
+
+**Ce qui reste journalisé.** Les autres appels passent par `send_error` (format
+`"code %d, message %s"`) :
+- les refus de C6-T5 (ligne de requête malformée, forme absolue, etc.) ;
+- les 404 et 403 ;
+- `TLS_REFUSE`, écrit dans `get_request`, hors de `log_error`.
+
+Tout cela est tracé comme avant, et Z1 rougit.
+
+**Rien de muet qui était tracé avant C5-T2a.** Une expiration n'existait pas
+avant C5-T2a, puisque le délai de 120 s est apparu avec cette tâche. Est
+désormais muette, en plus de la connexion jamais utilisée, une requête dont la
+ligne ou les en-têtes s'arrêtent en route. L'interrompre ne produit aucun effet :
+la requête n'a jamais été exécutée.
+
+**Dépôt interrompu.**
+- `rfile.read` qui lève une `OSError` (délai ou rupture ; `ssl.SSLError` en hérite)
+  donne la même branche qu'un corps tronqué : `DEPOT refus motif=transfert-interrompu`.
+- La réponse 400 est protégée contre une socket morte.
+- Rien n'est écrit sous `bilans/`.
+- `sortir_depot` passe toujours par le `finally`.
+
+**Rien de nouveau dans `technique.log`.** Il reçoit :
+- `detail_refus_depot` (vocabulaire fermé) ;
+- la ligne `REPONSE` de `log_message`, inchangée (route en classe fermée, sans
+  adresse).
+
+L'adresse ne va qu'à `journal.log`.
+
+## 2. Relance non fatale dans `attendre_sante` — sans constat
+
+Seul l'appel à `relancer()` **pendant** l'attente est protégé, par
+`except Exception` : `KeyboardInterrupt` passe.
+
+Le verdict rendu est uniquement celui de `sante_repond` : `True` seulement
+après un `200` dont le corps vaut exactement `{"etat":"ok"}`, `False` au délai
+dépassé. Aucun chemin ne déclare sain un serveur muet (Z4 rougit).
+
+Le premier `pilote.demarrer()` de `basculer` et de `_restaurer` reste hors de la
+protection, et donc fatal. Une tâche réellement absente continue de produire un
+refus et un retour.
+
+## 3. Fiche d'essai et clé d'essai — sans constat
+
+La séquence de `docs/essais/C5-T2-windows.md` part d'une copie
+`git ls-files -z` dans `$ESSAI` (`mktemp -d`), hors du dépôt. Elle y écrit :
+- `serveur/cles_publication.json` dans la copie ;
+- la clé privée dans `$ESSAI/cles`.
+
+La fiche interdit de copier la clé privée sur la VM et fait effacer `$ESSAI` à la
+fin. Aucune instruction ne pose une clé d'essai dans le dépôt.
+
+**Garde.** Elle lit l'index (`git ls-files -z`) et mord dès que la liste est
+suivie avec un nom contenant `essai`.
+
+Deux limites, sans conséquence aujourd'hui :
+- elle relit le fichier **du disque**, pas le blob indexé ;
+- elle ne reconnaît une clé d'essai qu'à son nom.
+
+Le contrôle « aucun secret versionné » de la CI reste la barrière pour la clé
+privée.
+
+## Verdict
+
+**CONFORME.** Les trois corrections sont justes et chacune est tenue par une
+garde qui mord. Aucune adresse ni aucun chemin n'entre dans `technique.log`.
+Aucune erreur journalisée avant C5-T2a n'est rendue muette.

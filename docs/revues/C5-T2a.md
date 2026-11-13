@@ -119,3 +119,9 @@ Erratum du contrat : les 18 errata du §13 correspondent au code relu (temporair
 - `docs/mise-a-jour.md` §6 : `installe.json` du retour manuel.
 - `docs/ROADMAP.md:1144` : état de C5-T2a à la clôture ; la case de C5-T2 reste vide (T2b).
 - `CLAUDE.md` (par `/cloture-projet`) : `serveur.py` (~2 330 l.) est devenu plus long, `tests/` compte 892 tests Python.
+
+## Suites (13 novembre 2026)
+
+Les trois remarques importantes et les mineurs retenus sont corrigés en `8991a2f` (errata 19 à 23 du contrat, mises en échec R15 à R22) ; la coupure brutale entre l'acceptation et `bascule` est versée au bloc C5-T2b de la feuille de route ; la mécanique d'ACL dans le serveur est laissée en l'état. Les corrections touchant la journalisation et la relance ont été recontrôlées par l'auditeur (`docs/audits/C5-T2a.md`, « Contrôle des corrections de revue » : CONFORME, mutations Z1 à Z4 rouges). Suite complète : 905 tests, 19 sautés ; CI `43276781553` verte sur les 7 jobs.
+
+**Verdict après corrections : À LIVRER.**
