@@ -125,6 +125,10 @@ jobs:
           # L'identité d'un client se fabrique dans un dossier de travail hors
           # du dépôt (C9-T2) : son fichier n'a rien à faire dans l'index.
           motif="$motif"'|identite-cabinet\.json$'
+          # L'adresse d'un paquet de mise à jour identifie un client et ouvre son
+          # paquet (C5-T2b, D-M1 voie (d)) : elle vit dans le config.json du
+          # cabinet et dans ce registre de l'éditeur, jamais dans le dépôt public.
+          motif="$motif"'|adresse-publication\.json$'
           if git -c core.quotePath=false ls-files | grep -Ei "$motif"; then
             echo "::error::Un fichier sensible est versionné."
             exit 1

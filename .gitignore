@@ -38,6 +38,13 @@ __pycache__/
 
 .claude/**
 
+# Le registre de l'éditeur : l'adresse de publication d'un client (C5-T2b, D-M1
+# voie (d)). Elle identifie le client et ouvre son paquet : elle vit dans le dossier
+# de travail du client à l'atelier et dans le config.json du cabinet, jamais ici.
+# La CI le refuse aussi, et tests/test_confidentialite_publication.py cherche
+# toute adresse de cette forme dans ce que le dépôt versionne.
+adresse-publication.json
+
 # Clés privées de l'éditeur : signature des mises à jour (C5) et des
 # licences (C8). Elles ne vivent jamais dans le dépôt ; la CI refuse aussi
 # ces motifs s'ils étaient forcés dans l'index.
