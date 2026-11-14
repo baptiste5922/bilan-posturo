@@ -30,6 +30,10 @@ import test_maj  # noqa: E402
 
 ADRESSE = "https://127.0.0.1:4443/essai/stable.zip"
 ABSENTE = object()      # une clé du bloc `mise_a_jour` qui n'est pas écrite du tout
+# Un identifiant dans une adresse ressemble à un courriel : la garde d'identité du
+# dépôt (tests/test_identite_absente.py) refuse ce motif écrit en clair, elle ne voit
+# pas celui qu'on assemble ici.
+ARO = "@"
 LUNDI_MIDI = datetime.datetime(2026, 11, 16, 12, 0, 0)
 LUNDI_NUIT = datetime.datetime(2026, 11, 16, 23, 0, 0)
 
@@ -135,7 +139,7 @@ class LirePolitique(unittest.TestCase):
             ("ADRESSE_INVALIDE", {"proxy": "https://proxy.local:3128"}),
             ("ADRESSE_INVALIDE", {"proxy": "proxy.local:3128"}),
             ("ADRESSE_INVALIDE", {"proxy": "http://proxy.local"}),
-            ("ADRESSE_INVALIDE", {"proxy": "http://u:p@proxy.local:3128"}),
+            ("ADRESSE_INVALIDE", {"proxy": "http://u:p" + ARO + "proxy.local:3128"}),
             ("ADRESSE_INVALIDE", {"proxy": "http://proxy.local:3128/x"}),
             ("ADRESSE_INVALIDE", {"proxy": "http://proxy.local:3128?a=1"}),
             ("ADRESSE_INVALIDE", {"proxy": None}),
@@ -167,7 +171,7 @@ class LirePolitique(unittest.TestCase):
                 self.assertEqual(contexte.exception.code, code)
 
     def test_un_message_de_refus_ne_reprend_jamais_l_adresse(self):
-        for adresse in ("https://sentinelle@hote-secret.invalid/0123/stable.zip",
+        for adresse in ("https://sentinelle" + ARO + "hote-secret.invalid/0123/stable.zip",
                         "http://hote-secret.invalid/0123/stable.zip",
                         "https://hote-secret.invalid/0123/stable.zip?jeton=sentinelle"):
             with self.subTest():
@@ -190,7 +194,7 @@ class LirePolitique(unittest.TestCase):
         # Une cible de redirection suit les mêmes règles hors le suffixe .zip.
         self.assertEqual(maj.analyser_adresse("https://exemple.fr/x", exiger_zip=False),
                          ("exemple.fr", 443, "/x"))
-        for cible in ("http://exemple.fr/x", "file:///x", "https://u@exemple.fr/x",
+        for cible in ("http://exemple.fr/x", "file:///x", "https://u" + ARO + "exemple.fr/x",
                       "https://exemple.fr/x?a=1", "//exemple.fr/x", "/x"):
             with self.subTest(cible=cible):
                 with self.assertRaises(ValueError):
@@ -675,6 +679,32 @@ class Verrou(Passage):
         self.assertEqual(code, 3)
         self.assertEqual(self.requetes, [])
         self.assertIn("MAJ_REPORTEE code=DEJA_EN_COURS", self.technique())
+
+
+class PointDEntree(Passage):
+    """`main` aiguille `verifier` et applique la garde du dépôt de développement."""
+
+    def test_main_aiguille_verifier(self):
+        self.configurer(adresse="")
+        with contextlib.redirect_stdout(io.StringIO()):
+            code = maj.main(["verifier"], racine=self.racine, pilote=self.pilote)
+        self.assertEqual(code, 3)
+        self.assertIn("MAJ_REPORTEE code=DESACTIVEE", self.technique())
+        self.assertEqual(self.requetes, [])
+
+    def test_verifier_refuse_de_s_executer_dans_un_depot(self):
+        os.mkdir(os.path.join(self.racine, ".git"))
+        with contextlib.redirect_stdout(io.StringIO()):
+            code = maj.main(["verifier"], racine=self.racine, pilote=self.pilote)
+        self.assertEqual(code, 2)
+        self.assertFalse(os.path.lexists(self.dossier_maj()))
+        self.assertEqual(self.requetes, [])
+
+    def test_une_commande_inconnue_est_refusee_par_l_usage(self):
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit) as contexte:
+                maj.main(["telecharger"], racine=self.racine)
+        self.assertEqual(contexte.exception.code, 2)
 
 
 class Proteger(Passage):

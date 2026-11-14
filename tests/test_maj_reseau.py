@@ -14,6 +14,7 @@ Python 3.9.6 du Mac, exécuté en intégration continue sur les trois systèmes.
 
 import contextlib
 import datetime
+import gc
 import io
 import os
 import socket
@@ -24,6 +25,7 @@ import threading
 import time
 import unittest
 import unittest.mock
+import warnings
 
 DOSSIER_TESTS = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, DOSSIER_TESTS)
@@ -325,9 +327,11 @@ class TaillesEtDelais(Hebergement):
         self.assertLess(duree, 1.0, "le client a attendu un corps qui ne vient pas")
 
     def test_un_corps_sans_longueur_au_dela_de_la_limite(self):
-        self.heb.routes["/essai/stable.zip"] = faux.corps_sans_longueur(10 ** 7)
-        _, duree = self.echec("REPONSE_TROP_GRANDE", limite=100000)
-        self.assertLess(duree, 5)
+        # 300 000 octets, puis un octet toutes les demi-secondes SANS fermer : un
+        # client qui lit « jusqu'à la fin » reste suspendu vingt secondes.
+        self.heb.routes["/essai/stable.zip"] = faux.corps_sans_longueur(300000)
+        _, duree = self.echec("REPONSE_TROP_GRANDE", limite=100000, total=30)
+        self.assertLess(duree, 3, "le client a lu au-delà de sa limite")
 
     def test_un_hote_muet_depasse_le_delai_d_operation(self):
         self.heb.routes["/essai/stable.zip"] = faux.muet(10)
@@ -443,7 +447,14 @@ class Proxy(Hebergement):
         mandataire = faux.FauxMandataire(refuser=True)
         self.addCleanup(mandataire.arreter)
         self.heb.routes["/essai/stable.zip"] = faux.corps(b"x")
-        self.echec("RESEAU_INJOIGNABLE", proxy=mandataire.adresse())
+        # http.client (3.9 au moins) laisse la réponse du CONNECT refusé sans la
+        # fermer : sa socket est libérée au ramasse-miettes avec un ResourceWarning
+        # qui n'est pas du client. On la fait tomber ici, sous un filtre, plutôt que
+        # dans le test d'un autre fichier.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", ResourceWarning)
+            self.echec("RESEAU_INJOIGNABLE", proxy=mandataire.adresse())
+            gc.collect()
         self.assertEqual(self.heb.requetes, [])
 
     def test_un_proxy_mort_n_est_pas_contourne(self):

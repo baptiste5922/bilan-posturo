@@ -1151,12 +1151,19 @@ avant toute nouvelle fonctionnalité. La fiabilité est la marge.
 > seconde tâche planifiée en C5-T2a. Rien n'en part au cabinet avant la visite de
 > C1-T4b.
 >
-> **À traiter avec C5-T2b** (revue de C5-T2a) : une mort brutale du processus de
-> `maj.py` (console fermée, `taskkill`) entre l'acceptation de l'arrêt et l'écriture
-> de l'étape `bascule` laisse le serveur arrêté sans que `reprendre` le voie (l'état
-> est encore `preparee`). Écrire l'étape, ou un drapeau « arrêt accepté », dès
-> l'acceptation, ou faire relancer par `reprendre` un serveur muet : sans opérateur
-> devant la console, personne ne le verrait.
+> **C5-T2b implémentée le 14 novembre 2026** (branche `c5-t2b-telechargement`,
+> partie de `main` = `c4e9873` ; contrat `docs/contrats/C5-T2.md`, **§14 qui fait foi
+> sur le corps**, erreurs et écarts relevés au §15 ; D-M1 tranchée : voie (d),
+> hébergement statique à adresse imprévisible par client). Livré : sous-commandes
+> `verifier` et `proteger`, client HTTPS `_telecharger` (TLS vérifié, trois `GET`,
+> redirections `https` seules, délai total borné, proxy de la seule configuration),
+> politique (`adresse`, `plage`, `calme_minutes`, `au_demarrage`, `proxy`, échec fermé),
+> seconde tâche planifiée `BilanPosturo-MiseAJour` et son retrait, `maj_controle_le`
+> dans `/etat`, garde de l'adresse hors du dépôt ; **R1, O1, O2** de C5-T2a refermés.
+> **En attente** : audit de sécurité, revue, fiche d'essai Windows partie B
+> (`docs/essais/C5-T2-windows.md`), puis seulement C5-T3 (publication) et C6-T8
+> **avant d'activer le client** chez un cabinet (D-M3). Rien n'en part au cabinet
+> avant la visite de C1-T4b.
 
 > **Décision du 3 novembre 2026 :** le PC tire les mises à jour lui-même et
 > n'installe qu'un paquet signé. Seul flux sortant : du code public, jamais

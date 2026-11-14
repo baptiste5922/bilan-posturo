@@ -120,8 +120,10 @@ def sans_corps_annonce(taille):
     return comportement
 
 
-def corps_sans_longueur(taille):
-    """Un corps de `taille` octets, sans Content-Length, fermé à la fin."""
+def corps_sans_longueur(taille, puis_goutte=20):
+    """Un corps de `taille` octets, sans Content-Length, puis un octet toutes les
+    demi-secondes pendant `puis_goutte` secondes SANS fermer : un client qui lit
+    jusqu'à la fin (`read()`) au lieu de s'arrêter à sa limite reste suspendu."""
     def comportement(g):
         g.send_response(200)
         g.end_headers()
@@ -131,6 +133,12 @@ def corps_sans_longueur(taille):
                 bloc = min(restant, 64 * 1024)
                 g.wfile.write(b"x" * bloc)
                 restant -= bloc
+            g.wfile.flush()
+            fin = time.monotonic() + puis_goutte
+            while time.monotonic() < fin and not g.server.hebergement.fermeture.is_set():
+                g.wfile.write(b"x")
+                g.wfile.flush()
+                time.sleep(0.5)
         except OSError:
             pass
     return comportement
