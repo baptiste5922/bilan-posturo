@@ -2421,6 +2421,34 @@ class Documentation(unittest.TestCase):
             noms = [c["nom"] for c in json.load(f)["cles"]]
         self.assertEqual([n for n in noms if "essai" in n], [])
 
+    def test_la_fiche_d_essai_porte_la_partie_b_et_jamais_une_adresse(self):
+        fiche = self.lire("docs", "essais", "C5-T2-windows.md")
+        for titre in ("B-1.", "B-2.", "B-3.", "B-4.", "B-5.", "B-6.", "B-7."):
+            self.assertIn("### " + titre, fiche)
+        self.assertIn("<adresse>", fiche)
+        self.assertNotRegex(fiche, r"https?://[^\s\"'<>]*/[0-9a-fA-F]{32}(/|\.|$)")
+        # Ce que la fiche fait relever est ce que le contrat B24 demande de relever.
+        for terme in ("PT3M", "PT1H", "S-1-5-18", "BootTrigger", "TLS_INVALIDE",
+                      "DESACTIVEE", "ARRET_REFUSE", "HORS_PLAGE", "Running"):
+            self.assertIn(terme, fiche)
+
+    def test_la_fiche_de_configuration_porte_les_six_cles_et_leurs_codes(self):
+        texte = self.lire("docs", "configuration.md")
+        for cle in ("client", "adresse", "plage", "calme_minutes", "au_demarrage", "proxy"):
+            self.assertIn("| `%s` |" % cle, texte)
+        for code in ("ADRESSE_INVALIDE", "PLAGE_INVALIDE", "CLIENT_NON_CONFIGURE"):
+            self.assertIn(code, texte)
+        self.assertIn("jamais remplacée par son défaut", texte)
+        self.assertNotIn("ne sont pas encore lues", texte)
+
+    def test_la_fiche_d_exploitation_decrit_la_mise_a_jour_automatique(self):
+        texte = self.lire("docs", "mise-a-jour.md")
+        for terme in ("BilanPosturo-MiseAJour", "maj_controle_le", "proteger", "reprendre",
+                      "DESACTIVEE", "C6-T8", "Désinstaller pendant une mise à jour"):
+            self.assertIn(terme, texte)
+        self.assertNotIn("Il ne télécharge rien", texte)
+        self.assertNotIn("c'est C5-T2b", texte)
+
     def test_la_fiche_de_configuration_ne_dit_plus_qu_une_mise_a_jour_efface_le_logo(self):
         texte = self.lire("docs", "configuration.md")
         self.assertNotIn("efface ce dossier", texte)

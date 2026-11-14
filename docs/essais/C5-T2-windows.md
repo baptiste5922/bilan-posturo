@@ -9,8 +9,12 @@ cabinet pilote** ; aucun contenu de `journal.log` ; aucun nom de patient. Une
 adresse de la VM d'essai peut figurer, pas celle du cabinet.
 
 La partie **A** (application locale) conditionne la livraison de C5-T2a au
-prospect. La partie **B** (téléchargement, plage horaire, magasin de certificats)
-sera ajoutée par C5-T2b : elle n'est pas à remplir ici.
+prospect. La partie **B** (téléchargement, plage horaire, magasin de certificats,
+seconde tâche planifiée, désinstallation) est celle de C5-T2b : elle se déroule
+**après** A, sur la même VM. **Règle de la partie B : l'adresse de publication
+s'écrit `<adresse>` dans cette fiche, dans vos notes et dans vos captures, jamais en
+clair** (elle identifie un client et ouvre son paquet ; le dépôt est public et le
+contrôle de confiance refuse tout fichier qui la porte).
 
 ## Fabriquer les paquets d'essai (sur le poste de développement)
 
@@ -242,9 +246,189 @@ resultat=ok`, serveur d'avant relancé, `/etat` dit `revenue`, et un second
 | Résultat | |
 |---|---|
 
+---
+
+## B. Téléchargement, plage horaire, seconde tâche (C5-T2b)
+
+Contrat : `docs/contrats/C5-T2.md`, §14. Ce que la CI prouve déjà : les trois requêtes
+exactes, le refus d'une redirection vers `http`, les délais, l'absence de proxy
+implicite (`tests.test_maj_reseau`), l'ordre et le contenu des deux scripts
+(`tests.test_scripts_installation`, lecture seule), la protection du dossier
+(`tests.test_maj_windows`). **Ce que seule cette VM relève** : la tâche telle que
+Windows l'enregistre, le magasin de certificats d'un Windows neuf, le comportement
+sous SYSTEM, un redémarrage réel.
+
+### Préparation
+
+- La VM de la partie A, partie A terminée (version N installée, clé d'essai en place).
+- Un **hébergement HTTPS statique** joignable de la VM, sans index de dossier, dont le
+  certificat est signé par une autorité publique (un hébergement provisoire suffit ;
+  le choix définitif est celui de C5-T3). Y déposer le paquet N+1 (dossier `n1`) **dans
+  cet ordre : l'archive d'abord, puis le manifeste, puis la signature** ; l'adresse de
+  l'archive est `<adresse>` (elle se termine par `.zip`, ses deux voisines par
+  `.manifeste.json` et `.manifeste.sig`).
+- `serveur\maj.py` en place (paquet N) ; `installer-demarrage.ps1` **relancé** en
+  console administrateur : il enregistre la seconde tâche.
+- Une session administrateur, un compte standard.
+
+| Champ | Valeur |
+|---|---|
+| Date de l'essai | |
+| Version de Windows (`winver`) | |
+| Hébergement (nom du service, **sans** l'adresse) | |
+| Opérateur | |
+
+### B-1. Installation : deux tâches, et ce que Windows en a retenu
+
+```powershell
+.\installer-demarrage.ps1
+schtasks /Query /TN BilanPosturo
+schtasks /Query /TN BilanPosturo-MiseAJour
+schtasks /Query /TN BilanPosturo-MiseAJour /XML > C:\essai\tache-maj.xml
+icacls C:\BilanPosturo\mise-a-jour
+```
+
+Attendu : le script dit « Client de mise a jour : present » avant l'enregistrement,
+puis enregistre les deux tâches. Dans le XML de `BilanPosturo-MiseAJour` :
+**un déclencheur au démarrage** (`BootTrigger`, délai `PT3M`), **une répétition
+`PT1H`** (`Interval`), `ExecutionTimeLimit` `PT1H`, `MultipleInstancesPolicy`
+`IgnoreNew`, **aucun** `RestartOnFailure`, principal `S-1-5-18`, commande `pythonw.exe`
+avec les arguments `-B "…\serveur\maj.py" verifier`. **Relever la durée de répétition
+telle que Windows l'a enregistrée** (`Duration`) : le script demande vingt ans
+(`P7300D`) faute de pouvoir écrire « sans fin » de manière portable ; si Windows en a
+fait autre chose, ou si la répétition manque, le dire ici.
+
+`mise-a-jour\` : `SYSTEM` et `Administrateurs` seulement, sans héritage (la lecture de
+la partie A, A2). Relancer l'installateur une seconde fois : les deux tâches sont
+remplacées sans erreur.
+
+| Résultat (deux tâches enregistrées) | |
+|---|---|
+| `Delay` du déclencheur de démarrage | |
+| `Interval` / `Duration` de la répétition | |
+| `ExecutionTimeLimit` / `MultipleInstancesPolicy` | |
+| Principal / commande | |
+| Droits de `mise-a-jour\` | |
+
+### B-2. Client désactivé : une ligne, aucune connexion
+
+Sans clé `adresse` dans `config.json` (la configuration de la partie A), redémarrer la
+VM, attendre quatre minutes, ouvrir le Moniteur de ressources (onglet Réseau) filtré
+sur `pythonw.exe`, puis lire `technique.log`.
+
+Attendu : **une** ligne `MAJ_REPORTEE code=DESACTIVEE` (une seule par jour, même après
+plusieurs passages), aucune connexion sortante de `pythonw.exe`, le serveur répond, la
+page `/etat` montre `maj_resultat` `reportee`, `maj_code` `DESACTIVEE`, et **aucune**
+date de dernier contrôle.
+
+| Résultat | |
+|---|---|
+| Nombre de lignes `DESACTIVEE` après deux passages | |
+| Connexions sortantes de `pythonw.exe` | |
+
+### B-3. Le magasin de certificats d'un Windows neuf
+
+Écrire dans `config.json` : `"mise_a_jour": { "client": "cabinet-01", "adresse":
+"<adresse>", "plage": "<une plage qui ne couvre PAS l'heure>", "au_demarrage": false }`
+(hors plage : on ne cherche ici que le téléchargement). Lancer un passage à la main :
+
+```powershell
+python serveur\maj.py verifier
+echo $LASTEXITCODE
+python serveur\maj.py etat
+```
+
+Attendu : `MAJ_CONTROLE resultat=disponible de=… vers=…` puis `MAJ_REPORTEE
+code=HORS_PLAGE` (code 3), la date `maj_controle_le` sur `/etat`. Sinon `TLS_INVALIDE` :
+Python lit le magasin de Windows mais ne déclenche pas le téléchargement automatique
+des racines que fait Edge. **Relever l'autorité racine de l'hébergeur** (Edge › cadenas
+› certificat › chemin) et si elle figure dans `certmgr.msc` › Autorités de
+certification racines de confiance **avant** l'essai. Ne jamais contourner la
+vérification : si `TLS_INVALIDE`, noter la racine et en faire une décision pour C5-T3.
+
+| Résultat (verdict) | |
+|---|---|
+| Autorité racine de l'hébergeur | |
+| Présente dans le magasin avant l'essai ? | |
+| Trois requêtes seulement côté hébergeur (si les journaux en donnent) | |
+
+### B-4. Dans la plage : appliquée sous SYSTEM par la tâche
+
+Écrire une `plage` qui couvre l'heure courante (par exemple de l'heure précédente à
+l'heure suivante), `calme_minutes` à 1, la version N+1 publiée (B-3 l'a téléchargée :
+effacer `mise-a-jour\reception\` n'est pas nécessaire). **Ne rien toucher au
+serveur pendant une minute**, puis démarrer la tâche à la main et attendre :
+
+```powershell
+schtasks /Run /TN BilanPosturo-MiseAJour
+```
+
+Attendu, sous SYSTEM, sans aucune console : `MAJ_APPLIQUEE de=N vers=N+1` dans
+`technique.log`, `/etat` à la version N+1, `maj_controle_le` renseigné, `maj.py etat`
+sur `repos` / `appliquee`, **la tâche du serveur relancée** (`DEMARRAGE` dans
+`technique.log`). Une requête du navigateur de la VM pendant le calme de la minute
+doit au contraire donner `MAJ_REPORTEE code=ARRET_REFUSE` (motif `activite`).
+
+| Résultat | |
+|---|---|
+| Version affichée par `/etat` | |
+| Durée entre le lancement de la tâche et `MAJ_APPLIQUEE` | |
+| Dernier résultat de la tâche (`schtasks /Query /TN BilanPosturo-MiseAJour /V /FO LIST`) | |
+
+### B-5. Hors plage, juste après le démarrage
+
+Publier N+2 (dossier `n2`, mêmes précautions d'ordre). `plage` qui ne couvre **pas**
+l'heure courante, `au_demarrage` à `true`, **ne pas ouvrir le navigateur** sur le
+serveur, puis redémarrer la VM et attendre quatre à cinq minutes (trois de délai du
+déclencheur, un contrôle, une application).
+
+Attendu : `MAJ_APPLIQUEE de=N+1 vers=N+2`, dans le quart d'heure qui suit le démarrage.
+Variante : redémarrer, **ouvrir** `/cabinet` dans le navigateur avant que la tâche ne
+passe : `MAJ_REPORTEE code=ARRET_REFUSE` (motif `activite`), rien n'est installé. Variante
+2 : attendre plus d'un quart d'heure après le démarrage puis lancer la tâche à la main :
+`MAJ_REPORTEE code=HORS_PLAGE`.
+
+| Résultat (appliquée dans le quart d'heure ?) | |
+|---|---|
+| Variante 1 (requête avant la tâche) | |
+| Variante 2 (démarrage dépassé) | |
+
+### B-6. Désinstaller pendant une mise à jour : refus
+
+Publier N+3 (dossier `n3`, volumineux : la bascule dure assez). Lancer
+`schtasks /Run /TN BilanPosturo-MiseAJour`, puis, **pendant** que `python serveur\maj.py
+etat` dit `bascule` ou `verification` (ou tant que la tâche est `Running`), lancer
+`.\desinstaller-demarrage.ps1`.
+
+Attendu : le script **refuse** (code 1), dit de réessayer dans quelques minutes et cite
+`maj.py etat` et `reprendre` ; **aucune** des deux tâches n'est retirée. Une fois la
+mise à jour terminée, `.\desinstaller-demarrage.ps1` retire les deux, celle de mise à
+jour en premier ; `schtasks /Query /TN BilanPosturo-MiseAJour` répond alors « introuvable ».
+
+| Résultat | |
+|---|---|
+| Message affiché, code de sortie | |
+| Les deux tâches après le refus | |
+| Les deux tâches après la fin de la mise à jour | |
+
+### B-7. (Facultatif) Proxy d'entreprise
+
+Seulement si une VM derrière un proxy HTTP à `CONNECT` est disponible : écrire
+`"proxy": "http://<hôte>:<port>"`. Attendu : le contrôle aboutit, le proxy voit un
+`CONNECT <hôte de l'hébergement>:443` ; sans la clé `proxy`, même avec `HTTPS_PROXY`
+posé dans l'environnement de la machine, le client **n'utilise pas** le proxy (et
+échoue donc s'il est obligatoire). Un proxy qui refuse le tunnel donne
+`RESEAU_INJOIGNABLE`, jamais un repli en direct.
+
+| Résultat | |
+|---|---|
+
 ### Synthèse
 
 | Critère | Fait | Remarque |
 |---|---|---|
 | A1 à A8 remplis | | |
+| B-1 à B-6 remplis (B-7 si disponible) | | |
+| Racine de l'hébergeur dans le magasin (B-3) | | |
+| Aucune adresse réelle dans cette fiche, ni dans les captures | | |
 | Aucune anomalie bloquante | | |

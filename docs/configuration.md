@@ -211,23 +211,49 @@ pas seulement le logo. Sous Windows, une différence de casse seule dans l'URL
 **Retour arrière** : mettre `"logo": "images/favicon.jpeg"` (ou `""`) dans
 `config.json` et relancer le serveur.
 
-## 8. Le bloc `mise_a_jour` (C5-T2a)
+## 8. Le bloc `mise_a_jour` (C5-T2a, C5-T2b)
 
 ```json
-"mise_a_jour": { "client": "cabinet-01" }
+"mise_a_jour": {
+  "client": "cabinet-01",
+  "adresse": "<adresse>",
+  "plage": "20:00-07:00",
+  "calme_minutes": 30,
+  "au_demarrage": true,
+  "proxy": ""
+}
 ```
 
-Une seule clé en C5-T2a, **obligatoire pour appliquer un paquet** :
+Toutes les clés sont facultatives, **sauf `client` pour appliquer un paquet**. Le
+serveur ignore ce bloc : un `config.json` qui le porte reste lisible par une version
+plus ancienne.
 
-| Clé | Forme | Rôle |
-|---|---|---|
-| `client` | `cabinet-NN` (au moins deux chiffres) | le client auquel ce PC appartient. Un paquet signé pour un autre client est refusé (`CLIENT_DIFFERENT`). |
+| Clé | Défaut | Forme admise | Si elle est fausse |
+|---|---|---|---|
+| `client` | — | `cabinet-NN` (au moins deux chiffres) : le client auquel ce PC appartient. Un paquet signé pour un autre client est refusé (`CLIENT_DIFFERENT`). | `CLIENT_NON_CONFIGURE` |
+| `adresse` | absente : **désactivé** | `""` (désactivé) ou une adresse `https://…` sans identifiant (`@`), sans `?` ni `#`, sans espace, ASCII, 1 024 caractères au plus, et **terminée par `.zip`**. Le manifeste et la signature se déduisent de cette adresse en y ajoutant `.manifeste.json` et `.manifeste.sig`. | `ADRESSE_INVALIDE` |
+| `plage` | `"20:00-07:00"` | `HH:MM-HH:MM` sur 24 heures, début ≠ fin, début inclus et fin exclue ; traverse minuit quand le début est postérieur à la fin. | `PLAGE_INVALIDE` |
+| `calme_minutes` | `30` | un entier de 1 à 240 (pas un booléen, pas un texte). Dans la plage, le serveur doit n'avoir reçu aucune requête depuis ce délai. | `PLAGE_INVALIDE` |
+| `au_demarrage` | `true` | `true` ou `false`. Vrai : hors plage, la mise à jour reste possible dans le quart d'heure qui suit le démarrage du PC, si le serveur n'a reçu aucune requête (un PC éteint la nuit ne se mettrait sinon jamais à jour). | `PLAGE_INVALIDE` |
+| `proxy` | `""` | `""` ou `http://<hôte>:<port>` (port obligatoire, pas d'identifiant). Seule source de proxy : l'environnement et le registre ne sont jamais lus. | `ADRESSE_INVALIDE` |
 
-Sans ce bloc, `python serveur\maj.py appliquer` refuse (`CLIENT_NON_CONFIGURE`)
-et **rien d'autre ne change** : le serveur ignore ce bloc, un `config.json`
-qui le porte reste lisible par une version plus ancienne. Les clés `adresse`,
-`plage`, `calme_minutes`, `au_demarrage` et `proxy` appartiennent à C5-T2b
-(téléchargement) et ne sont pas encore lues.
+**Une clé présente et fausse n'est jamais remplacée par son défaut** : la mise à jour
+ne s'applique pas (échec fermé), une ligne `MAJ_REFUSEE` dit laquelle (au plus une par
+jour), et rien n'est téléchargé. Une plage fausse n'applique donc pas `20:00-07:00`.
 
-La marche à suivre complète (amorçage à la visite, application à la main, lecture
-de l'état, retour arrière) est dans `docs/mise-a-jour.md`.
+**Désactiver** : retirer `adresse` ou l'écrire `""` ; effet au passage suivant de la
+tâche (une heure au plus), sans relancer le serveur. **Activer**, c'est l'écrire : en
+séance d'assistance, après la semaine de bilans réels qui suit la visite.
+
+**L'adresse identifie un client** et ouvre son paquet (code public et schéma, aucune
+donnée de santé). Elle ne figure ni dans `technique.log`, ni dans `/etat`, ni sur la
+console, et `journal.log` n'en nomme que l'hôte. Elle ne se commite jamais : côté
+éditeur, elle est notée dans `adresse-publication.json`, dans le dossier de travail du
+client à l'atelier (hors dépôt, ignoré par Git et refusé par la CI), et ce fichier se
+sauvegarde comme `identite-cabinet.json`.
+
+Sans la clé `client`, `python serveur\maj.py appliquer` refuse (`CLIENT_NON_CONFIGURE`)
+et **rien d'autre ne change**.
+
+La marche à suivre complète (amorçage à la visite, application à la main, mise à jour
+automatique, lecture de l'état, retour arrière) est dans `docs/mise-a-jour.md`.

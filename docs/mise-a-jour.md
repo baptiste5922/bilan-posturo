@@ -1,14 +1,18 @@
 # Mettre à jour le serveur d'un cabinet
 
-**Contrat :** `docs/contrats/C5-T2.md` (partie C5-T2a)
+**Contrat :** `docs/contrats/C5-T2.md` (parties C5-T2a et C5-T2b ; le §14 fait foi pour la seconde)
 **Client :** `serveur/maj.py` — bibliothèque standard seule
 **Public :** la personne qui assiste un cabinet (séance d'assistance ou visite),
 jamais la praticienne.
 
-C5-T2a installe un **paquet signé posé sur le PC du cabinet**. Le téléchargement
-automatique est C5-T2b : tant qu'il n'est pas livré, rien ne se met à jour tout
-seul, et cette fiche décrit l'application **à la main**, en séance d'assistance
-(à distance, sans déplacement).
+Le client installe un **paquet signé**. Deux façons de le lui donner :
+
+- **à la main** (C5-T2a, §1 à §6) : un paquet posé sur le PC, appliqué par
+  `python serveur\maj.py appliquer`, en séance d'assistance, sans déplacement ;
+- **tout seul** (C5-T2b, §7 et §8) : une seconde tâche planifiée, chaque heure, va
+  chercher le paquet à l'adresse configurée, le vérifie, et l'applique dans la
+  plage de nuit. **Inactive tant qu'aucune adresse n'est écrite dans
+  `config.json`.**
 
 Ce client est le code le plus sensible du produit : il remplace, sous le compte
 SYSTEM, le code qui reçoit les bilans. Il ne fait confiance qu'aux clés de
@@ -188,12 +192,97 @@ qui ne se recopient pas sur la racine mais se traitent à part :
 Effacer ensuite `serveur\__pycache__`, redémarrer la tâche, et vérifier `/sante`
 puis `/etat`.
 
-## 7. Ce que le client ne fait pas (encore)
+## 7. La mise à jour automatique (C5-T2b)
 
-- Il ne télécharge rien : c'est C5-T2b (un appel sortant HTTPS, trois `GET`, aucune
-  donnée du cabinet).
-- Il n'a pas de tâche planifiée à lui : aucune mise à jour ne part toute seule.
+La tâche planifiée **`BilanPosturo-MiseAJour`** (SYSTEM, installée par
+`installer-demarrage.ps1` à côté de celle du serveur) lance `python serveur\maj.py
+verifier` **au démarrage du PC (après trois minutes) puis toutes les heures**, une
+heure d'exécution au plus. Chaque passage :
+
+1. **défait ce qu'une coupure a laissé**, toujours, même désactivé (`reprendre`) ;
+2. lit la configuration (`docs/configuration.md`, §8) : sans adresse, il s'arrête là
+   (`MAJ_REPORTEE code=DESACTIVEE`, **aucune connexion**) ;
+3. si le dernier contrôle date de six heures ou plus : demande le **manifeste** puis
+   la **signature**, et les juge avec les clés **déjà installées** (signature,
+   version, client, version minimale). **L'archive n'est demandée qu'après**, et
+   seulement si la version est supérieure et pas écartée. Trois `GET`, aucun corps,
+   quatre en-têtes, rien du cabinet : ni version, ni nom, ni donnée de santé ;
+4. si une version attend et que l'heure s'y prête, l'applique par le chemin de
+   `appliquer` (§2) : **dans la plage** (`20:00-07:00` par défaut) si le serveur est
+   calme depuis `calme_minutes` ; **hors plage** seulement dans le quart d'heure qui
+   suit le démarrage du PC, et si le serveur n'a reçu aucune requête (`au_demarrage`).
+   Le serveur reste juge : il refuse pendant un dépôt, quoi qu'on lui demande.
+
+Rien d'extrait, de sauvegardé ni demandé au serveur avant que l'heure s'y prête :
+hors plage, le passage s'arrête à `MAJ_REPORTEE code=HORS_PLAGE`, version reçue
+gardée dans `mise-a-jour\reception\`.
+
+**Activer** (séance d'assistance, **après** la semaine de bilans réels qui suit la
+visite : D-M3) : écrire l'adresse dans `config.json`, rien d'autre. Pas de
+redémarrage du serveur ; effet au passage suivant, une heure au plus.
+
+```json
+"mise_a_jour": { "client": "cabinet-01", "adresse": "<adresse>" }
+```
+
+**Désactiver** : retirer la clé `adresse` ou la mettre à `""` ; ou, sans toucher à la
+configuration, `schtasks /Change /TN BilanPosturo-MiseAJour /Disable`.
+
+**Ne pas activer** sur un serveur qui ne porte pas encore C6-T8 (une connexion TCP
+muette peut figer l'acceptation du serveur ; contrat C5-T2, §14.16).
+
+**Lire où l'on en est.** `/etat` (page authentifiée, qui circule en capture) porte
+`maj_controle_le` : la date du dernier contrôle réseau qui a rendu un verdict. C'est
+le seul signe qui distingue « la tâche tourne et rien n'est publié » de « la tâche ne
+tourne plus ». Elle ne bouge pas quand le réseau est tombé : le passage suivant (une
+heure) réessaie, sans attendre six heures. `python serveur\maj.py etat` montre
+l'étape et le dernier résultat.
+
+`technique.log` ne reçoit que des codes. **Une ligne par jour au plus** pour
+`DESACTIVEE`, `HORS_PLAGE`, un code réseau, `ADRESSE_INVALIDE`, `PLAGE_INVALIDE` et
+`MAJ_CONTROLE resultat=a-jour` ; `MAJ_CONTROLE resultat=disponible` une fois par
+version vue. **L'adresse n'est dans aucun journal** : `journal.log` peut nommer
+l'hôte, jamais le chemin.
+
+Codes ajoutés par C5-T2b : `DESACTIVEE`, `ADRESSE_INVALIDE`, `PLAGE_INVALIDE`,
+`HORS_PLAGE` ; réseau : `RESEAU_INJOIGNABLE` (pas de réponse, port fermé, proxy
+refusé), `TLS_INVALIDE` (certificat non reconnu : voir la racine de l'hébergeur dans
+le magasin de Windows), `HTTP_STATUT` (404 : rien n'est publié à cette adresse),
+`REPONSE_TROP_GRANDE` (plus de 64 Mio), `DELAI_DEPASSE` (une minute pour le
+manifeste, un quart d'heure pour l'archive), `REDIRECTION_REFUSEE` (cinq au plus,
+`https` seulement, sans identifiant).
+
+**`python serveur\maj.py proteger`** crée et protège `mise-a-jour\` (SYSTEM et
+administrateurs), sans rien faire d'autre ; l'installateur le lance avant
+d'enregistrer la seconde tâche, et **n'enregistre pas** la tâche s'il échoue (le
+serveur, lui, reste installé : relancer la commande en console administrateur pour
+lire le motif).
+
+**Désinstaller pendant une mise à jour.** `desinstaller-demarrage.ps1` retire la tâche
+de mise à jour **d'abord**, et **refuse** si elle tourne : l'arrêter en pleine
+bascule laisserait des fichiers mêlés que plus aucune tâche ne reprendrait. Réessayer
+dans quelques minutes ; si `python serveur\maj.py etat` montre longtemps une étape
+autre que `repos`, lancer `python serveur\maj.py reprendre`.
+
+**Limites connues.** Un appareil du réseau qui interroge le serveur toutes les
+trente minutes empêche tout arrêt concerté, donc toute mise à jour (le sens de
+l'échec est le bon : jamais un bilan coupé ; `/etat` montre `reportee`,
+`ARRET_REFUSE`). L'hébergeur doit servir l'archive **avant** son manifeste et sa
+signature : un manifeste neuf servi avec l'archive ancienne donne
+`ARCHIVE_DIFFERENTE`, refus propre, nouvel essai au contrôle suivant.
+
+## 8. Ce que le client ne fait pas
+
+- Il n'envoie rien : trois `GET` anonymes, aucune statistique d'usage, aucune donnée
+  du cabinet.
+- Il ne s'authentifie pas auprès de l'hébergeur (D-M1, voie (d) : l'adresse, qui
+  ouvre le paquet d'un client, est le seul secret, et elle ne protège que du code et
+  un schéma). Aucun jeton n'est posé sur le PC.
+- Il ne lit aucun proxy dans l'environnement ni dans le registre : seulement la clé
+  `proxy` de `config.json`.
 - Il ne révoque pas une clé : une clé qui a fuité ne se désactive pas à distance
   (`docs/cle-publication.md`, §8).
 - Il refuse de s'exécuter dans un dépôt de développement (dossier `.git`) : il
   agirait sur les fichiers réels du cabinet présents à la racine.
+- Il ne choisit ni l'hébergeur, ni le nom de canal, ni ne retire une version : c'est
+  C5-T3.
