@@ -24,6 +24,8 @@ import stat
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
 import unittest.mock
 
@@ -1124,6 +1126,19 @@ class Traces(Installation):
                          "de=1.1.0 vers=1.2.0 cles=changees")
         self.assertEqual(maj.detail_maj(code="SIGNATURE_INVALIDE", de=None), "code=SIGNATURE_INVALIDE")
 
+    def test_detail_maj_admet_les_deux_resultats_du_controle_reseau(self):
+        self.assertEqual(maj.detail_maj(resultat="a-jour", de="1.1.0"),
+                         "resultat=a-jour de=1.1.0")
+        self.assertEqual(maj.detail_maj(resultat="disponible", de="1.1.0", vers="1.2.0"),
+                         "resultat=disponible de=1.1.0 vers=1.2.0")
+        for interdit in ("reussi", "ok2", "", "A-JOUR", "a jour", None, 1):
+            with self.subTest(interdit=interdit):
+                if interdit is None:
+                    self.assertEqual(maj.detail_maj(resultat=None), "")
+                    continue
+                with self.assertRaises(ValueError):
+                    maj.detail_maj(resultat=interdit)
+
     def test_detail_maj_refuse_tout_autre_champ(self):
         for champs in ({"chemin": "x"}, {"detail": "x"}, {"code": "SANTE_MUETTE", "url": "x"},
                        {"erreur": "x"}):
@@ -1193,6 +1208,69 @@ class Constantes(unittest.TestCase):
         self.assertEqual(maj.MARGE_ESPACE_OCTETS, 50 * 1024 * 1024)
         self.assertEqual(serveur.DELAI_DEMARRAGE_MAX_SECONDES, 900)
 
+    def test_constantes_du_client_reseau(self):
+        # Les durées de production du téléchargement (14.6), figées : un test les
+        # lit pour que personne ne les raccourcisse ou ne les allonge sans le dire.
+        self.assertEqual(maj.DELAI_OPERATION_RESEAU_SECONDES, 30)
+        self.assertEqual(maj.DELAI_TOTAL_MANIFESTE_SECONDES, 60)
+        self.assertEqual(maj.DELAI_TOTAL_ARCHIVE_SECONDES, 900)
+        self.assertEqual(maj.FREQUENCE_CONTROLE_SECONDES, 21600)
+        self.assertEqual(maj.REDIRECTIONS_MAX, 5)
+        self.assertEqual(maj.TAILLE_MAX_ARCHIVE, 64 * 1024 * 1024)
+        self.assertEqual(maj.PLAGE_DEFAUT, "20:00-07:00")
+        self.assertEqual(maj.CALME_MINUTES_DEFAUT, 30)
+        self.assertEqual(maj.delais_de_production(), {
+            "sante": 60, "auto_controle": 60, "reponse": 30, "arret": 90,
+            "operation": 30, "manifeste": 60, "archive": 900})
+
+    def test_un_passage_tient_dans_l_heure_de_la_tache(self):
+        # E15, B22 : la tâche est tuée au bout d'une heure, ce qui laisserait un
+        # état que `reprendre` défait seulement au passage SUIVANT. Le pire passage,
+        # additionné depuis les constantes : un retour arrière en reprise, trois
+        # téléchargements, la présence du serveur, la réponse puis l'arrêt, la
+        # santé, l'auto-contrôle, un retour arrière de trois tentatives, et le
+        # filet de relance (fermeture du port, santé).
+        d = maj.delais_de_production()
+        retour = maj.TENTATIVES_RETOUR * d["sante"]
+        pire = (retour                                          # reprendre, en tête
+                + 2 * d["manifeste"] + d["archive"]            # manifeste, signature, archive
+                + maj.DELAI_SERVEUR_PRESENT_SECONDES
+                + d["reponse"] + d["arret"] + maj.PAUSE_APRES_ARRET_SECONDES
+                + d["sante"] + d["auto_controle"]
+                + retour                                        # la bascule échoue
+                + 10 + d["sante"])                              # assurer_serveur
+        self.assertLess(pire, 2700, "le pire passage dépasse 75 %% de l'heure : %d s" % pire)
+        # Témoin : la somme pèse bien quelque chose (un test qui additionne zéro
+        # ne garde rien).
+        self.assertGreater(pire, 1000)
+        with open(os.path.join(PROJET, "installer-demarrage.ps1"), encoding="utf-8-sig") as f:
+            script = f.read()
+        self.assertIsNotNone(re.search(
+            r"-ExecutionTimeLimit\s+\(New-TimeSpan\s+-Hours\s+1\)", script))
+
+    def test_codes_de_la_seconde_sous_tache(self):
+        nouveaux = ("DESACTIVEE", "ADRESSE_INVALIDE", "PLAGE_INVALIDE", "HORS_PLAGE",
+                    "RESEAU_INJOIGNABLE", "TLS_INVALIDE", "HTTP_STATUT",
+                    "REPONSE_TROP_GRANDE", "DELAI_DEPASSE", "REDIRECTION_REFUSEE")
+        self.assertEqual(len(maj.CODES_MAJ), 35)
+        self.assertEqual(list(maj.CODES_MAJ[-10:]), list(nouveaux))
+        self.assertEqual(len(maj.CODES_REPORT), 13)
+        for code in ("DESACTIVEE", "HORS_PLAGE") + maj.CODES_RESEAU:
+            self.assertIn(code, maj.CODES_REPORT)
+        self.assertEqual(len(maj.CODES_RESEAU), 6)
+        # Une configuration fausse ne se répare pas en attendant ; INTERROMPUE, en
+        # T2a, ne sert qu'en cause de retour, et R1 l'émet directement.
+        for code in ("ADRESSE_INVALIDE", "PLAGE_INVALIDE", "INTERROMPUE"):
+            self.assertNotIn(code, maj.CODES_REPORT)
+
+    def test_lignes_limitees_par_jour(self):
+        self.assertEqual(
+            sorted(maj.LIGNES_LIMITEES),
+            sorted(["MAJ_REPORTEE:DESACTIVEE", "MAJ_REPORTEE:HORS_PLAGE"]
+                   + ["MAJ_REPORTEE:" + c for c in maj.CODES_RESEAU]
+                   + ["MAJ_REFUSEE:ADRESSE_INVALIDE", "MAJ_REFUSEE:PLAGE_INVALIDE",
+                      "MAJ_CONTROLE:a-jour"]))
+
     def test_codes_fermes_et_disjoints_de_ceux_du_verificateur(self):
         self.assertEqual(len(set(maj.CODES_MAJ)), len(maj.CODES_MAJ))
         self.assertEqual(set(maj.CODES_MAJ) & set(paquet_signe.CODES), set())
@@ -1218,6 +1296,18 @@ class Constantes(unittest.TestCase):
         self.assertIsNotNone(correspondance)
         self.assertEqual(maj.NOM_TACHE_SERVEUR, correspondance.group(1))
         self.assertEqual(maj.PiloteTachePlanifiee().nom, correspondance.group(1))
+
+    def test_nom_de_la_tache_de_mise_a_jour_egal_a_celui_des_deux_scripts(self):
+        for script in ("installer-demarrage.ps1", "desinstaller-demarrage.ps1"):
+            with self.subTest(script=script):
+                with open(os.path.join(PROJET, script), encoding="utf-8-sig") as f:
+                    correspondance = re.search(
+                        r'^\$NOM_TACHE_MAJ\s*=\s*"([^"]+)"', f.read(), re.MULTILINE)
+                self.assertIsNotNone(correspondance)
+                self.assertEqual(maj.NOM_TACHE_MAJ, correspondance.group(1))
+        # Deux tâches, deux noms : le client du serveur n'arrête que la sienne.
+        self.assertNotEqual(maj.NOM_TACHE_MAJ, maj.NOM_TACHE_SERVEUR)
+        self.assertEqual(maj.NOM_TACHE_MAJ, "BilanPosturo-MiseAJour")
 
     def test_le_dossier_reserve_est_nomme_une_fois(self):
         self.assertEqual(os.path.basename(serveur.DOSSIER_MAJ), "mise-a-jour")
@@ -1484,17 +1574,134 @@ class GardesStatiques(unittest.TestCase):
             [n.lineno for n in ast.walk(ast.parse(lire_source())) if isinstance(n, ast.Assert)], [])
         self.assertIsNone(re.search(r"^\s*assert ", lire_source(), re.MULTILINE))
 
-    def test_aucun_acces_reseau_en_t2a(self):
-        # Le téléchargement est C5-T2b : ici, seule la sonde de santé locale parle
-        # sur un socket, vers 127.0.0.1.
+    def test_les_acces_reseau_ne_passent_que_par_les_trois_fonctions_prevues(self):
+        self.assertEqual(acces_reseau_interdits(lire_source()), [])
+
+    def test_la_garde_du_reseau_mord(self):
         source = lire_source()
-        self.assertNotIn("urllib", source)
-        for noeud in ast.walk(ast.parse(source)):
-            if isinstance(noeud, ast.Call) and getattr(noeud.func, "attr", None) in (
-                    "HTTPSConnection", "HTTPConnection"):
-                self.assertEqual(noeud.args[0].value, "127.0.0.1")
-            if isinstance(noeud, ast.Call) and getattr(noeud.func, "attr", None) == "create_connection":
-                self.assertEqual(noeud.args[0].elts[0].value, "127.0.0.1")
+        cas = (
+            # Un second point de sortie, en dehors des trois fonctions admises.
+            ("une connexion hors des fonctions prévues",
+             "def autre(h):\n    return http.client.HTTPSConnection(h, 443)\n"),
+            ("une socket vers un hôte quelconque",
+             "def port_ferme(p):\n    return socket.create_connection((p, 1), 1)\n"),
+            ("une sonde vers un hôte qui n'est pas la boucle locale",
+             "def sante_repond(p):\n    return http.client.HTTPSConnection('exemple.fr', p)\n"),
+            ("un tunnel hors de _telecharger",
+             "def autre(c):\n    c.set_tunnel('h', 1)\n"),
+            ("une méthode autre que GET",
+             "def _telecharger(c):\n    c.request('POST', '/x')\n"),
+            ("une méthode qui n'est pas un littéral",
+             "def _telecharger(c, m):\n    c.request(m, '/x')\n"),
+            ("un corps en argument positionnel",
+             "def _telecharger(c):\n    c.request('GET', '/x', b'octets')\n"),
+            ("un corps nommé",
+             "def _telecharger(c):\n    c.request('GET', '/x', body=b'octets')\n"),
+            ("une lecture de l'environnement",
+             "x = os.environ.get('HTTPS_PROXY')\n"),
+            ("getenv", "x = os.getenv('HTTPS_PROXY')\n"),
+            ("les proxys du système", "x = urllib.request.getproxies()\n"),
+            ("un import de urllib.request", "import urllib.request\n"),
+            ("un import de request depuis urllib", "from urllib import request\n"),
+            ("une connexion rangée sous un autre nom",
+             "ouvrir = http.client.HTTPSConnection\n"),
+        )
+        for nom, ajout in cas:
+            with self.subTest(nom):
+                self.assertTrue(acces_reseau_interdits(source + "\n" + ajout), nom)
+        # Témoin : ce que la production fait passe, urllib.parse y compris.
+        self.assertEqual(acces_reseau_interdits(
+            source + "\nimport urllib.parse\nfrom urllib.parse import urljoin\n"), [])
+
+    def test_ctypes_ne_sert_qu_a_lire_l_horloge_du_systeme(self):
+        utilisations = noeuds_nommes(ast.parse(lire_source()), "ctypes")
+        self.assertGreater(len(utilisations), 0)
+        for fonction in utilisations:
+            self.assertEqual(fonction, "depuis_demarrage_systeme")
+
+
+def noeuds_nommes(arbre, nom):
+    """Les fonctions englobantes de chaque emploi du nom `nom` (hors import)."""
+    trouves = []
+
+    def parcourir(noeud, englobante):
+        for enfant in ast.iter_child_nodes(noeud):
+            if isinstance(enfant, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                parcourir(enfant, enfant.name)
+                continue
+            if isinstance(enfant, ast.Name) and enfant.id == nom:
+                trouves.append(englobante)
+            parcourir(enfant, englobante)
+
+    parcourir(arbre, None)
+    return trouves
+
+
+FONCTIONS_RESEAU = ("HTTPSConnection", "HTTPConnection", "create_connection", "set_tunnel")
+ENVIRONNEMENT = ("environ", "getenv", "getproxies", "getproxies_environment")
+
+
+def acces_reseau_interdits(source):
+    """B15 : où le module parle au réseau, et ce qu'il y envoie. Liste de fautes.
+
+    HTTPSConnection, HTTPConnection, create_connection et set_tunnel n'apparaissent
+    que dans `_telecharger`, `sante_repond` et `port_ferme` (aucune référence rangée
+    sous un autre nom) ; hors de `_telecharger`, l'hôte est le littéral 127.0.0.1 ;
+    chaque `.request(` a un littéral GET pour premier argument et aucun corps ;
+    aucun accès à l'environnement ni aux réglages de proxy du système ; aucun import
+    de urllib.request (urllib.parse, qui n'ouvre rien, est admis)."""
+    fautes = []
+    arbre = ast.parse(source)
+    admises = ("_telecharger", "sante_repond", "port_ferme")
+
+    def visiter(noeud, englobante):
+        for enfant in ast.iter_child_nodes(noeud):
+            if isinstance(enfant, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                visiter(enfant, enfant.name)
+                continue
+            nom = enfant.attr if isinstance(enfant, ast.Attribute) else (
+                enfant.id if isinstance(enfant, ast.Name) else None)
+            if nom in FONCTIONS_RESEAU and englobante not in admises:
+                fautes.append("%s hors des fonctions prévues (ligne %d)" % (nom, enfant.lineno))
+            if nom in ENVIRONNEMENT:
+                fautes.append("%s (ligne %d)" % (nom, enfant.lineno))
+            if isinstance(enfant, ast.Call):
+                fonction = enfant.func
+                appelee = fonction.attr if isinstance(fonction, ast.Attribute) else getattr(
+                    fonction, "id", None)
+                if appelee in ("HTTPSConnection", "HTTPConnection") and englobante != "_telecharger":
+                    if not (enfant.args and isinstance(enfant.args[0], ast.Constant)
+                            and enfant.args[0].value == "127.0.0.1"):
+                        fautes.append("%s vers un hôte qui n'est pas 127.0.0.1 (ligne %d)"
+                                      % (appelee, enfant.lineno))
+                if appelee == "create_connection" and englobante != "_telecharger":
+                    cible = enfant.args[0] if enfant.args else None
+                    if not (isinstance(cible, ast.Tuple) and cible.elts
+                            and isinstance(cible.elts[0], ast.Constant)
+                            and cible.elts[0].value == "127.0.0.1"):
+                        fautes.append("create_connection vers un hôte qui n'est pas "
+                                      "127.0.0.1 (ligne %d)" % enfant.lineno)
+                if appelee == "request":
+                    if not (enfant.args and isinstance(enfant.args[0], ast.Constant)
+                            and enfant.args[0].value == "GET"):
+                        fautes.append("request dont le premier argument n'est pas le "
+                                      "littéral GET (ligne %d)" % enfant.lineno)
+                    if len(enfant.args) > 2 or any(
+                            mot.arg in ("body", "encode_chunked") for mot in enfant.keywords):
+                        fautes.append("request avec un corps (ligne %d)" % enfant.lineno)
+            if isinstance(enfant, ast.Import):
+                for alias in enfant.names:
+                    if alias.name == "urllib.request" or alias.name.startswith("urllib.request."):
+                        fautes.append("import de urllib.request (ligne %d)" % enfant.lineno)
+            if isinstance(enfant, ast.ImportFrom):
+                if enfant.module == "urllib.request" or (
+                        enfant.module == "urllib"
+                        and any(a.name == "request" for a in enfant.names)):
+                    fautes.append("import de urllib.request (ligne %d)" % enfant.lineno)
+            visiter(enfant, englobante)
+
+    visiter(arbre, None)
+    return fautes
 
 
 class ExtractionSansExtract(Installation):
@@ -1790,6 +1997,330 @@ class DossierReserve(Installation):
         with self.assertRaises(maj.Refus) as contexte:
             maj.preparer_dossier_prive(self.racine)
         self.assertEqual(contexte.exception.code, "DOSSIER_NON_PROTEGE")
+
+
+class ProtegerAvantDeVider(Installation):
+    """O2 : un dossier réservé qui n'est pas de confiance est PROTÉGÉ, puis VIDÉ.
+
+    Dans l'ordre inverse, l'ancien propriétaire garde ses droits pendant le vidage
+    et peut remettre un `etat.json` d'étape « bascule » que SYSTEM « restaurerait »."""
+
+    def dossier(self):
+        return os.path.join(self.racine, "mise-a-jour")
+
+    def poser_un_dossier_ouvert(self):
+        os.mkdir(self.dossier())
+        os.chmod(self.dossier(), 0o777)
+        with open(os.path.join(self.dossier(), "etat.json"), "w") as f:
+            json.dump({"format": 1, "etape": "bascule"}, f)
+
+    @unittest.skipIf(os.name == "nt", "droits POSIX (0o777) ; Windows : test_maj_windows")
+    def test_l_ordre_est_protection_puis_vidage_puis_relecture(self):
+        self.poser_un_dossier_ouvert()
+        evenements = []
+        reel_protection, reel_vidage = maj._proteger_posix, maj.vider_contenu
+        reelle_confiance = serveur.dossier_reserve_de_confiance
+
+        def proteger(dossier):
+            evenements.append("proteger")
+            return reel_protection(dossier)
+
+        def vider(dossier):
+            evenements.append("vider")
+            return reel_vidage(dossier)
+
+        def confiance(dossier):
+            evenements.append("confiance")
+            return reelle_confiance(dossier)
+
+        self.patch(maj, "_proteger_posix", proteger)
+        self.patch(maj, "vider_contenu", vider)
+        self.patch(serveur, "dossier_reserve_de_confiance", confiance)
+
+        maj.preparer_dossier_prive(self.racine)
+
+        self.assertEqual(evenements, ["confiance", "proteger", "vider", "confiance"])
+        self.assertEqual(os.listdir(self.dossier()), [])
+        self.assertTrue(reelle_confiance(self.dossier()))
+
+    @unittest.skipIf(os.name == "nt", "droits POSIX (0o777) ; Windows : test_maj_windows")
+    def test_un_contenu_qui_ne_se_vide_pas_est_un_echec_ferme_et_rien_n_est_lu(self):
+        self.poser_un_dossier_ouvert()
+
+        def vider(dossier):
+            raise OSError(13, "sous-dossier aux droits propres")
+
+        self.patch(maj, "vider_contenu", vider)
+        lectures = []
+        reel_borne, reel_json = maj.lire_borne, maj.lire_json
+        self.patch(maj, "lire_borne",
+                   lambda *a, **k: (lectures.append(a[0]), reel_borne(*a, **k))[1])
+        self.patch(maj, "lire_json",
+                   lambda *a, **k: (lectures.append(a[0]), reel_json(*a, **k))[1])
+        archive = self.trio()
+        lectures.clear()
+
+        code = self.appliquer(archive)
+
+        self.assertEqual(code, 1)
+        self.assertIn("MAJ_REFUSEE code=DOSSIER_NON_PROTEGE", self.technique())
+        dans_le_dossier = [c for c in lectures if os.fspath(c).startswith(self.dossier())]
+        self.assertEqual(dans_le_dossier, [], "un fichier d'un dossier non protégé a été lu")
+        self.assertEqual(self.demandes, [])
+
+    @unittest.skipIf(os.name == "nt", "droits POSIX (0o777) ; Windows : test_maj_windows")
+    def test_le_vidage_ne_suit_aucun_lien_et_conserve_ce_qui_est_dehors(self):
+        dehors = tempfile.mkdtemp(prefix="bilan-maj-dehors-")
+        self.addCleanup(shutil.rmtree, dehors, True)
+        with open(os.path.join(dehors, "intact.txt"), "w") as f:
+            f.write("ne doit jamais être effacé")
+        self.poser_un_dossier_ouvert()
+        try:
+            os.symlink(dehors, os.path.join(self.dossier(), "lien"), target_is_directory=True)
+        except (OSError, NotImplementedError):
+            self.skipTest("lien symbolique impossible sur ce poste")
+        maj.preparer_dossier_prive(self.racine)
+        self.assertEqual(os.listdir(self.dossier()), [])
+        self.assertEqual(os.listdir(dehors), ["intact.txt"])
+
+
+class ChampsDeLEtat(Installation):
+    """B20 : les champs de C5-T2b dans `etat.json`, validés comme les autres."""
+
+    def ecrire_brut(self, **champs):
+        os.makedirs(os.path.join(self.racine, "mise-a-jour"), exist_ok=True)
+        contenu = maj.etat_par_defaut()
+        contenu.update(champs)
+        with open(os.path.join(self.racine, "mise-a-jour", "etat.json"), "w") as f:
+            json.dump(contenu, f)
+
+    def ecrire_sans(self, *cles):
+        """Un état tel que C5-T2a l'écrivait : sans les champs de C5-T2b."""
+        contenu = maj.etat_par_defaut()
+        for cle in cles:
+            del contenu[cle]
+        os.makedirs(os.path.join(self.racine, "mise-a-jour"), exist_ok=True)
+        with open(os.path.join(self.racine, "mise-a-jour", "etat.json"), "w") as f:
+            json.dump(contenu, f)
+
+    def test_un_etat_de_t2a_se_lit_avec_les_valeurs_par_defaut(self):
+        self.ecrire_sans("controle_le", "attente", "arret_en_cours", "lignes")
+        etat = maj.lire_etat(self.racine)
+        self.assertEqual((etat["controle_le"], etat["attente"], etat["arret_en_cours"],
+                          etat["lignes"]), (None, None, False, {}))
+
+    def test_un_etat_de_t2b_se_relit_par_le_lecteur_du_serveur(self):
+        # 14.15 : le serveur (et le client de T2a) ne copie que les clés qu'il connaît.
+        self.ecrire_brut(controle_le="2026-11-13T21:05:00", attente="1.2.0",
+                         arret_en_cours=True, lignes={"MAJ_CONTROLE:a-jour": "2026-11-13"})
+        etat = serveur.lire_etat_maj(os.path.join(self.racine, "mise-a-jour"))
+        self.assertEqual(etat["maj_etape"], "repos")
+        self.assertEqual(etat["maj_controle_le"], "2026-11-13T21:05:00")
+
+    def test_chaque_champ_hors_forme_rend_etat_illisible(self):
+        mauvais = (
+            ("controle_le", "hier"), ("controle_le", 5),
+            ("controle_le", "2026-11-13T21:05:00Z"), ("controle_le", "2026-11-13T21:05:00\n"),
+            ("controle_le", "/home/Dupont"),
+            ("attente", "1.2"), ("attente", 5), ("attente", "01.2.0"), ("attente", "v1.2.0"),
+            ("attente", "/srv/1.2.0"),
+            ("arret_en_cours", "true"), ("arret_en_cours", 1), ("arret_en_cours", 0),
+            ("arret_en_cours", None), ("arret_en_cours", []),
+            ("lignes", []), ("lignes", "x"), ("lignes", None),
+            ("lignes", {"MAJ_INCONNUE:x": "2026-11-13"}),
+            ("lignes", {"MAJ_CONTROLE:a-jour": "hier"}),
+            ("lignes", {"MAJ_CONTROLE:a-jour": 5}),
+            ("lignes", {"MAJ_CONTROLE:a-jour": "2026-11-13\n"}),
+            # Une clé de plus que le vocabulaire fermé : le fichier resterait borné
+            # par construction, pas par bonne volonté.
+            ("lignes", dict([(cle, "2026-11-13") for cle in maj.LIGNES_LIMITEES]
+                            + [("MAJ_REFUSEE:CODE_EN_PLUS", "2026-11-13")])),
+        )
+        for cle, valeur in mauvais:
+            with self.subTest(cle=cle, valeur=valeur):
+                self.ecrire_brut(**{cle: valeur})
+                with self.assertRaises(maj.Refus) as contexte:
+                    maj.lire_etat(self.racine)
+                self.assertEqual(contexte.exception.code, "ETAT_ILLISIBLE")
+
+    def test_un_etat_au_complet_reste_borne(self):
+        lignes = dict((cle, "2026-11-13") for cle in maj.LIGNES_LIMITEES)
+        self.ecrire_brut(controle_le="2026-11-13T21:05:00", attente="999.999.999",
+                         arret_en_cours=True, lignes=lignes,
+                         ecartees=["999.999.%d" % i for i in range(maj.VERSIONS_ECARTEES_MAX)])
+        self.assertEqual(len(maj.lire_etat(self.racine)["lignes"]), len(maj.LIGNES_LIMITEES))
+        taille = os.path.getsize(os.path.join(self.racine, "mise-a-jour", "etat.json"))
+        self.assertLess(taille, maj.TAILLE_MAX_ETAT // 2)
+
+    def test_une_ecriture_de_controle_ne_change_pas_le(self):
+        maj.preparer_dossier_prive(self.racine)
+        maj.ecrire_etat(self.racine, resultat="appliquee", version="1.2.0")
+        avant = maj.lire_etat(self.racine)["le"]
+        self.assertIsNotNone(avant)
+        reel = maj.maintenant_iso
+        self.patch(maj, "maintenant_iso", lambda: "2031-01-01T00:00:00")
+        maj.ecrire_etat(self.racine, horodater=False, controle_le="2026-11-13T21:05:00",
+                        attente="1.3.0")
+        etat = maj.lire_etat(self.racine)
+        self.assertEqual(etat["le"], avant)
+        self.assertEqual((etat["controle_le"], etat["attente"]), ("2026-11-13T21:05:00", "1.3.0"))
+        # Et un RÉSULTAT, lui, l'horodate : `le` est la date du dernier résultat.
+        maj.ecrire_etat(self.racine, resultat="reportee", code="HORS_PLAGE")
+        self.assertEqual(maj.lire_etat(self.racine)["le"], "2031-01-01T00:00:00")
+        self.assertNotEqual(reel(), "2031-01-01T00:00:00")
+
+    def test_les_champs_reseau_sont_dans_les_champs_par_defaut(self):
+        par_defaut = maj.etat_par_defaut()
+        for cle in ("controle_le", "attente", "arret_en_cours", "lignes"):
+            self.assertIn(cle, par_defaut)
+        self.assertIs(par_defaut["arret_en_cours"], False)
+        # Un dictionnaire neuf à chaque appel : jamais partagé entre deux états.
+        self.assertIsNot(maj.etat_par_defaut()["lignes"], par_defaut["lignes"])
+
+
+class ArretEnCours(Installation):
+    """R1 et O1 côté unité : le drapeau `arret_en_cours` pose, retombe, et commande
+    la relance. Le bout en bout (serveur réel, `maj.py` tué) est dans
+    tests/test_maj_bout_en_bout.py."""
+
+    def setUp(self):
+        Installation.setUp(self)
+        with maj.contexte_serveur(self.racine):
+            maj.preparer_dossier_prive(self.racine)
+        self.dossier = os.path.join(self.racine, "mise-a-jour")
+        self.patch(maj, "port_ferme", lambda port: True)
+
+    def drapeau(self):
+        return maj.lire_etat(self.racine)["arret_en_cours"]
+
+    def test_la_demande_pose_le_drapeau_avant_d_ecrire_le_fichier(self):
+        vus = []
+        reel = maj.ecrire_json
+
+        def espion(chemin, objet):
+            if os.path.basename(chemin) == serveur.DEMANDE_ARRET:
+                vus.append(self.drapeau())
+            return reel(chemin, objet)
+
+        self.patch(maj, "ecrire_json", espion)
+        with self.assertRaises(maj.Refus):
+            DEMANDER_ARRET_REEL(self.racine, 1, 0, False, delai_reponse=0.2, delai_arret=0.2)
+        self.assertEqual(vus, [True])
+
+    def test_pas_de_reponse_laisse_le_drapeau_pose(self):
+        with self.assertRaises(maj.Refus) as contexte:
+            DEMANDER_ARRET_REEL(self.racine, 1, 0, False, delai_reponse=0.2, delai_arret=0.2)
+        self.assertEqual(contexte.exception.code, "ARRET_SANS_REPONSE")
+        self.assertTrue(self.drapeau())
+        self.assertIsNone(maj.lire_etat(self.racine)["le"], "le drapeau n'est pas un résultat")
+
+    def test_un_refus_lu_fait_retomber_le_drapeau(self):
+        def refuser():
+            jeton = None
+            chemin = os.path.join(self.dossier, serveur.DEMANDE_ARRET)
+            limite = time.monotonic() + 5
+            while jeton is None and time.monotonic() < limite:
+                try:
+                    with open(chemin) as f:
+                        jeton = json.load(f)["jeton"]
+                except (OSError, ValueError, KeyError):
+                    time.sleep(0.01)
+            serveur.ecrire_atomiquement(
+                os.path.join(self.dossier, serveur.REPONSE_ARRET),
+                json.dumps({"jeton": jeton, "verdict": "refuse", "motif": "activite"}).encode())
+
+        fil = threading.Thread(target=refuser)
+        fil.start()
+        self.addCleanup(fil.join, 10)
+        with self.assertRaises(maj.Refus) as contexte:
+            DEMANDER_ARRET_REEL(self.racine, 1, 0, False, delai_reponse=5, delai_arret=1)
+        self.assertEqual(contexte.exception.code, "ARRET_REFUSE")
+        self.assertFalse(self.drapeau())
+
+    def test_reprendre_avec_le_drapeau_relance_le_serveur_et_note_l_interruption(self):
+        maj.ecrire_etat(self.racine, horodater=False, arret_en_cours=True)
+        self.patch(maj, "attendre_sante", lambda *a, **k: True)
+        with maj.contexte_serveur(self.racine):
+            self.assertTrue(maj.reprendre(self.racine, self.pilote, 1, 1))
+        self.assertIn("demarrer", self.pilote.appels)
+        self.assertFalse(self.drapeau())
+        self.assertIn("MAJ_REPORTEE code=INTERROMPUE", self.technique())
+        etat = maj.lire_etat(self.racine)
+        self.assertEqual((etat["etape"], etat["resultat"], etat["code"]),
+                         ("repos", "reportee", "INTERROMPUE"))
+
+    def test_reprendre_avec_une_sante_muette_garde_le_drapeau(self):
+        maj.ecrire_etat(self.racine, horodater=False, arret_en_cours=True)
+        self.patch(maj, "attendre_sante", lambda *a, **k: False)
+        with maj.contexte_serveur(self.racine):
+            self.assertTrue(maj.reprendre(self.racine, self.pilote, 1, 1))
+        self.assertTrue(self.drapeau(), "le passage suivant doit réessayer")
+        self.assertIn("MAJ_REPORTEE code=INTERROMPUE", self.technique())
+
+    def test_reprendre_sans_le_drapeau_ne_relance_rien(self):
+        with maj.contexte_serveur(self.racine):
+            self.assertTrue(maj.reprendre(self.racine, self.pilote, 1, 1))
+        self.assertEqual(self.pilote.appels, [])
+        self.assertNotIn("INTERROMPUE", self.technique())
+
+    def test_reprendre_n_ecrit_jamais_un_fichier_du_cabinet(self):
+        maj.ecrire_etat(self.racine, horodater=False, arret_en_cours=True)
+        self.patch(maj, "attendre_sante", lambda *a, **k: True)
+        avant = self.arbre()
+        with maj.contexte_serveur(self.racine):
+            maj.reprendre(self.racine, self.pilote, 1, 1)
+        self.assertEqual(self.arbre(), avant)
+
+    def test_le_filet_joue_sur_le_drapeau_meme_sans_acceptation_lue(self):
+        # O1 : les deux réponses (accepte, arrete) se sont perdues. `acceptation` dit
+        # False, mais une demande est partie sans refus : le serveur a peut-être
+        # quitté en code 0, que sa tâche ne relance pas.
+        self.patch(maj, "attendre_sante", lambda *a, **k: True)
+
+        def demander_arret(racine, port, calme, demarrage, delai_reponse=0, delai_arret=0,
+                           acceptation=None):
+            maj.ecrire_etat(racine, horodater=False, arret_en_cours=True)
+            raise maj.Refus("ARRET_SANS_REPONSE", "aucune réponse")
+
+        self.patch(maj, "demander_arret", demander_arret)
+        archive = self.trio()
+        self.assertEqual(self.appliquer(archive), 3)
+        self.assertIn("demarrer", self.pilote.appels)
+        self.assertFalse(self.drapeau(), "/sante répond : plus rien n'est en suspens")
+        with open(os.path.join(self.racine, "journal.log"), encoding="utf-8") as f:
+            self.assertIn("relance du serveur après abandon", f.read())
+
+    def test_un_refus_ne_relance_rien(self):
+        # Le serveur a dit « refuse » : il tourne, rien à relancer.
+        def demander_arret(racine, port, calme, demarrage, delai_reponse=0, delai_arret=0,
+                           acceptation=None):
+            maj.ecrire_etat(racine, horodater=False, arret_en_cours=True)
+            maj.ecrire_etat(racine, horodater=False, arret_en_cours=False)
+            raise maj.Refus("ARRET_REFUSE", "motif : activite")
+
+        self.patch(maj, "demander_arret", demander_arret)
+        self.patch(maj, "attendre_sante", lambda *a, **k: True)
+        self.assertEqual(self.appliquer(self.trio()), 3)
+        self.assertEqual(self.pilote.appels, ["existe"])
+
+    def test_la_bascule_et_le_retour_font_retomber_le_drapeau(self):
+        for etape in ("bascule", "retour"):
+            with self.subTest(etape=etape):
+                maj.ecrire_etat(self.racine, horodater=False, arret_en_cours=True)
+                if etape == "bascule":
+                    maj.ecrire_etat(self.racine, etape="bascule", arret_en_cours=False)
+                else:
+                    # Un retour réussi : le serveur est de nouveau là.
+                    self.patch(maj, "_restaurer", lambda *a, **k: None)
+                    with maj.contexte_serveur(self.racine):
+                        self.assertTrue(maj.revenir_a_la_sauvegarde(
+                            self.racine, self.pilote, 1, "INTERROMPUE", 1))
+                self.assertFalse(self.drapeau())
+
+    def test_un_etat_illisible_compte_pour_une_demande_peut_etre_acceptee(self):
+        with open(os.path.join(self.dossier, "etat.json"), "w") as f:
+            f.write("pas du json")
+        self.assertTrue(maj._arret_peut_etre_accepte(self.racine))
 
 
 class EtatSousLecture(Installation):

@@ -16,6 +16,7 @@ Exigent `cryptography` pour les certificats du bac à sable : sautés sous le Py
 
 import base64
 import contextlib
+import datetime
 import http.client
 import io
 import json
@@ -37,6 +38,7 @@ sys.path.insert(0, os.path.join(PROJET, "serveur"))
 sys.path.insert(0, DOSSIER_TESTS)
 sys.path.insert(0, os.path.join(DOSSIER_TESTS, "outils"))
 
+import faux_hebergement  # noqa: E402
 import maj  # noqa: E402
 import paquet_essai as pe  # noqa: E402
 import paquet_signe  # noqa: E402
@@ -53,6 +55,9 @@ PDF = b"%PDF-1.4\n1 0 obj\ncontenu du bilan fictif\n%%EOF\n"
 # Les textes de technique.log de chaque bac, rassemblés avant sa suppression pour
 # le contrôle d'ensemble de tearDownModule (A12).
 TRACES = []
+# Les deux journaux de chaque bac, pour le contrôle B21 : le chemin configuré de
+# l'adresse de publication (« /essai/ ») n'y figure jamais ; seul l'hôte peut y être.
+JOURNAUX = []
 
 MOTIF_MAJ_LIGNE = re.compile(r"(?P<champ>[a-z]+)=(?P<valeur>\S+)")
 CHAMPS_ADMIS = {"code", "cause", "resultat", "de", "vers", "cles"}
@@ -92,6 +97,10 @@ def tearDownModule():
     problemes = []
     for racine, texte in TRACES:
         problemes.extend(problemes_de_traces(texte, racine))
+    for racine, texte in JOURNAUX:
+        if "/essai/" in texte or "stable.zip" in texte:
+            problemes.append("le chemin de l'adresse de publication figure dans un journal du bac %s"
+                             % os.path.basename(racine))
     if problemes:
         raise AssertionError("traces MAJ_* fautives :\n" + "\n".join(problemes[:10]))
 
@@ -152,6 +161,12 @@ class BacDeMiseAJour(unittest.TestCase):
 
     def noter_les_traces(self):
         TRACES.append((self.racine, self.technique()))
+        for nom in ("journal.log", "technique.log"):
+            try:
+                with open(os.path.join(self.racine, nom), encoding="utf-8", errors="replace") as f:
+                    JOURNAUX.append((self.racine, f.read()))
+            except OSError:
+                pass
 
     def technique(self):
         try:
@@ -1011,6 +1026,340 @@ class DepotCommenceApresLaDecision(BacDeMiseAJour):
             self.assertEqual(f.read(), corps)
         self.assertEqual(self.pilote.attendre_la_sortie(20), 0)
         self.assertEqual(len(self.lignes("ARRET motif=mise-a-jour")), 1)
+
+
+# ==============================================================================
+# C5-T2b — `verifier` : le client va chercher lui-même, et applique à son heure
+# ==============================================================================
+
+HEURE_DU_JOUR = datetime.datetime(2026, 11, 16, 12, 0, 0)
+HEURE_DE_NUIT = datetime.datetime(2026, 11, 16, 23, 0, 0)
+DELAIS_ESSAI = {"sante": DELAI_SANTE, "auto_controle": DELAI_AUTO_CONTROLE, "reponse": 20,
+                "arret": 30, "operation": 10, "manifeste": 20, "archive": 60}
+ENTETES_DE_REQUETE = ["Accept-Encoding", "Connection", "Host", "User-Agent"]
+CHEMIN_PUBLIE = "/essai/stable.zip"
+
+
+def sans_la_configuration(instantane):
+    """L'arbre du bac hors config.json : un test qui reconfigure le client entre deux
+    instantanés change ce fichier, et lui seul."""
+    return dict((k, v) for k, v in instantane.items() if k != "config.json")
+
+
+class BacVerifier(BacDeMiseAJour):
+    """Le bac complet, plus un faux hébergement HTTPS qui sert les trios fabriqués."""
+
+    def setUp(self):
+        BacDeMiseAJour.setUp(self)
+        self.heb = faux_hebergement.FauxHebergement()
+        self.addCleanup(self.heb.arreter)
+        self.contexte = faux_hebergement.contexte_client()
+        self.configurer()
+
+    def configurer(self, **bloc):
+        chemin = os.path.join(self.racine, "config.json")
+        with open(chemin) as f:
+            config = json.load(f)
+        reglage = {"client": "cabinet-01", "adresse": self.heb.adresse(CHEMIN_PUBLIE),
+                   "plage": "00:00-23:59", "au_demarrage": False}
+        reglage.update(bloc)
+        config["mise_a_jour"] = dict((k, v) for k, v in reglage.items() if v is not None)
+        with open(chemin, "w") as f:
+            json.dump(config, f)
+
+    def verifier(self, maintenant=HEURE_DU_JOUR, depuis_demarrage=100000, pilote=None,
+                 delais=None, contexte=None):
+        options = dict(DELAIS_ESSAI)
+        options.update(delais or {})
+        sortie = io.StringIO()
+        with contextlib.redirect_stdout(sortie), contextlib.redirect_stderr(io.StringIO()):
+            return maj.verifier(self.racine, pilote or self.pilote, maintenant=maintenant,
+                                depuis_demarrage=lambda: depuis_demarrage,
+                                contexte=contexte or self.contexte, delais=options)
+
+    def publier(self, version, modifs=None, **kw):
+        archive = self.trio(version, modifs, **kw)
+        self.heb.publier(archive)
+        return archive
+
+
+class Montee(BacVerifier):
+    """B1 : une montée complète par `verifier`, trois requêtes, rien de plus."""
+
+    def test_une_montee_complete(self):
+        self.publier("1.2.0", {"formulaire/style.css": self.base["formulaire/style.css"]
+                               + b"\n/* verifier */\n"})
+        avant = pe.instantane(self.racine)
+        privees = dict((nom, avant[nom]) for nom in avant if nom in (
+            "config.json", "certificat.pem", "cle.pem", "autorite.crt", "autorite-cle.pem",
+            "formulaire/images/cabinet/logo.png", "bilans/Bilan_fictif.pdf",
+            "fichier-inconnu.txt"))
+        self.assertEqual(len(privees), 8)
+        journaux = pe.contenu_des_journaux(self.racine)
+
+        code = self.verifier()
+
+        self.assertEqual(code, 0)
+        self.assertEqual(self.heb.chemins(), [
+            CHEMIN_PUBLIE + ".manifeste.json", CHEMIN_PUBLIE + ".manifeste.sig", CHEMIN_PUBLIE])
+        for requete in self.heb.requetes:
+            self.assertEqual(requete["methode"], "GET")
+            self.assertEqual(requete["longueur_du_corps"], 0)
+            self.assertEqual(sorted(n for n, _ in requete["entetes"]), ENTETES_DE_REQUETE)
+        self.assertEqual(maj.lire_version_installee(self.racine), "1.2.0")
+        self.assertTrue(maj.sante_repond(self.port))
+        apres = pe.instantane(self.racine)
+        for nom, empreinte in privees.items():
+            self.assertEqual(apres[nom], empreinte, nom)
+        for nom_journal, octets in journaux.items():
+            self.assertTrue(pe.contenu_des_journaux(self.racine)[nom_journal].startswith(octets))
+        self.assertIn("MAJ_CONTROLE resultat=disponible de=1.1.0 vers=1.2.0", self.technique())
+        self.assertIn("MAJ_APPLIQUEE de=1.1.0 vers=1.2.0", self.technique())
+        etat = self.etat_json()
+        self.assertEqual((etat["etape"], etat["resultat"], etat["attente"], etat["arret_en_cours"]),
+                         ("repos", "appliquee", None, False))
+        self.assertEqual(os.listdir(os.path.join(self.racine, "mise-a-jour", "reception")), [])
+        # L'adresse n'est dans aucun journal, hôte compris dans technique.log.
+        for nom_journal, octets in pe.contenu_des_journaux(self.racine).items():
+            self.assertNotIn(b"/essai", octets, nom_journal)
+            self.assertNotIn(b"stable.zip", octets, nom_journal)
+        self.assertNotIn("127.0.0.1", self.technique())
+
+    def test_etat_http_porte_la_date_du_dernier_controle(self):
+        self.publier("1.1.0")
+        self.assertEqual(self.verifier(), 0)
+        etat = self.etat_http()
+        self.assertEqual(etat["maj_controle_le"], "2026-11-16T12:00:00")
+        self.assertEqual(list(etat), list(serveur.CLES_ETAT))
+        statut, corps = self.requete("/etat", entetes={"Accept": "text/html"})
+        self.assertEqual(statut, 200)
+        self.assertIn("dernier contrôle le 2026-11-16 12:00:00", corps.decode("utf-8"))
+        for nom, texte in (("json", json.dumps(etat)), ("html", corps.decode("utf-8"))):
+            self.assertNotIn("/essai", texte, nom)
+            self.assertNotIn("stable.zip", texte, nom)
+
+    def test_une_version_deja_installee_ne_touche_a_rien(self):
+        self.publier("1.1.0")
+        avant = pe.instantane(self.racine)
+        self.assertEqual(self.verifier(), 0)
+        self.assertEqual(pe.instantane(self.racine), avant)
+        self.assertEqual(self.pilote.appels.count("demarrer"), 1)     # celui de setUp
+
+    @unittest.skipIf(os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0),
+                     "droits POSIX, hors root")
+    def test_le_client_n_ouvre_jamais_le_dossier_des_bilans(self):
+        # B16 : aucune donnée de santé n'est lue, comptée ni listée.
+        self.publier("1.2.0")
+        dossier = os.path.join(self.racine, "bilans")
+        os.chmod(dossier, 0o000)
+        self.addCleanup(os.chmod, dossier, 0o755)
+        code = self.verifier()
+        os.chmod(dossier, 0o755)
+        self.assertEqual(code, 0)
+        self.assertEqual(maj.lire_version_installee(self.racine), "1.2.0")
+        self.assertTrue(maj.sante_repond(self.port))
+
+
+class Eligibilite(BacVerifier):
+    """B8 : hors plage, au démarrage, après une requête. Le serveur reste juge."""
+
+    def test_hors_plage_sans_demarrage_rien_n_est_demande(self):
+        self.configurer(plage="20:00-07:00", au_demarrage=False)
+        self.publier("1.2.0")
+        avant = pe.instantane(self.racine)
+        self.assertEqual(self.verifier(HEURE_DU_JOUR), 3)
+        self.assertIn("MAJ_REPORTEE code=HORS_PLAGE", self.technique())
+        self.assertFalse(os.path.lexists(os.path.join(self.racine, "mise-a-jour", "arret.demande")))
+        self.assertFalse(os.path.lexists(os.path.join(self.racine, "mise-a-jour", "prepare")))
+        self.assertEqual(pe.instantane(self.racine), avant)
+        etat = self.etat_json()
+        self.assertEqual((etat["etape"], etat["resultat"], etat["code"]),
+                         ("repos", "reportee", "HORS_PLAGE"))
+        self.assertTrue(maj.sante_repond(self.port))
+
+    def test_demarrage_depasse_c_est_le_meme_resultat(self):
+        self.configurer(plage="20:00-07:00", au_demarrage=True)
+        self.publier("1.2.0")
+        self.assertEqual(self.verifier(HEURE_DU_JOUR, depuis_demarrage=901), 3)
+        self.assertIn("MAJ_REPORTEE code=HORS_PLAGE", self.technique())
+        self.assertFalse(os.path.lexists(os.path.join(self.racine, "mise-a-jour", "prepare")))
+
+    def test_un_demarrage_recent_sans_requete_est_applique(self):
+        self.configurer(plage="20:00-07:00", au_demarrage=True)
+        self.publier("1.2.0")
+        self.assertEqual(self.verifier(HEURE_DU_JOUR, depuis_demarrage=120), 0)
+        self.assertIn("MAJ_APPLIQUEE de=1.1.0 vers=1.2.0", self.technique())
+        self.assertEqual(maj.lire_version_installee(self.racine), "1.2.0")
+        self.assertTrue(maj.sante_repond(self.port))
+
+    def test_apres_une_requete_le_serveur_refuse_le_demarrage(self):
+        self.configurer(plage="20:00-07:00", au_demarrage=True)
+        self.publier("1.2.0")
+        statut, _ = self.requete("/cabinet")
+        self.assertIn(statut, (200, 404))
+        avant = pe.instantane(self.racine)
+        self.assertEqual(self.verifier(HEURE_DU_JOUR, depuis_demarrage=120), 3)
+        self.assertIn("MAJ_REPORTEE code=ARRET_REFUSE", self.technique())
+        with open(os.path.join(self.racine, "mise-a-jour", "arret.reponse")) as f:
+            reponse = json.load(f)
+        self.assertEqual((reponse["verdict"], reponse["motif"]), ("refuse", "activite"))
+        self.assertEqual(pe.instantane(self.racine), avant)
+        self.assertTrue(maj.sante_repond(self.port))
+        self.assertFalse(self.etat_json()["arret_en_cours"])
+        # Rien n'est perdu : la version attend, sans nouveau téléchargement.
+        self.assertEqual(self.etat_json()["attente"], "1.2.0")
+        trois = len(self.heb.requetes)
+        plus_tard = HEURE_DU_JOUR + datetime.timedelta(minutes=30)
+        self.assertEqual(self.verifier(plus_tard, depuis_demarrage=100000), 3)
+        self.assertEqual(len(self.heb.requetes), trois)
+
+    def test_dans_la_plage_le_calme_est_exige(self):
+        self.configurer(plage="20:00-07:00", calme_minutes=30)
+        self.publier("1.2.0")
+        self.requete("/cabinet")
+        self.assertEqual(self.verifier(HEURE_DE_NUIT), 3)
+        with open(os.path.join(self.racine, "mise-a-jour", "arret.reponse")) as f:
+            reponse = json.load(f)
+        self.assertEqual((reponse["verdict"], reponse["motif"]), ("refuse", "activite"))
+
+
+class DesactiveEtCoupure(BacVerifier):
+    """B11 : même désactivé, `verifier` défait ce qu'une coupure a laissé."""
+
+    def test_un_etat_a_la_bascule_est_defait_meme_sans_adresse(self):
+        archive = self.trio("1.2.0", {f: self.base[f] + b"\n/* essai */\n" for f in (
+            "formulaire/style.css", "formulaire/script.js", "formulaire/index.html")})
+        avant = pe.instantane(self.racine)
+        enfant = subprocess.run(
+            [sys.executable, "-B", "-c", SCRIPT_ENFANT, os.path.join(PROJET, "serveur"),
+             os.path.join(DOSSIER_TESTS, "outils"), self.racine, archive, self.sortie,
+             "3", "bascule", "appliquer"],
+            stdin=subprocess.DEVNULL, capture_output=True, timeout=180)
+        self.assertEqual(enfant.returncode, 137, enfant.stderr.decode("utf-8", "replace"))
+        self.assertEqual(self.etat_json()["etape"], "bascule")
+        self.assertNotEqual(pe.instantane(self.racine), avant)
+        self.configurer(adresse="")
+
+        code = self.verifier()
+
+        self.assertEqual(code, 3)
+        self.assertIn("MAJ_RETOUR cause=INTERROMPUE resultat=ok de=1.1.0 vers=1.2.0",
+                      self.technique())
+        self.assertIn("MAJ_REPORTEE code=DESACTIVEE", self.technique())
+        self.assertEqual(sans_la_configuration(pe.instantane(self.racine)),
+                         sans_la_configuration(avant))
+        self.assertTrue(maj.sante_repond(self.port))
+        self.assertEqual(self.heb.requetes, [])
+        self.assertEqual(self.etat_json()["ecartees"], [])
+
+
+SCRIPT_ENFANT_VERIFIER = r'''
+import datetime, os, sys
+serveur_dir, outils_dir, racine, sortie, autorite = sys.argv[1:6]
+sys.path.insert(0, serveur_dir)
+sys.path.insert(0, outils_dir)
+import maj, pilote_essai, faux_hebergement
+pilote = pilote_essai.PiloteProcessus(racine, sortie)
+# Juste après la lecture de « accepte » (et de « arrete ») : le serveur a quitté en
+# code 0, la sauvegarde courante n'est pas encore substituée, aucun fichier du
+# cabinet n'a été touché. C'est là que ce processus meurt.
+maj.adopter_sauvegarde = lambda racine_: os._exit(137)
+code = maj.verifier(
+    racine, pilote, maintenant=datetime.datetime(2026, 11, 16, 12, 0, 0),
+    depuis_demarrage=lambda: 100000, contexte=faux_hebergement.contexte_client(autorite),
+    delais={"sante": 8, "auto_controle": 40, "reponse": 20, "arret": 30,
+            "operation": 10, "manifeste": 20, "archive": 60})
+sys.exit(code)
+'''
+
+
+class PiloteQuiNeRelancePas(pilote_essai.PiloteProcessus):
+    """Un pilote dont /Run n'a aucun effet : la santé reste muette."""
+
+    def demarrer(self):
+        self.appels.append("demarrer")
+
+
+class MortApresAcceptation(BacVerifier):
+    """R1 : `maj.py` meurt entre l'acceptation de l'arrêt et la bascule."""
+
+    def mourir_apres_acceptation(self):
+        self.publier("1.2.0")
+        enfant = subprocess.run(
+            [sys.executable, "-B", "-c", SCRIPT_ENFANT_VERIFIER, os.path.join(PROJET, "serveur"),
+             os.path.join(DOSSIER_TESTS, "outils"), self.racine, self.sortie,
+             os.path.join(self.racine, "autorite.crt")],
+            stdin=subprocess.DEVNULL, capture_output=True, timeout=180)
+        self.assertEqual(enfant.returncode, 137, enfant.stderr.decode("utf-8", "replace"))
+        # Le serveur a accepté et quitté : plus personne n'écoute.
+        limite = time.monotonic() + 15
+        while not maj.port_ferme(self.port) and time.monotonic() < limite:
+            time.sleep(0.1)
+        self.assertTrue(maj.port_ferme(self.port), "le serveur n'a pas quitté")
+        etat = self.etat_json()
+        self.assertEqual((etat["etape"], etat["arret_en_cours"], etat["attente"]),
+                         ("preparee", True, "1.2.0"))
+
+    def test_le_passage_suivant_relance_le_serveur_sans_toucher_un_fichier(self):
+        avant = pe.instantane(self.racine)
+        self.mourir_apres_acceptation()
+        self.assertEqual(pe.instantane(self.racine), avant)
+        # Hors plage et sans démarrage : on ne regarde QUE la reprise.
+        self.configurer(plage="20:00-07:00", au_demarrage=False)
+
+        code = self.verifier(HEURE_DU_JOUR)
+
+        self.assertEqual(code, 3)
+        self.assertTrue(maj.sante_repond(self.port), "le serveur n'a pas été relancé")
+        self.assertIn("MAJ_REPORTEE code=INTERROMPUE", self.technique())
+        self.assertFalse(self.etat_json()["arret_en_cours"])
+        self.assertEqual(sans_la_configuration(pe.instantane(self.racine)),
+                         sans_la_configuration(avant))
+
+    def test_une_sante_muette_garde_le_drapeau_jusqu_a_ce_qu_un_passage_relance(self):
+        self.mourir_apres_acceptation()
+        self.configurer(plage="20:00-07:00", au_demarrage=False)
+        muet = PiloteQuiNeRelancePas(self.racine, self.sortie)
+
+        self.verifier(HEURE_DU_JOUR, pilote=muet, delais={"sante": 2})
+
+        self.assertTrue(self.etat_json()["arret_en_cours"], "le passage suivant doit réessayer")
+        self.assertIn("MAJ_REPORTEE code=INTERROMPUE", self.technique())
+        self.assertFalse(maj.sante_repond(self.port))
+        self.verifier(HEURE_DU_JOUR)
+        self.assertTrue(maj.sante_repond(self.port))
+        self.assertFalse(self.etat_json()["arret_en_cours"])
+
+    def test_un_passage_suivant_dans_la_plage_applique_la_version(self):
+        self.mourir_apres_acceptation()
+        self.assertEqual(self.verifier(HEURE_DU_JOUR), 0)
+        self.assertIn("MAJ_REPORTEE code=INTERROMPUE", self.technique())
+        self.assertIn("MAJ_APPLIQUEE de=1.1.0 vers=1.2.0", self.technique())
+        self.assertEqual(maj.lire_version_installee(self.racine), "1.2.0")
+
+
+class ReponsesPerdues(BacVerifier):
+    """O1 : le serveur accepte, mais ni « accepte » ni « arrete » n'arrivent."""
+
+    def avant_demarrage(self):
+        # Le serveur du bac n'écrit plus AUCUNE réponse d'arrêt : il accepte et
+        # quitte en code 0, que sa tâche ne relance pas.
+        self.modifier_serveur(
+            b"def ecrire_reponse_arret(dossier, jeton, verdict, motif):\n",
+            b"def ecrire_reponse_arret(dossier, jeton, verdict, motif):\n    return\n")
+
+    def test_le_serveur_est_relance_dans_le_meme_passage(self):
+        avant = pe.instantane(self.racine)
+        self.publier("1.2.0")
+        code = self.verifier(delais={"reponse": 3})
+        self.assertEqual(code, 3)
+        self.assertIn("MAJ_REPORTEE code=ARRET_SANS_REPONSE", self.technique())
+        self.assertTrue(maj.attendre_sante(self.port, 40), "le serveur n'a pas été relancé")
+        with open(os.path.join(self.racine, "journal.log"), encoding="utf-8") as f:
+            self.assertIn("relance du serveur après abandon", f.read())
+        self.assertFalse(self.etat_json()["arret_en_cours"])
+        self.assertEqual(pe.instantane(self.racine), avant)
+        self.assertEqual(self.etat_json()["attente"], "1.2.0")
 
 
 # ==============================================================================

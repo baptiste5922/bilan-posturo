@@ -896,7 +896,7 @@ class ServeurEnMarche(unittest.TestCase):
         statut, entetes, etat = self.etat()
         self.assertEqual(statut, 200)
         self.assertEqual(entetes["content-type"], "application/json; charset=utf-8")
-        self.assertEqual(len(serveur.CLES_ETAT), 14)
+        self.assertEqual(len(serveur.CLES_ETAT), 15)
         self.assertEqual(set(etat), set(serveur.CLES_ETAT))
         # Aucune clé de configuration n'y figure (« journal_technique » est
         # un nom partagé : ici, ce sont les lignes du journal, pas le réglage).

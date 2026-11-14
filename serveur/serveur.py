@@ -177,13 +177,15 @@ CLES_ETAT = (
     "certificat_expire_le", "certificat_empreinte", "certificat_adresse",
     "identite_cabinet",
     "maj_etape", "maj_resultat", "maj_code", "maj_le", "maj_version",
+    "maj_controle_le",
     "journal_technique",
 )
 # Les seuls champs dont la valeur est un horodatage : les tests anti-adresse
 # en font l'exception exprimable, car « 12:34:56 » ressemble à une adresse
 # IPv6 pour le motif laxiste.
 CHAMPS_ETAT_HORODATES = frozenset({
-    "demarre_le", "dernier_depot", "certificat_expire_le", "maj_le"})
+    "demarre_le", "dernier_depot", "certificat_expire_le", "maj_le",
+    "maj_controle_le"})
 if not CHAMPS_ETAT_HORODATES <= set(CLES_ETAT):
     # Levée explicite, jamais `assert` (voir EVENEMENT_ROTATION plus haut).
     raise AssertionError(
@@ -1627,12 +1629,12 @@ def _json_strict(octets):
 
 _ETAT_MAJ_ILLISIBLE = {
     "maj_etape": ETAPE_MAJ_ILLISIBLE, "maj_resultat": None, "maj_code": None,
-    "maj_le": None, "maj_version": None}
+    "maj_le": None, "maj_version": None, "maj_controle_le": None}
 _ETAT_MAJ_ABSENT = dict(_ETAT_MAJ_ILLISIBLE, maj_etape=ETAPE_MAJ_ABSENTE)
 
 
 def lire_etat_maj(dossier=None):
-    """Les cinq informations `maj_*` de /etat, lues dans `etat.json`.
+    """Les six informations `maj_*` de /etat, lues dans `etat.json`.
 
     Le fichier est écrit par UN AUTRE processus (maj.py) : rien n'en est recopié
     tel quel. Chaque valeur est confrontée à un vocabulaire ou à une forme
@@ -1682,6 +1684,12 @@ def lire_etat_maj(dossier=None):
                 "le", lambda v: MOTIF_HORODATAGE_MAJ.fullmatch(v) is not None),
             "maj_version": valeur(
                 "version", lambda v: paquet_signe.MOTIF_VERSION.fullmatch(v) is not None),
+            # La date du dernier contrôle réseau du client (C5-T2b) : le seul signe
+            # qui distingue « la tâche tourne et rien n'est publié » de « la tâche
+            # ne tourne plus ».
+            "maj_controle_le": valeur(
+                "controle_le",
+                lambda v: MOTIF_HORODATAGE_MAJ.fullmatch(v) is not None),
         }
     except ValueError:
         return dict(_ETAT_MAJ_ILLISIBLE)
@@ -1778,6 +1786,9 @@ def _texte_mise_a_jour(etat):
         morceaux.append("version : {}".format(etat["maj_version"]))
     if etat["maj_le"] is not None:
         morceaux.append("le {}".format(etat["maj_le"].replace("T", " ")))
+    if etat["maj_controle_le"] is not None:
+        morceaux.append("dernier contrôle le {}".format(
+            etat["maj_controle_le"].replace("T", " ")))
     return " — ".join(morceaux)
 
 

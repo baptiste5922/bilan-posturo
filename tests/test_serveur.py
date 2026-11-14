@@ -1317,12 +1317,16 @@ class PageEtat(unittest.TestCase):
     def test_interrupteur_par_defaut(self):
         self.assertIs(serveur.CONFIG_DEFAUT["page_etat"], True)
 
-    def test_quatorze_cles_horodatage_inclus(self):
-        # Neuf depuis C4-T3, cinq de plus (maj_*) depuis C5-T2a.
-        self.assertEqual(len(serveur.CLES_ETAT), 14)
-        self.assertEqual(len(set(serveur.CLES_ETAT)), 14)
+    def test_quinze_cles_horodatage_inclus(self):
+        # Neuf depuis C4-T3, cinq de plus (maj_*) depuis C5-T2a, une depuis C5-T2b
+        # (maj_controle_le), placée juste après maj_version.
+        self.assertEqual(len(serveur.CLES_ETAT), 15)
+        self.assertEqual(len(set(serveur.CLES_ETAT)), 15)
         self.assertTrue(serveur.CHAMPS_ETAT_HORODATES <= set(serveur.CLES_ETAT))
         self.assertIn("maj_le", serveur.CHAMPS_ETAT_HORODATES)
+        self.assertIn("maj_controle_le", serveur.CHAMPS_ETAT_HORODATES)
+        rang = serveur.CLES_ETAT.index("maj_version")
+        self.assertEqual(serveur.CLES_ETAT[rang + 1], "maj_controle_le")
 
     def test_explications_couvrent_les_verdicts(self):
         self.assertEqual(set(serveur.EXPLICATIONS_ADRESSE), serveur.VERDICTS_ADRESSE)
@@ -1499,6 +1503,7 @@ class PageEtat(unittest.TestCase):
             "certificat_adresse": "conforme", "identite_cabinet": True,
             "maj_etape": "repos", "maj_resultat": "appliquee", "maj_code": None,
             "maj_le": "2026-11-06T03:00:00", "maj_version": "1.2.0",
+            "maj_controle_le": "2026-11-06T04:00:00",
             "journal_technique": ["2026-11-06T08:00:00 DEMARRAGE version=1.1.0"],
         }
         etat.update(remplacements)
@@ -2077,17 +2082,31 @@ class EtatDeLaMiseAJour(unittest.TestCase):
 
     def illisible(self):
         return {"maj_etape": "illisible", "maj_resultat": None, "maj_code": None,
-                "maj_le": None, "maj_version": None}
+                "maj_le": None, "maj_version": None, "maj_controle_le": None}
 
     def test_etat_valide(self):
+        # Un état écrit par C5-T2a (sans `controle_le`) se lit : champ à None.
         self.ecrire(self.VALIDE)
         self.assertEqual(self.lire(), {
             "maj_etape": "repos", "maj_resultat": "appliquee", "maj_code": None,
-            "maj_le": "2026-11-12T03:14:15", "maj_version": "1.2.0"})
+            "maj_le": "2026-11-12T03:14:15", "maj_version": "1.2.0",
+            "maj_controle_le": None})
+
+    def test_le_dernier_controle_se_lit(self):
+        self.ecrire(dict(self.VALIDE, controle_le="2026-11-13T21:05:00"))
+        self.assertEqual(self.lire()["maj_controle_le"], "2026-11-13T21:05:00")
+
+    def test_un_dernier_controle_hors_forme_rend_illisible_partout(self):
+        for valeur in ("hier", "2026-11-13T21:05:00Z", "2026-11-13T21:05:00\n", 5, [1],
+                       "/home/Dupont", "192.168.1.13"):
+            with self.subTest(valeur=valeur):
+                self.ecrire(dict(self.VALIDE, controle_le=valeur))
+                self.assertEqual(self.lire(), self.illisible())
 
     def test_fichier_absent(self):
         self.assertEqual(self.lire(), {"maj_etape": "absente", "maj_resultat": None,
-                                       "maj_code": None, "maj_le": None, "maj_version": None})
+                                       "maj_code": None, "maj_le": None, "maj_version": None,
+                                       "maj_controle_le": None})
 
     def test_dossier_absent(self):
         self.assertEqual(serveur.lire_etat_maj(os.path.join(self.dossier, "x"))["maj_etape"],
@@ -2167,10 +2186,11 @@ class EtatDeLaMiseAJour(unittest.TestCase):
                                         os.path.join(self.dossier, "technique.log")):
             return serveur.construire_etat(copy.deepcopy(serveur.CONFIG_DEFAUT), self.dossier)
 
-    def test_construire_etat_porte_les_cinq_cles_dans_l_ordre(self):
-        self.ecrire(self.VALIDE)
+    def test_construire_etat_porte_les_six_cles_dans_l_ordre(self):
+        self.ecrire(dict(self.VALIDE, controle_le="2026-11-13T21:05:00"))
         etat = self.construire()
         self.assertEqual(list(etat), list(serveur.CLES_ETAT))
+        self.assertEqual(etat["maj_controle_le"], "2026-11-13T21:05:00")
         self.assertEqual((etat["maj_etape"], etat["maj_resultat"], etat["maj_version"]),
                          ("repos", "appliquee", "1.2.0"))
         self.assertEqual(etat["maj_le"], "2026-11-12T03:14:15")
@@ -2200,6 +2220,12 @@ class EtatDeLaMiseAJour(unittest.TestCase):
         self.assertIn("version : 1.2.0", page)
         self.assertIn("code : SANTE_MUETTE", page)
         self.assertIn("le 2026-11-12 03:14:15", page)
+        # Le seul signe qui distingue « rien n'est publié » de « la tâche ne tourne
+        # plus » (D13) : la date du dernier contrôle, quand elle est connue.
+        self.assertNotIn("dernier contrôle", page)
+        avec_controle = serveur.rendre_etat_html(dict(
+            etat, maj_etape="repos", maj_controle_le="2026-11-13T21:05:00"))
+        self.assertIn("dernier contrôle le 2026-11-13 21:05:00", avec_controle)
         # Même une valeur qui aurait échappé à la validation est échappée.
         piege = serveur.rendre_etat_html(dict(etat, maj_etape="<script>x</script>"))
         self.assertNotIn("<script>x", piege)
@@ -2209,13 +2235,14 @@ class EtatDeLaMiseAJour(unittest.TestCase):
         # Le motif du test d'intégration est importé, pas recopié.
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
         from test_integration import chercher_adresse
-        self.ecrire(self.VALIDE)
+        self.ecrire(dict(self.VALIDE, controle_le="2026-11-13T21:05:00"))
         etat = self.construire()
         for rendu in (serveur.rendre_etat_json(etat), serveur.rendre_etat_html(etat)):
             self.assertIsNone(chercher_adresse(rendu, ipv6=False))
         for cle in ("maj_etape", "maj_resultat", "maj_code", "maj_version"):
             self.assertIsNone(chercher_adresse(str(etat[cle])))
         self.assertIn("maj_le", serveur.CHAMPS_ETAT_HORODATES)
+        self.assertIn("maj_controle_le", serveur.CHAMPS_ETAT_HORODATES)
         # Témoin : la garde mord sur un code qui porterait une adresse.
         self.assertIsNotNone(chercher_adresse("code 192.168.1.13", ipv6=False))
 

@@ -1313,6 +1313,101 @@ class CodesDeRefus(unittest.TestCase):
         self.assertIn("a/b", erreur.detail)
 
 
+class EnteteSeul(Atelier):
+    """`verifier_entete` (C5-T2b) : le jugement du manifeste, sans l'archive.
+
+    Le client de mise à jour juge le manifeste et la signature AVANT de demander
+    l'archive. La règle (signature, versions, client, chemins) n'est écrite qu'ici :
+    `verifier_paquet` l'appelle en premier, et ces tests le montrent par
+    substitution plutôt que de le croire."""
+
+    def entete(self, trio, installee="1.1.0", client="cabinet-01"):
+        return ps.verifier_entete(trio.manifeste, trio.signature, trio.cles,
+                                  installee, client)
+
+    def test_rend_le_manifeste_sans_ouvrir_l_archive(self):
+        trio = self.fabriquer()
+        os.remove(trio.archive)
+        manifeste = self.entete(trio)
+        self.assertEqual(manifeste["version"], "1.2.0")
+        self.assertEqual(manifeste["client"], "cabinet-01")
+        self.assertIn("taille", manifeste["archive"])
+        # Le même trio, archive absente, est refusé par la vérification complète.
+        self.refus("ARCHIVE_ILLISIBLE", trio)
+
+    def test_les_quatre_premieres_etapes_se_jugent_ici(self):
+        cas = (
+            ("SIGNATURE_INVALIDE", self.fabriquer(graine=GRAINE_B), {}),
+            ("VERSION_NON_SUPERIEURE", self.fabriquer(version="1.1.0"), {}),
+            ("VERSION_MINIMALE_NON_ATTEINTE", self.fabriquer(minimale="1.1.5"), {}),
+            ("CLIENT_DIFFERENT", self.fabriquer(client="cabinet-02"), {}),
+            ("CHEMIN_EN_DOUBLE", self.fabriquer(
+                declares=dict(contenus_normaux(), **{
+                    DOSSIER_RACINE + "/LICENSE": b"a",
+                    DOSSIER_RACINE + "/license": b"b"})), {}),
+        )
+        for code, trio, _ in cas:
+            with self.subTest(code=code):
+                with self.assertRaises(PaquetRefuse) as contexte:
+                    self.entete(trio)
+                self.assertEqual(contexte.exception.code, code)
+
+    def test_l_archive_n_est_jamais_lue(self):
+        trio = self.fabriquer()
+        ouvertures = []
+        reel = open
+
+        def ouvrir(chemin, *args, **kw):
+            ouvertures.append(os.fspath(chemin))
+            return reel(chemin, *args, **kw)
+
+        import builtins
+        original = builtins.open
+        builtins.open = ouvrir
+        try:
+            self.entete(trio)
+        finally:
+            builtins.open = original
+        self.assertEqual(ouvertures, [])
+
+    def test_verifier_paquet_appelle_verifier_entete_en_premier(self):
+        trio = self.fabriquer()
+        appels = []
+
+        def faux(*arguments):
+            appels.append(arguments)
+            raise PaquetRefuse("CLIENT_DIFFERENT", "refus d'essai")
+
+        original = ps.verifier_entete
+        ps.verifier_entete = faux
+        try:
+            # L'archive n'existe même pas : si la vérification complète la
+            # touchait avant l'en-tête, le code serait ARCHIVE_ILLISIBLE.
+            os.remove(trio.archive)
+            with self.assertRaises(PaquetRefuse) as contexte:
+                self.verifier(trio)
+        finally:
+            ps.verifier_entete = original
+        self.assertEqual(contexte.exception.code, "CLIENT_DIFFERENT")
+        self.assertEqual(len(appels), 1)
+        self.assertEqual(appels[0], (trio.manifeste, trio.signature, trio.cles,
+                                     "1.1.0", "cabinet-01"))
+
+    def test_verifier_paquet_s_appuie_sur_le_manifeste_rendu(self):
+        # Ce que verifier_entete rend est ce que la suite juge : un manifeste de
+        # remplacement (même contenu, version changée) change le verdict.
+        trio = self.fabriquer()
+        vrai = ps.verifier_entete(trio.manifeste, trio.signature, trio.cles,
+                                  "1.1.0", "cabinet-01")
+        autre = dict(vrai, version="1.9.9")
+        original = ps.verifier_entete
+        ps.verifier_entete = lambda *a: autre
+        try:
+            self.refus("VERSION_INCOHERENTE", trio)
+        finally:
+            ps.verifier_entete = original
+
+
 class ImportsDuModule(unittest.TestCase):
 
     def test_le_module_ne_signe_jamais_et_n_importe_que_la_bibliotheque_standard(self):

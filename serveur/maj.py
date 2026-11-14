@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
 """
-Client de mise à jour du serveur du bilan posturologique (C5-T2a).
+Client de mise à jour du serveur du bilan posturologique (C5-T2a, C5-T2b).
 
-Applique un paquet signé posé sur le PC du cabinet, le défait seul s'il ne tient
-pas, et laisse une trace lisible par le support. Aucun accès réseau : C5-T2b y
-ajoutera le téléchargement.
+Applique un paquet signé, le défait seul s'il ne tient pas, et laisse une trace
+lisible par le support. Depuis C5-T2b il va aussi le chercher lui-même : un appel
+sortant HTTPS, trois GET, rien du cabinet n'en sort, et il n'installe que ce que
+les clés DÉJÀ installées ont signé.
 
-    python serveur\\maj.py appliquer <archive>   installe un paquet signé
+    python serveur\\maj.py appliquer <archive>   installe un paquet signé posé à la main
+    python serveur\\maj.py verifier              cherche, vérifie, applique (tâche planifiée)
     python serveur\\maj.py revenir               défait la dernière mise à jour
     python serveur\\maj.py reprendre             termine ou défait une mise à jour interrompue
     python serveur\\maj.py etat                  dit où en est la mise à jour
+    python serveur\\maj.py proteger              crée et protège le dossier mise-a-jour
     python serveur\\maj.py auto-controle         contrôle que ce client se charge
 
 C'est le code le plus dangereux du produit : il remplace, sous le compte SYSTEM,
@@ -24,7 +27,9 @@ Codes de sortie : 0 succès, 1 refus ou échec, 2 usage ou dépôt de développe
 """
 
 import argparse
+import collections
 import contextlib
+import ctypes
 import datetime
 import hashlib
 import http.client
@@ -39,6 +44,7 @@ import stat
 import subprocess
 import sys
 import time
+import urllib.parse
 import zipfile
 
 if os.name == "nt":
@@ -76,11 +82,21 @@ CODES_MAJ = (
     "SAUVEGARDE_ALTEREE", "TACHE_ABSENTE", "SERVEUR_ABSENT", "ARRET_REFUSE",
     "ARRET_SANS_REPONSE", "SANTE_MUETTE", "AUTO_CONTROLE_ECHOUE", "INTERROMPUE",
     "RETOUR_MANUEL", "RETOUR_IMPOSSIBLE", "CODE_INCONNU", "ETAT_ILLISIBLE",
+    # C5-T2b : politique et téléchargement.
+    "DESACTIVEE", "ADRESSE_INVALIDE", "PLAGE_INVALIDE", "HORS_PLAGE",
+    "RESEAU_INJOIGNABLE", "TLS_INVALIDE", "HTTP_STATUT", "REPONSE_TROP_GRANDE",
+    "DELAI_DEPASSE", "REDIRECTION_REFUSEE",
 )
+# Les six codes que le client réseau sait rendre (14.6) : on retentera.
+CODES_RESEAU = (
+    "RESEAU_INJOIGNABLE", "TLS_INVALIDE", "HTTP_STATUT", "REPONSE_TROP_GRANDE",
+    "DELAI_DEPASSE", "REDIRECTION_REFUSEE")
 # Les refus qui donnent MAJ_REPORTEE (on retentera) plutôt que MAJ_REFUSEE.
+# ADRESSE_INVALIDE et PLAGE_INVALIDE n'en sont pas : une configuration fausse ne
+# se répare pas en attendant. INTERROMPUE non plus : R1 l'émet directement.
 CODES_REPORT = frozenset((
     "DEJA_EN_COURS", "TACHE_ABSENTE", "SERVEUR_ABSENT", "ARRET_REFUSE",
-    "ARRET_SANS_REPONSE"))
+    "ARRET_SANS_REPONSE", "DESACTIVEE", "HORS_PLAGE") + CODES_RESEAU)
 # Les causes de retour qui écartent la version : un défaut du paquet, pas une
 # coupure de courant (D10).
 CAUSES_ECARTEES = ("SANTE_MUETTE", "AUTO_CONTROLE_ECHOUE", "RETOUR_MANUEL")
@@ -88,8 +104,21 @@ VERSIONS_ECARTEES_MAX = 10
 
 # Champs que technique.log peut recevoir, dans cet ordre.
 CHAMPS_TRACE = ("code", "cause", "resultat", "de", "vers", "cles")
+# Valeurs de `resultat=` : ok et echec (retour arrière), a-jour et disponible
+# (contrôle réseau, C5-T2b).
+RESULTATS_DE_TRACE = ("ok", "echec", "a-jour", "disponible")
+
+# Les lignes que le client n'écrit qu'UNE FOIS par jour local, dans technique.log
+# comme dans journal.log (14.11) : un passage par heure ne doit pas faire 24 lignes
+# de « rien à signaler ». Clé = « ÉVÉNEMENT:code » (ou résultat).
+LIGNES_LIMITEES = frozenset(
+    ["MAJ_REPORTEE:" + code for code in ("DESACTIVEE", "HORS_PLAGE") + CODES_RESEAU]
+    + ["MAJ_REFUSEE:ADRESSE_INVALIDE", "MAJ_REFUSEE:PLAGE_INVALIDE",
+       "MAJ_CONTROLE:a-jour"])
 
 NOM_TACHE_SERVEUR = "BilanPosturo"
+# Égal à $NOM_TACHE_MAJ des deux scripts d'installation (un test les compare).
+NOM_TACHE_MAJ = "BilanPosturo-MiseAJour"
 
 # Durées de production. Les fonctions les reçoivent en PARAMÈTRE : un test les
 # réduit, et un autre lit ces constantes pour garantir qu'elles n'ont pas bougé.
@@ -118,8 +147,27 @@ MARGE_ESPACE_OCTETS = 50 * 1024 * 1024
 LONGUEUR_MAX_CHEMIN_ABSOLU = 259
 TAILLE_BLOC = 1024 * 1024
 
+# Le client réseau (14.6). Les fonctions les reçoivent en paramètre ; un test lit
+# ces constantes pour garantir qu'elles n'ont pas bougé, un autre en tire le
+# budget d'un passage (il doit tenir dans l'heure d'exécution de la tâche).
+DELAI_OPERATION_RESEAU_SECONDES = 30
+DELAI_TOTAL_MANIFESTE_SECONDES = 60
+DELAI_TOTAL_ARCHIVE_SECONDES = 900
+FREQUENCE_CONTROLE_SECONDES = 21600
+REDIRECTIONS_MAX = 5
+TAILLE_BLOC_RESEAU = 64 * 1024
+LONGUEUR_MAX_ADRESSE = 1024
+# Défauts de la politique (D-M2) : la nuit, ou le quart d'heure qui suit le
+# démarrage ; le serveur doit être calme depuis une demi-heure.
+PLAGE_DEFAUT = "20:00-07:00"
+CALME_MINUTES_DEFAUT = 30
+CALME_MINUTES_MAX = 240
+
 # Noms internes du dossier réservé (le dossier lui-même est nommé dans serveur.py).
 NOM_TELECHARGEMENT = "telechargement"
+# Ce que le client télécharge, dans le dossier réservé. PAS `telechargement/` :
+# copier_le_trio le vide avant d'y copier sa copie privée (erratum E1 de C5-T2b).
+NOM_RECEPTION = "reception"
 NOM_PREPARE = "prepare"
 NOM_SAUVEGARDE = "sauvegarde"
 NOM_SAUVEGARDE_NEUVE = "sauvegarde-neuve"
@@ -151,6 +199,7 @@ CHEMIN_VERSION = paquet_signe.CHEMIN_VERSION
 
 _CLIENT = re.compile(r"cabinet-[0-9]{2,}")
 _HEXA64 = re.compile(r"[0-9a-f]{64}")
+_JOUR = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 
 
 class Refus(Exception):
@@ -208,7 +257,7 @@ def detail_maj(**champs):
         elif nom in ("de", "vers"):
             valeur = _version_pour_trace(valeur)
         elif nom == "resultat":
-            if valeur not in ("ok", "echec"):
+            if valeur not in RESULTATS_DE_TRACE:
                 raise ValueError("resultat de trace interdit : %r" % (valeur,))
         elif nom == "cles":
             if valeur != "changees":
@@ -521,8 +570,8 @@ def preparer_dossier_prive(racine):
     être de confiance (propriétaire ou droits : `serveur.dossier_reserve_de_confiance`)
     a pu être rempli par n'importe qui avant la première protection : son contenu
     (un état « bascule », une sauvegarde de son choix) serait « restauré » par
-    SYSTEM. Il est donc VIDÉ, puis protégé. Un dossier déjà de confiance garde son
-    contenu : c'est l'état, la sauvegarde et le verrou des mises à jour précédentes.
+    SYSTEM. Il est donc PROTÉGÉ, puis VIDÉ (dans cet ordre : voir plus bas). Un
+    dossier déjà de confiance garde son contenu : c'est l'état, la sauvegarde et le verrou des mises à jour précédentes.
     Enfin les droits sont posés et RELUS : un dossier hérité de l'utilisateur du
     cabinet laisserait n'importe quel programme de sa session déposer un paquet que
     SYSTEM installerait."""
@@ -551,15 +600,20 @@ def preparer_dossier_prive(racine):
         raise Refus("DOSSIER_NON_PROTEGE", "illisible : %r" % (erreur,))
     if attendu != reel:
         raise Refus("DOSSIER_NON_PROTEGE", "lien ou jonction vers un autre dossier")
-    if existait and not serveur.dossier_reserve_de_confiance(dossier):
-        try:
-            vider_contenu(dossier)
-        except OSError as erreur:
-            raise Refus("DOSSIER_NON_PROTEGE", "contenu non vidable : %r" % (erreur,))
+    avait_confiance = existait and serveur.dossier_reserve_de_confiance(dossier)
+    # PROTÉGER D'ABORD, puis vider : tant que l'ancien propriétaire garde ses
+    # droits, il peut remettre un fichier pendant qu'on vide, et le vidage ne
+    # prouverait rien. Une fois ses droits retirés, ce qui reste est ce qu'il a
+    # laissé, et le vidage est définitif.
     if os.name == "nt":
         _proteger_windows(dossier)
     else:
         _proteger_posix(dossier)
+    if existait and not avait_confiance:
+        try:
+            vider_contenu(dossier)
+        except OSError as erreur:
+            raise Refus("DOSSIER_NON_PROTEGE", "contenu non vidable : %r" % (erreur,))
     if not serveur.dossier_reserve_de_confiance(dossier):
         raise Refus("DOSSIER_NON_PROTEGE", "le dossier n'est pas de confiance après protection")
 
@@ -593,13 +647,29 @@ def verrou(racine):
 # --------------------------------------------------------------------------
 
 def etat_par_defaut():
+    # controle_le : dernier contrôle réseau qui a rendu un verdict ; attente :
+    # la version téléchargée, vérifiée, qui attend son heure ; arret_en_cours :
+    # une demande d'arrêt a été écrite sans que le serveur ait dit « refuse » (il
+    # a peut-être accepté et quitté) ; lignes : jour de la dernière ligne écrite,
+    # par ligne limitée (LIGNES_LIMITEES).
     return {"format": 1, "etape": "repos", "resultat": None, "code": None,
-            "le": None, "version": None, "de": None, "vers": None, "ecartees": []}
+            "le": None, "version": None, "de": None, "vers": None, "ecartees": [],
+            "controle_le": None, "attente": None, "arret_en_cours": False,
+            "lignes": {}}
 
 
 def _version_ou_none(valeur):
     return valeur is None or (isinstance(valeur, str)
                               and paquet_signe.MOTIF_VERSION.fullmatch(valeur) is not None)
+
+
+def _lignes_valides(lignes):
+    """Le jour de la dernière ligne écrite, par ligne limitée : un dictionnaire
+    fermé (clés de LIGNES_LIMITEES, dates), donc borné."""
+    return (isinstance(lignes, dict) and len(lignes) <= len(LIGNES_LIMITEES)
+            and all(cle in LIGNES_LIMITEES and isinstance(jour, str)
+                    and _JOUR.fullmatch(jour) is not None
+                    for cle, jour in lignes.items()))
 
 
 def lire_etat(racine):
@@ -624,7 +694,13 @@ def lire_etat(racine):
         and all(_version_ou_none(contenu.get(cle)) for cle in ("version", "de", "vers"))
         and isinstance(contenu.get("ecartees", []), list)
         and len(contenu.get("ecartees", [])) <= VERSIONS_ECARTEES_MAX
-        and all(_version_ou_none(v) and v is not None for v in contenu.get("ecartees", [])))
+        and all(_version_ou_none(v) and v is not None for v in contenu.get("ecartees", []))
+        and (contenu.get("controle_le") is None or (
+            isinstance(contenu["controle_le"], str)
+            and serveur.MOTIF_HORODATAGE_MAJ.fullmatch(contenu["controle_le"]) is not None))
+        and _version_ou_none(contenu.get("attente"))
+        and type(contenu.get("arret_en_cours", False)) is bool
+        and _lignes_valides(contenu.get("lignes", {})))
     if not valide:
         raise Refus("ETAT_ILLISIBLE", "etat.json hors de la forme attendue")
     etat = etat_par_defaut()
@@ -634,11 +710,16 @@ def lire_etat(racine):
     return etat
 
 
-def ecrire_etat(racine, **champs):
-    """Fusionne `champs` dans l'état et l'écrit atomiquement."""
+def ecrire_etat(racine, horodater=True, **champs):
+    """Fusionne `champs` dans l'état et l'écrit atomiquement.
+
+    `le` est la date du dernier RÉSULTAT (ce que /etat montre sous « le ») :
+    une écriture qui n'en est pas un (un contrôle réseau, le drapeau
+    `arret_en_cours`) passe `horodater=False` et la laisse telle quelle."""
     etat = lire_etat(racine)
     etat.update(champs)
-    etat["le"] = maintenant_iso()
+    if horodater:
+        etat["le"] = maintenant_iso()
     ecrire_json(chemin_maj(racine, serveur.ETAT_MAJ), etat)
     return etat
 
@@ -784,6 +865,175 @@ def lire_version_installee(racine):
     except paquet_signe.PaquetRefuse as erreur:
         raise Refus("VERSION_INSTALLEE_ILLISIBLE", erreur.detail)
     return version
+
+
+# --------------------------------------------------------------------------
+# Politique : adresse, plage horaire, calme, démarrage (C5-T2b, 14.5)
+# --------------------------------------------------------------------------
+
+Politique = collections.namedtuple(
+    "Politique", "adresse proxy plage calme_minutes au_demarrage")
+
+# ASCII imprimable SANS espace : un blanc ou un caractère de contrôle dans une
+# adresse est une injection d'en-tête en puissance, jamais une adresse.
+_ADRESSE_ADMISE = re.compile(r"[\x21-\x7e]+")
+_HOTE_ADMIS = re.compile(r"[A-Za-z0-9.:-]+")
+_PLAGE = re.compile(r"([01][0-9]|2[0-3]):([0-5][0-9])-([01][0-9]|2[0-3]):([0-5][0-9])")
+
+
+def analyser_adresse(texte, exiger_zip=True):
+    """(hôte, port, chemin) d'une adresse HTTPS admise, ou ValueError.
+
+    Le message de l'erreur ne reprend JAMAIS le texte : l'adresse identifie un
+    client, et ce message peut finir dans un journal. `exiger_zip=False` pour une
+    cible de redirection, qui suit les mêmes règles hors le suffixe (14.6)."""
+    if not isinstance(texte, str) or not 0 < len(texte) <= LONGUEUR_MAX_ADRESSE:
+        raise ValueError("longueur")
+    if _ADRESSE_ADMISE.fullmatch(texte) is None or "\\" in texte:
+        raise ValueError("caractère non admis")
+    if "?" in texte or "#" in texte:
+        raise ValueError("requête ou fragment")
+    try:
+        morceaux = urllib.parse.urlsplit(texte)
+        port = morceaux.port
+    except ValueError:
+        raise ValueError("forme")
+    hote = morceaux.hostname
+    if morceaux.scheme != "https":
+        raise ValueError("schéma autre que https")
+    if not hote or _HOTE_ADMIS.fullmatch(hote) is None:
+        raise ValueError("hôte")
+    if "@" in morceaux.netloc:
+        raise ValueError("identifiant")
+    if not morceaux.path.startswith("/"):
+        raise ValueError("chemin")
+    if exiger_zip and not morceaux.path.endswith(".zip"):
+        raise ValueError("suffixe .zip attendu")
+    return hote, port or 443, morceaux.path
+
+
+def analyser_proxy(texte):
+    """(hôte, port) d'un proxy `http://<hôte>:<port>`, ou ValueError (sans reprendre
+    le texte). Le port est obligatoire ; ni identifiant, ni requête, ni chemin
+    autre que `/`."""
+    if not isinstance(texte, str) or not 0 < len(texte) <= LONGUEUR_MAX_ADRESSE:
+        raise ValueError("longueur")
+    if _ADRESSE_ADMISE.fullmatch(texte) is None or "\\" in texte \
+            or "?" in texte or "#" in texte:
+        raise ValueError("caractère non admis")
+    try:
+        morceaux = urllib.parse.urlsplit(texte)
+        port = morceaux.port
+    except ValueError:
+        raise ValueError("forme")
+    hote = morceaux.hostname
+    if morceaux.scheme != "http" or "@" in morceaux.netloc:
+        raise ValueError("schéma ou identifiant")
+    if not hote or _HOTE_ADMIS.fullmatch(hote) is None or port is None:
+        raise ValueError("hôte ou port")
+    if morceaux.path not in ("", "/"):
+        raise ValueError("chemin")
+    return hote, port
+
+
+def analyser_plage(texte):
+    """(début, fin) en minutes depuis minuit d'une plage `HH:MM-HH:MM`, ou
+    Refus PLAGE_INVALIDE. Début ≠ fin ; une plage dont le début passe la fin
+    traverse minuit."""
+    correspondance = _PLAGE.fullmatch(texte) if isinstance(texte, str) else None
+    if correspondance is None:
+        raise Refus("PLAGE_INVALIDE", "plage : la forme HH:MM-HH:MM est attendue")
+    h1, m1, h2, m2 = (int(g) for g in correspondance.groups())
+    debut, fin = h1 * 60 + m1, h2 * 60 + m2
+    if debut == fin:
+        raise Refus("PLAGE_INVALIDE", "plage : début et fin identiques")
+    return debut, fin
+
+
+def dans_la_plage(plage, maintenant):
+    """Vrai si l'heure de `maintenant` est dans la plage : début inclus, fin
+    exclue. `plage` est le texte de la configuration : PLAGE_INVALIDE s'il est mal
+    formé, jamais un défaut à sa place."""
+    debut, fin = analyser_plage(plage)
+    minute = maintenant.hour * 60 + maintenant.minute
+    if debut < fin:
+        return debut <= minute < fin
+    return minute >= debut or minute < fin
+
+
+def lire_politique(bloc):
+    """La politique du bloc `mise_a_jour` de config.json (14.5) ; fonction pure.
+
+    Toutes les clés sont facultatives, mais UNE CLÉ PRÉSENTE ET HORS FORME N'EST
+    JAMAIS REMPLACÉE PAR SON DÉFAUT : échec fermé. Sans adresse (absente ou
+    vide), le client est désactivé et le reste n'est pas examiné."""
+    if not isinstance(bloc, dict) or "adresse" not in bloc or bloc["adresse"] == "":
+        return Politique("", "", PLAGE_DEFAUT, CALME_MINUTES_DEFAUT, True)
+    adresse = bloc["adresse"]
+    proxy = bloc.get("proxy", "")
+    try:
+        analyser_adresse(adresse)
+        if proxy != "":
+            analyser_proxy(proxy)
+    except ValueError as erreur:
+        raise Refus("ADRESSE_INVALIDE", "adresse ou proxy : %s" % erreur)
+    plage = bloc.get("plage", PLAGE_DEFAUT)
+    analyser_plage(plage)
+    calme = bloc.get("calme_minutes", CALME_MINUTES_DEFAUT)
+    if type(calme) is not int or not 1 <= calme <= CALME_MINUTES_MAX:
+        raise Refus("PLAGE_INVALIDE", "calme_minutes : un entier de 1 à %d" % CALME_MINUTES_MAX)
+    au_demarrage = bloc.get("au_demarrage", True)
+    if type(au_demarrage) is not bool:
+        raise Refus("PLAGE_INVALIDE", "au_demarrage : un booléen")
+    return Politique(adresse, proxy, plage, calme, au_demarrage)
+
+
+def _bloc_mise_a_jour():
+    config = _config_brute()
+    return config.get("mise_a_jour") if isinstance(config, dict) else None
+
+
+def decider_moment(politique, maintenant, depuis_demarrage):
+    """(calme_secondes, demarrage) si l'on peut tenter l'arrêt maintenant, sinon None.
+
+    Dans la plage : le calme configuré. Hors plage : seulement dans le quart
+    d'heure qui suit le démarrage du SYSTÈME, sans calme exigé mais avec
+    `demarrage` (le serveur refuse alors toute requête déjà reçue). Sans ce filtre,
+    chaque heure de la journée coûterait une extraction, une sauvegarde et une
+    demande d'arrêt refusée, en pleine consultation (E14). Le serveur reste juge."""
+    if dans_la_plage(politique.plage, maintenant):
+        return politique.calme_minutes * 60, False
+    if politique.au_demarrage and depuis_demarrage() <= serveur.DELAI_DEMARRAGE_MAX_SECONDES:
+        return 0, True
+    return None
+
+
+def controle_du(etat, maintenant):
+    """Vrai si un contrôle réseau est dû : jamais fait, vieux de six heures ou plus,
+    ou daté du futur (une horloge reculée ne doit pas geler les contrôles)."""
+    ancien = etat["controle_le"]
+    if ancien is None:
+        return True
+    try:
+        date = datetime.datetime.strptime(ancien, "%Y-%m-%dT%H:%M:%S")
+    except ValueError:
+        return True
+    ecart = (maintenant - date).total_seconds()
+    return ecart < 0 or ecart >= FREQUENCE_CONTROLE_SECONDES
+
+
+def depuis_demarrage_systeme():
+    """Secondes écoulées depuis le démarrage du SYSTÈME (et non du serveur : c'est
+    le PC éteint la nuit qu'il s'agit de reconnaître).
+
+    Sous Windows, GetTickCount64, sans argument : le seul appel de `ctypes`. Ailleurs
+    l'horloge monotone, qui n'en est qu'une approximation (la production est Windows ;
+    les tests injectent leur durée)."""
+    if os.name == "nt":
+        horloge = ctypes.windll.kernel32.GetTickCount64
+        horloge.restype = ctypes.c_uint64
+        return horloge() / 1000.0
+    return time.monotonic()
 
 
 # --------------------------------------------------------------------------
@@ -1226,6 +1476,156 @@ def port_ferme(port):
 
 
 # --------------------------------------------------------------------------
+# Client HTTPS (C5-T2b, 14.6)
+# --------------------------------------------------------------------------
+
+# Exactement ces trois en-têtes, plus `Host` que http.client pose seul : aucune
+# version, aucun identifiant, aucun cookie, jamais d'`Authorization` (D-M1).
+ENTETES_DE_REQUETE = {
+    "User-Agent": "bilan-posturo", "Accept-Encoding": "identity", "Connection": "close"}
+STATUTS_DE_REDIRECTION = (301, 302, 303, 307, 308)
+_LONGUEUR_ANNONCEE = re.compile(r"[0-9]{1,15}")
+
+
+def contexte_tls_par_defaut():
+    """Le magasin de certificats du système, vérification complète. Jamais de
+    désactivation : un hébergeur dont la racine manque au magasin donne
+    TLS_INVALIDE (fiche d'essai B-3), pas un contournement."""
+    contexte = ssl.create_default_context()
+    contexte.minimum_version = ssl.TLSVersion.TLSv1_2
+    return contexte
+
+
+def _cause_sans_adresse(erreur):
+    """Ce que l'on dit d'une erreur réseau : sa classe et son numéro, JAMAIS son
+    texte, qui peut citer l'adresse (InvalidURL cite le chemin)."""
+    return "%s errno=%s" % (type(erreur).__name__, getattr(erreur, "errno", None))
+
+
+def _telecharger(url, destination, limite, delai_total, contexte=None, proxy="",
+                 delai_operation=DELAI_OPERATION_RESEAU_SECONDES):
+    """Télécharge `url` dans `destination` ; rend le nombre d'octets. Lève Refus.
+
+    C'est LA porte de sortie du client : trois GET par contrôle, aucun corps,
+    HTTPS seul, TLS vérifié, aucun proxy lu dans l'environnement ni le registre.
+    `destination` est créée en O_EXCL (0o600) APRÈS un statut 200 et une taille
+    admise, et effacée sur toute erreur.
+
+    Le délai total est réellement borné : lecture par `read1` (une seule réception
+    par appel ; `read(n)` en enchaînerait plusieurs, de 30 s chacune, et un hôte
+    qui envoie un octet toutes les 20 s ne finirait jamais), échéance monotone
+    testée à chaque bloc, délai de la socket ramené à ce qui reste avant chaque
+    réception. Une redirection ouvre une connexion neuve, vers https seulement.
+    Rien de ce que l'on écrit dans un Refus ne contient l'adresse : l'hôte au plus."""
+    if contexte is None:
+        contexte = contexte_tls_par_defaut()
+    echeance = time.monotonic() + delai_total
+    courante = url
+    redirections = 0
+    while True:
+        try:
+            hote, port, chemin = analyser_adresse(courante, exiger_zip=False)
+        except ValueError:
+            raise Refus("ADRESSE_INVALIDE" if redirections == 0 else "REDIRECTION_REFUSEE",
+                        "adresse refusée")
+        restant = echeance - time.monotonic()
+        if restant <= 0:
+            raise Refus("DELAI_DEPASSE", "délai total dépassé avant la connexion à %s" % hote)
+        delai = max(0.05, min(delai_operation, restant))
+        if proxy:
+            hote_proxy, port_proxy = analyser_proxy(proxy)
+            connexion = http.client.HTTPSConnection(
+                hote_proxy, port_proxy, timeout=delai, context=contexte)
+            connexion.set_tunnel(hote, port)
+        else:
+            connexion = http.client.HTTPSConnection(
+                hote, port, timeout=delai, context=contexte)
+        corps_commence = False
+        reponse = None
+        try:
+            connexion.request("GET", chemin, headers=ENTETES_DE_REQUETE)
+            # La socket, prise avant getresponse : « Connection: close » fait lâcher
+            # connexion.sock, que la réponse garde pourtant ouverte.
+            prise = connexion.sock
+            prise.settimeout(max(0.05, min(delai_operation, echeance - time.monotonic())))
+            reponse = connexion.getresponse()
+            statut = reponse.status
+            if statut in STATUTS_DE_REDIRECTION:
+                cible = reponse.getheader("Location")
+                redirections += 1
+                if cible is None or redirections > REDIRECTIONS_MAX:
+                    raise Refus("REDIRECTION_REFUSEE",
+                                "redirection absente ou trop longue chez %s" % hote)
+                courante = urllib.parse.urljoin(courante, cible)
+                continue
+            if statut != 200:
+                raise Refus("HTTP_STATUT", "statut %d de %s" % (statut, hote))
+            annoncee = reponse.getheader("Content-Length")
+            attendu = None
+            if annoncee is not None:
+                if _LONGUEUR_ANNONCEE.fullmatch(annoncee.strip()) is None:
+                    raise Refus("RESEAU_INJOIGNABLE", "longueur annoncée illisible par %s" % hote)
+                attendu = int(annoncee)
+                if attendu > limite:
+                    raise Refus("REPONSE_TROP_GRANDE",
+                                "%d octets annoncés par %s, plafond %d" % (attendu, hote, limite))
+            corps_commence = True
+            drapeaux = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
+            # Hors du `try` qui efface : ne jamais effacer un fichier que l'on n'a
+            # pas créé (O_EXCL refuse un fichier déjà là).
+            try:
+                descripteur = os.open(destination, drapeaux, 0o600)
+            except OSError as erreur:
+                raise Refus("ECRITURE_IMPOSSIBLE",
+                            "réception impossible : %s" % _cause_sans_adresse(erreur))
+            recu = 0
+            try:
+                with os.fdopen(descripteur, "wb") as sortie:
+                    # `isclosed` : une réponse qui a rendu son dernier octet ferme
+                    # elle-même la socket, que l'on ne peut plus régler.
+                    while not reponse.isclosed():
+                        restant = echeance - time.monotonic()
+                        if restant <= 0:
+                            raise Refus("DELAI_DEPASSE", "délai total dépassé par %s" % hote)
+                        prise.settimeout(max(0.05, min(delai_operation, restant)))
+                        bloc = reponse.read1(TAILLE_BLOC_RESEAU)
+                        if not bloc:
+                            break
+                        recu += len(bloc)
+                        if recu > limite:
+                            raise Refus("REPONSE_TROP_GRANDE",
+                                        "plus de %d octets reçus de %s" % (limite, hote))
+                        sortie.write(bloc)
+                    sortie.flush()
+                if attendu is not None and recu != attendu:
+                    raise Refus("RESEAU_INJOIGNABLE", "réponse tronquée par %s" % hote)
+            except BaseException:
+                _effacer_si_present(destination)
+                raise
+            return recu
+        except Refus:
+            raise
+        except socket.timeout:
+            raise Refus("DELAI_DEPASSE", "%s ne répond pas dans le délai" % hote)
+        except (ssl.SSLEOFError, ssl.SSLZeroReturnError) as erreur:
+            # Pendant le corps, c'est une coupure ; pendant la poignée de main,
+            # un serveur qui ne parle pas TLS.
+            raise Refus("RESEAU_INJOIGNABLE" if corps_commence else "TLS_INVALIDE",
+                        "%s : %s" % (hote, _cause_sans_adresse(erreur)))
+        except ssl.SSLError as erreur:
+            raison = getattr(erreur, "verify_message", None) or getattr(erreur, "reason", None)
+            raise Refus("TLS_INVALIDE", "%s : %s %s" % (hote, _cause_sans_adresse(erreur), raison))
+        except (OSError, http.client.HTTPException) as erreur:
+            raise Refus("RESEAU_INJOIGNABLE", "%s : %s" % (hote, _cause_sans_adresse(erreur)))
+        finally:
+            # La réponse d'abord : « Connection: close » lui a confié la socket, qui
+            # reste ouverte tant qu'elle n'est pas fermée (ResourceWarning sinon).
+            if reponse is not None:
+                reponse.close()
+            connexion.close()
+
+
+# --------------------------------------------------------------------------
 # Arrêt concerté
 # --------------------------------------------------------------------------
 
@@ -1256,6 +1656,14 @@ def demander_arret(racine, port, calme_secondes, demarrage,
     jeton = secrets.token_hex(16)
     demande = chemin_maj(racine, serveur.DEMANDE_ARRET)
     _effacer_si_present(chemin_maj(racine, serveur.REPONSE_ARRET))
+    # Posé AVANT la demande (R1) : tant que le serveur n'a pas dit « refuse », il a
+    # peut-être accepté et quitté en code 0, et si ce processus-ci meurt à cet
+    # instant, plus personne ne sait que le serveur est arrêté. Le passage suivant
+    # le lit et relance.
+    try:
+        ecrire_etat(racine, horodater=False, arret_en_cours=True)
+    except OSError as erreur:
+        raise Refus("ECRITURE_IMPOSSIBLE", "état non écrit : %r" % (erreur,))
     ecrire_json(demande, {"jeton": jeton, "calme_secondes": int(calme_secondes),
                           "demarrage": bool(demarrage)})
     limite = time.monotonic() + delai_reponse
@@ -1268,6 +1676,7 @@ def demander_arret(racine, port, calme_secondes, demarrage,
         _effacer_si_present(demande)
         raise Refus("ARRET_SANS_REPONSE", "le serveur n'a pas répondu")
     if reponse["verdict"] == "refuse":
+        _noter_arret_en_cours(racine, False)
         raise Refus("ARRET_REFUSE", "motif : %s" % reponse["motif"][:40])
     if acceptation is not None:
         acceptation["accepte"] = True
@@ -1279,6 +1688,25 @@ def demander_arret(racine, port, calme_secondes, demarrage,
             return
         time.sleep(0.05)
     raise Refus("ARRET_SANS_REPONSE", "le serveur ne s'est pas arrêté à temps")
+
+
+def _noter_arret_en_cours(racine, valeur):
+    """Pose ou retire le drapeau `arret_en_cours`. Jamais de levée : c'est un
+    filet, et un drapeau resté posé ne coûte qu'une relance inutile."""
+    try:
+        ecrire_etat(racine, horodater=False, arret_en_cours=valeur)
+    except (Refus, OSError):
+        pass
+
+
+def _arret_peut_etre_accepte(racine):
+    """Vrai si une demande d'arrêt est partie sans avoir reçu de « refuse ». Un
+    état illisible compte pour vrai : relancer un serveur qui tourne ne coûte que
+    dix secondes, ne pas relancer un serveur arrêté coûte la journée."""
+    try:
+        return lire_etat(racine)["arret_en_cours"]
+    except (Refus, OSError):
+        return True
 
 
 def assurer_serveur(pilote, port, delai_sante, delai_fermeture=10):
@@ -1303,6 +1731,15 @@ def assurer_serveur(pilote, port, delai_sante, delai_fermeture=10):
                             .format(maintenant_iso(), "sante ok" if sain else "SANTE MUETTE"))
     except Exception:
         pass
+    return sain
+
+
+def relancer_et_noter(racine, pilote, port, delai_sante):
+    """`assurer_serveur`, puis, si /sante répond, le drapeau `arret_en_cours`
+    retombe : le serveur est vivant, plus rien n'est en suspens."""
+    sain = assurer_serveur(pilote, port, delai_sante)
+    if sain:
+        _noter_arret_en_cours(racine, False)
     return sain
 
 
@@ -1367,9 +1804,26 @@ def revenir_a_la_sauvegarde(racine, pilote, port, cause, delai_sante=DELAI_SANTE
         tracer("MAJ_RETOUR", libre=repr(derniere), cause=cause, resultat="echec",
                de=de, vers=vers)
         return False
-    ecrire_etat(racine, etape="repos", resultat="revenue", code=cause, version=vers)
+    ecrire_etat(racine, etape="repos", resultat="revenue", code=cause, version=vers,
+                arret_en_cours=False)
     tracer("MAJ_RETOUR", cause=cause, resultat="ok", de=de, vers=vers)
     return True
+
+
+def _reprendre_apres_arret(racine, pilote, port, delai_sante):
+    """R1 : le client est mort entre l'écriture de la demande d'arrêt et la
+    bascule. Aucun fichier n'a été touché (il n'y a donc rien à restaurer), mais le
+    serveur a peut-être accepté et quitté en code 0, que sa tâche ne relance pas.
+    On le relance. Si /sante reste muette, le drapeau RESTE posé : le passage
+    suivant réessaie."""
+    _pilote_requis(pilote)
+    sain = relancer_et_noter(racine, pilote, port, delai_sante)
+    tracer("MAJ_REPORTEE", code="INTERROMPUE",
+           libre="le serveur " + ("répond" if sain else "ne répond toujours pas"))
+    try:
+        ecrire_etat(racine, resultat="reportee", code="INTERROMPUE")
+    except (Refus, OSError):
+        pass
 
 
 def reprendre(racine, pilote, port, delai_sante=DELAI_SANTE_SECONDES):
@@ -1379,6 +1833,8 @@ def reprendre(racine, pilote, port, delai_sante=DELAI_SANTE_SECONDES):
     le retour échoue encore."""
     etat = lire_etat(racine)
     if etat["etape"] in ("repos", "preparee"):
+        if etat["arret_en_cours"]:
+            _reprendre_apres_arret(racine, pilote, port, delai_sante)
         return True
     _pilote_requis(pilote)
     return revenir_a_la_sauvegarde(racine, pilote, port, "INTERROMPUE", delai_sante)
@@ -1425,7 +1881,8 @@ def basculer(plan, pilote, delai_sante, delai_auto_controle):
     try:
         # Dans le try : un état qui ne s'écrit pas ne doit pas laisser le serveur
         # arrêté (il l'est déjà, et la tâche ne le relancera pas).
-        ecrire_etat(racine, etape="bascule", de=plan.installee, vers=plan.version)
+        ecrire_etat(racine, etape="bascule", de=plan.installee, vers=plan.version,
+                    arret_en_cours=False)
         poser_fichiers(racine, prepare,
                        dict((r, v[1]) for r, v in plan.fichiers.items()),
                        "EXTRACTION_ALTEREE")
@@ -1464,32 +1921,53 @@ def basculer(plan, pilote, delai_sante, delai_auto_controle):
         return 1
 
 
-def _signaler_refus(racine, erreur, ecrire):
+def _signaler_refus(racine, erreur, ecrire, jour=None):
+    """La trace, l'état et le code de sortie d'un Refus.
+
+    Les lignes de LIGNES_LIMITEES ne s'écrivent qu'une fois par jour local (14.11) :
+    un passage par heure ne doit pas faire vingt-quatre lignes de « rien à signaler ».
+    L'état, lui, est réécrit à chaque passage."""
     evenement = "MAJ_REPORTEE" if erreur.code in CODES_REPORT else "MAJ_REFUSEE"
-    tracer(evenement, libre=erreur.detail, code=erreur.code)
+    champs = {"resultat": "reportee" if erreur.code in CODES_REPORT else "refusee",
+              "code": erreur.code}
+    ecrire_la_ligne = True
+    cle = "%s:%s" % (evenement, erreur.code)
+    if ecrire and cle in LIGNES_LIMITEES:
+        try:
+            lignes = lire_etat(racine)["lignes"]
+        except (Refus, OSError):
+            lignes = None
+        jour = jour or datetime.date.today().isoformat()
+        if lignes is not None:
+            if lignes.get(cle) == jour:
+                ecrire_la_ligne = False
+            else:
+                champs["lignes"] = dict(lignes)
+                champs["lignes"][cle] = jour
+    if ecrire_la_ligne:
+        tracer(evenement, libre=erreur.detail, code=erreur.code)
     if ecrire:
         try:
-            ecrire_etat(racine,
-                        resultat="reportee" if erreur.code in CODES_REPORT else "refusee",
-                        code=erreur.code)
+            ecrire_etat(racine, **champs)
         except (Refus, OSError):
             pass
     print("%s : %s" % (erreur.code, erreur.detail))
     return 3 if erreur.code in CODES_REPORT else 1
 
 
-def executer(racine, travail):
+def executer(racine, travail, jour=None):
     """Dossier réservé, verrou, puis `travail()` ; tout Refus devient une trace
-    et un code de sortie."""
+    et un code de sortie. `jour` (AAAA-MM-JJ) est le jour local de la limitation
+    des lignes ; par défaut celui de l'horloge."""
     try:
         preparer_dossier_prive(racine)
         with verrou(racine):
             try:
                 return travail()
             except Refus as erreur:
-                return _signaler_refus(racine, erreur, True)
+                return _signaler_refus(racine, erreur, True, jour)
     except Refus as erreur:
-        return _signaler_refus(racine, erreur, False)
+        return _signaler_refus(racine, erreur, False, jour)
 
 
 def appliquer_trio(racine, chemin_archive, pilote, port, calme_secondes, demarrage,
@@ -1520,8 +1998,11 @@ def appliquer_trio(racine, chemin_archive, pilote, port, calme_secondes, demarra
         # Toute sortie postérieure à une acceptation relance le serveur : il a
         # quitté en code 0, la tâche planifiée ne le fera pas. (basculer relance
         # lui-même dans tous ses chemins ; ce filet couvre ce qui l'entoure.)
-        if acceptation["accepte"]:
-            assurer_serveur(pilote, plan.port, delai_sante)
+        # O1 : « accepté » ne suffit pas. Les deux réponses (accepte, arrete)
+        # peuvent se perdre ; le drapeau dit « une demande est partie sans refus
+        # lu », ce qui est la bonne question.
+        if acceptation["accepte"] or _arret_peut_etre_accepte(racine):
+            relancer_et_noter(racine, pilote, plan.port, delai_sante)
         raise
     finally:
         shutil.rmtree(chemin_maj(racine, NOM_SAUVEGARDE_NEUVE), ignore_errors=True)
@@ -1639,6 +2120,190 @@ def auto_controle(racine):
 
 
 # --------------------------------------------------------------------------
+# Vérifier : chercher, juger, appliquer à son heure (C5-T2b, 14.4)
+# --------------------------------------------------------------------------
+
+def delais_de_production():
+    """Les durées d'un passage de `verifier`, sous leur nom : un test les réduit
+    (paramètre `delais`), un autre en additionne les constantes de production pour
+    prouver qu'un passage tient dans l'heure de la tâche (E15)."""
+    return {"sante": DELAI_SANTE_SECONDES, "auto_controle": DELAI_AUTO_CONTROLE_SECONDES,
+            "reponse": DELAI_REPONSE_ARRET_SECONDES, "arret": DELAI_ARRET_SECONDES,
+            "operation": DELAI_OPERATION_RESEAU_SECONDES,
+            "manifeste": DELAI_TOTAL_MANIFESTE_SECONDES,
+            "archive": DELAI_TOTAL_ARCHIVE_SECONDES}
+
+
+def _recevoir(nature, adresse, destination, limite, delai_total, politique, contexte, delais):
+    """Un téléchargement ; l'erreur dit quel fichier (manifeste, signature, archive)
+    sans jamais nommer l'adresse."""
+    try:
+        return _telecharger(adresse, destination, limite, delai_total, contexte=contexte,
+                            proxy=politique.proxy, delai_operation=delais["operation"])
+    except Refus as erreur:
+        raise Refus(erreur.code, "%s : %s" % (nature, erreur.detail))
+
+
+def _jour(maintenant):
+    return maintenant.date().isoformat()
+
+
+def _horodatage(maintenant):
+    return maintenant.isoformat(timespec="seconds")
+
+
+def _vider_reception(racine):
+    try:
+        vider_dossier(chemin_maj(racine, NOM_RECEPTION))
+    except Refus:
+        pass
+
+
+def _oublier_la_version(racine):
+    """Plus rien n'attend : le dossier de réception est vidé et `attente` retombe.
+    Un état qui ne s'écrit pas ne doit pas masquer la cause qui a conduit ici."""
+    _vider_reception(racine)
+    try:
+        ecrire_etat(racine, horodater=False, attente=None)
+    except (Refus, OSError):
+        pass
+
+
+def _controler_en_ligne(racine, politique, client, maintenant, contexte, delais):
+    """Le contrôle réseau : manifeste et signature d'abord, JUGÉS avant que l'archive
+    ne soit demandée (B2). Pose `attente` quand une version supérieure est prête.
+
+    Un échec réseau laisse `controle_le` tel quel : le passage suivant (une heure)
+    réessaie. Un Wi-Fi pas encore monté trois minutes après le démarrage ne doit pas
+    coûter la fenêtre de la nuit."""
+    cles, _ = lire_cles_installees(racine)
+    installee = lire_version_installee(racine)
+    etat = lire_etat(racine)
+    reception = chemin_maj(racine, NOM_RECEPTION)
+    vider_dossier(reception)
+    archive = os.path.join(reception, "archive.zip")
+    chemin_manifeste = archive + paquet_signe.SUFFIXE_MANIFESTE
+    chemin_signature = archive + paquet_signe.SUFFIXE_SIGNATURE
+    adresse = politique.adresse
+    _recevoir("manifeste", adresse + paquet_signe.SUFFIXE_MANIFESTE, chemin_manifeste,
+              paquet_signe.TAILLE_MAX_MANIFESTE, delais["manifeste"], politique, contexte, delais)
+    _recevoir("signature", adresse + paquet_signe.SUFFIXE_SIGNATURE, chemin_signature,
+              TAILLE_MAX_SIGNATURE, delais["manifeste"], politique, contexte, delais)
+    octets = lire_borne(chemin_manifeste, paquet_signe.TAILLE_MAX_MANIFESTE, "MANIFESTE_MALFORME")
+    signature = lire_borne(chemin_signature, TAILLE_MAX_SIGNATURE, "SIGNATURE_INVALIDE")
+    # La règle (signature, version, minimale, client, chemins) n'est écrite qu'une
+    # fois, dans paquet_signe : la recopier ici serait la transcrire.
+    verdict = None
+    try:
+        manifeste = paquet_signe.verifier_entete(octets, signature, cles, installee, client)
+    except paquet_signe.PaquetRefuse as erreur:
+        if erreur.code != "VERSION_NON_SUPERIEURE":
+            _vider_reception(racine)
+            ecrire_etat(racine, horodater=False, controle_le=_horodatage(maintenant),
+                        attente=None)
+            raise _depuis_paquet(erreur)
+        verdict = "a-jour"
+    else:
+        if manifeste["version"] in etat["ecartees"]:
+            verdict = "a-jour"
+    if verdict == "a-jour":
+        _vider_reception(racine)
+        champs = {"controle_le": _horodatage(maintenant), "attente": None}
+        cle = "MAJ_CONTROLE:a-jour"
+        if etat["lignes"].get(cle) != _jour(maintenant):
+            tracer("MAJ_CONTROLE", resultat="a-jour", de=installee)
+            champs["lignes"] = dict(etat["lignes"], **{cle: _jour(maintenant)})
+        ecrire_etat(racine, horodater=False, **champs)
+        return
+    if manifeste["archive"]["taille"] > TAILLE_MAX_ARCHIVE:
+        # Une réponse que l'on ne demandera jamais : le contrôle compte comme fait.
+        _vider_reception(racine)
+        ecrire_etat(racine, horodater=False, controle_le=_horodatage(maintenant),
+                    attente=None)
+        raise Refus("REPONSE_TROP_GRANDE", "l'archive annoncée dépasse %d octets" % TAILLE_MAX_ARCHIVE)
+    _recevoir("archive", adresse, archive, manifeste["archive"]["taille"],
+              delais["archive"], politique, contexte, delais)
+    ecrire_etat(racine, horodater=False, controle_le=_horodatage(maintenant),
+                attente=manifeste["version"])
+    if etat["attente"] != manifeste["version"]:
+        tracer("MAJ_CONTROLE", resultat="disponible", de=installee, vers=manifeste["version"])
+
+
+def _appliquer_recu(racine, pilote, port, calme_secondes, demarrage, delais):
+    """Étape 7 : le chemin de T2a, sur l'archive reçue. Un report garde la version
+    en attente (prochain passage) ; tout autre issue la consomme, et elle sera
+    retéléchargée au contrôle suivant (une cause locale, comme l'espace disque,
+    se répare ; la retirer de la publication est l'affaire de C5-T3)."""
+    archive = os.path.join(chemin_maj(racine, NOM_RECEPTION), "archive.zip")
+    try:
+        code = appliquer_trio(racine, archive, pilote, port, calme_secondes, demarrage,
+                              delais["sante"], delais["auto_controle"],
+                              delais["reponse"], delais["arret"])
+    except Refus as erreur:
+        if erreur.code not in CODES_REPORT:
+            _oublier_la_version(racine)
+        raise
+    _oublier_la_version(racine)
+    return code
+
+
+def verifier(racine, pilote, maintenant=None, depuis_demarrage=None, contexte=None,
+             delais=None):
+    """Un passage de la tâche planifiée : cherche, vérifie, applique si l'heure est
+    bonne. Rend le code de sortie (0 rien à signaler ou appliquée, 1 refus, 3 report).
+
+    L'horloge locale, la durée depuis le démarrage du système et le contexte TLS
+    s'injectent pour les tests ; `main` passe ceux de la production."""
+    racine = os.path.realpath(racine)
+    maintenant = datetime.datetime.now() if maintenant is None else maintenant
+    depuis_demarrage = depuis_demarrage_systeme if depuis_demarrage is None else depuis_demarrage
+    reglages = delais_de_production()
+    inconnus = sorted(set(delais or {}) - set(reglages))
+    if inconnus:
+        raise ValueError("délai inconnu : %s" % ", ".join(inconnus))
+    reglages.update(delais or {})
+
+    def travail():
+        port = _port_configure(racine)
+        # Toujours, et même désactivé : un `appliquer` manuel interrompu se défait
+        # au passage suivant, sans geste de personne.
+        if not reprendre(racine, pilote, port, reglages["sante"]):
+            raise Refus("RETOUR_IMPOSSIBLE", "le retour arrière précédent a échoué")
+        politique = lire_politique(_bloc_mise_a_jour())
+        if not politique.adresse:
+            raise Refus("DESACTIVEE", "aucune adresse de publication configurée")
+        client, port, _ = lire_reglages(racine)
+        etat = lire_etat(racine)
+        if controle_du(etat, maintenant):
+            _controler_en_ligne(racine, politique, client, maintenant, contexte, reglages)
+            etat = lire_etat(racine)
+        if etat["attente"] is None:
+            return 0
+        # Avant toute extraction : hors de l'heure, rien n'est écrit ni demandé.
+        decision = decider_moment(politique, maintenant, depuis_demarrage)
+        if decision is None:
+            raise Refus("HORS_PLAGE", "hors de la plage horaire de mise à jour")
+        calme_secondes, demarrage = decision
+        return _appliquer_recu(racine, pilote, port, calme_secondes, demarrage, reglages)
+
+    with contexte_serveur(racine):
+        return executer(racine, travail, jour=_jour(maintenant))
+
+
+def proteger(racine):
+    """Crée et protège `mise-a-jour/` : ce que l'installateur lance, pour que la
+    règle des droits ne soit écrite qu'ici (E8). Code 0 ou 1, rien d'autre."""
+    racine = os.path.realpath(racine)
+    try:
+        preparer_dossier_prive(racine)
+    except Refus as erreur:
+        print("%s : %s" % (erreur.code, erreur.detail))
+        return 1
+    print("Dossier %s protégé." % serveur.NOM_DOSSIER_MAJ)
+    return 0
+
+
+# --------------------------------------------------------------------------
 # Ligne de commande
 # --------------------------------------------------------------------------
 
@@ -1652,9 +2317,12 @@ def construire_analyseur():
     appliquer_.add_argument("archive", help="l'archive .zip ; son manifeste et sa signature sont à côté")
     appliquer_.add_argument("--calme-minutes", type=int, default=CALME_SECONDES_DEFAUT // 60,
                             help="minutes sans requête exigées du serveur avant l'arrêt (défaut : 2)")
+    sous.add_parser("verifier", help="cherche un paquet, le vérifie, l'applique à son heure "
+                    "(lancé chaque heure par la tâche planifiée)")
     sous.add_parser("revenir", help="défait la dernière mise à jour appliquée")
     sous.add_parser("reprendre", help="termine ou défait une mise à jour interrompue")
     sous.add_parser("etat", help="dit où en est la mise à jour")
+    sous.add_parser("proteger", help="crée et protège le dossier mise-a-jour (usage de l'installateur)")
     sous.add_parser("auto-controle", help="contrôle que ce client se charge (usage interne)")
     return analyseur
 
@@ -1678,12 +2346,16 @@ def main(argv=None, racine=None, pilote=None):
             return 2
         return appliquer(racine, arguments.archive, pilote,
                          calme_secondes=arguments.calme_minutes * 60)
+    if arguments.commande == "verifier":
+        return verifier(racine, pilote)
     if arguments.commande == "revenir":
         return revenir(racine, pilote)
     if arguments.commande == "reprendre":
         return reprendre_commande(racine, pilote)
     if arguments.commande == "etat":
         return etat_commande(racine)
+    if arguments.commande == "proteger":
+        return proteger(racine)
     return auto_controle(racine)
 
 
