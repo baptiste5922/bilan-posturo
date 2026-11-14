@@ -1083,7 +1083,7 @@ class BacVerifier(BacDeMiseAJour):
         return archive
 
 
-class Montee(BacVerifier):
+class VerifierMontee(BacVerifier):
     """B1 : une montée complète par `verifier`, trois requêtes, rien de plus."""
 
     def test_une_montee_complete(self):
@@ -1160,7 +1160,7 @@ class Montee(BacVerifier):
         self.assertTrue(maj.sante_repond(self.port))
 
 
-class Eligibilite(BacVerifier):
+class VerifierEligibilite(BacVerifier):
     """B8 : hors plage, au démarrage, après une requête. Le serveur reste juge."""
 
     def test_hors_plage_sans_demarrage_rien_n_est_demande(self):
@@ -1223,7 +1223,7 @@ class Eligibilite(BacVerifier):
         self.assertEqual((reponse["verdict"], reponse["motif"]), ("refuse", "activite"))
 
 
-class DesactiveEtCoupure(BacVerifier):
+class VerifierDesactiveEtCoupure(BacVerifier):
     """B11 : même désactivé, `verifier` défait ce qu'une coupure a laissé."""
 
     def test_un_etat_a_la_bascule_est_defait_meme_sans_adresse(self):
@@ -1280,7 +1280,7 @@ class PiloteQuiNeRelancePas(pilote_essai.PiloteProcessus):
         self.appels.append("demarrer")
 
 
-class MortApresAcceptation(BacVerifier):
+class VerifierMortApresAcceptation(BacVerifier):
     """R1 : `maj.py` meurt entre l'acceptation de l'arrêt et la bascule."""
 
     def mourir_apres_acceptation(self):
@@ -1338,7 +1338,7 @@ class MortApresAcceptation(BacVerifier):
         self.assertEqual(maj.lire_version_installee(self.racine), "1.2.0")
 
 
-class ReponsesPerdues(BacVerifier):
+class VerifierReponsesPerdues(BacVerifier):
     """O1 : le serveur accepte, mais ni « accepte » ni « arrete » n'arrivent."""
 
     def avant_demarrage(self):
