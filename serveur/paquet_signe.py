@@ -462,13 +462,14 @@ def _refuser_fichier_et_dossier_de_meme_nom(fichiers, dossiers=()):
                            "nom à la fois fichier et dossier : %r" % (communs[0],))
 
 
-def verifier_paquet(chemin_archive, octets_manifeste, signature, cles,
-                    version_installee, client_attendu):
-    """Vérifie un trio (archive, manifeste, signature) ; rend un ManifesteVerifie.
+def verifier_entete(octets_manifeste, signature, cles, version_installee,
+                    client_attendu):
+    """Juge un manifeste signé SANS toucher à l'archive : étapes 1 à 4 de
+    `verifier_paquet`. Rend le manifeste (dict) ou lève PaquetRefuse.
 
-    `cles` : les clés de confiance DÉJÀ INSTALLÉES (jamais celles du paquet).
-    Toute autre issue qu'un ManifesteVerifie est une PaquetRefuse à code fermé ;
-    aucune autre exception ne sort. Rien n'est extrait sur le disque.
+    C'est ce que le client de mise à jour exécute avant de demander l'archive
+    (C5-T2b) : la règle n'est écrite qu'ici, `verifier_paquet` l'appelle en
+    premier. `cles` : les clés de confiance DÉJÀ INSTALLÉES.
     """
     # 1. Authentifier le manifeste.
     manifeste = lire_manifeste(octets_manifeste, signature, cles)
@@ -513,6 +514,22 @@ def verifier_paquet(chemin_archive, octets_manifeste, signature, cles,
     if sum(d["taille"] for d in fichiers.values()) > OCTETS_MAX_TOTAL:
         raise PaquetRefuse("MANIFESTE_MALFORME",
                            "plus de %d octets au total" % OCTETS_MAX_TOTAL)
+
+    return manifeste
+
+
+def verifier_paquet(chemin_archive, octets_manifeste, signature, cles,
+                    version_installee, client_attendu):
+    """Vérifie un trio (archive, manifeste, signature) ; rend un ManifesteVerifie.
+
+    `cles` : les clés de confiance DÉJÀ INSTALLÉES (jamais celles du paquet).
+    Toute autre issue qu'un ManifesteVerifie est une PaquetRefuse à code fermé ;
+    aucune autre exception ne sort. Rien n'est extrait sur le disque.
+    """
+    # 1 à 4. Le manifeste, les versions, le client, les chemins.
+    manifeste = verifier_entete(octets_manifeste, signature, cles,
+                                version_installee, client_attendu)
+    fichiers = manifeste["fichiers"]
 
     # 5. L'archive est authentifiée avant d'être lue. On la garde ouverte : la lire
     # ensuite par son chemin laisserait une fenêtre pour l'échanger.

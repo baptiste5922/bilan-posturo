@@ -1492,6 +1492,41 @@ def executer(racine, travail):
         return _signaler_refus(racine, erreur, False)
 
 
+def appliquer_trio(racine, chemin_archive, pilote, port, calme_secondes, demarrage,
+                   delai_sante, delai_auto_controle, delai_reponse, delai_arret):
+    """Contrôles, extraction, sauvegarde, arrêt concerté, bascule : tout ce qui suit
+    la reprise, pour un trio (archive, manifeste, signature) posé à côté de
+    `chemin_archive`. Rend le code de sortie ; lève Refus.
+
+    Appelée verrou pris, dossier réservé protégé et reprise faite : par `appliquer`
+    (archive posée à la main) et par `verifier` (archive téléchargée). Le verrou
+    n'est pas réentrant, d'où cette fonction plutôt qu'un second appel d'`appliquer`.
+    `port` est celui que l'appelant a lu pour la reprise ; le plan relit le sien."""
+    plan = controler(racine, chemin_archive)
+    acceptation = {"accepte": False}
+    try:
+        extraire(plan)
+        preparer_sauvegarde(plan)
+        _pilote_requis(pilote)
+        if not attendre_sante(plan.port, DELAI_SERVEUR_PRESENT_SECONDES, 0.5):
+            raise Refus("SERVEUR_ABSENT", "le serveur ne répond pas : rien n'est mis à jour")
+        demander_arret(racine, plan.port, calme_secondes, demarrage,
+                       delai_reponse, delai_arret, acceptation)
+        # Seulement maintenant : la sauvegarde courante est celle qui permet de
+        # revenir de la version installée.
+        adopter_sauvegarde(racine)
+        return basculer(plan, pilote, delai_sante, delai_auto_controle)
+    except BaseException:
+        # Toute sortie postérieure à une acceptation relance le serveur : il a
+        # quitté en code 0, la tâche planifiée ne le fera pas. (basculer relance
+        # lui-même dans tous ses chemins ; ce filet couvre ce qui l'entoure.)
+        if acceptation["accepte"]:
+            assurer_serveur(pilote, plan.port, delai_sante)
+        raise
+    finally:
+        shutil.rmtree(chemin_maj(racine, NOM_SAUVEGARDE_NEUVE), ignore_errors=True)
+
+
 def appliquer(racine, chemin_archive, pilote, calme_secondes=CALME_SECONDES_DEFAUT,
               demarrage=False, delai_sante=DELAI_SANTE_SECONDES,
               delai_auto_controle=DELAI_AUTO_CONTROLE_SECONDES,
@@ -1504,29 +1539,9 @@ def appliquer(racine, chemin_archive, pilote, calme_secondes=CALME_SECONDES_DEFA
         port = _port_configure(racine)
         if not reprendre(racine, pilote, port, delai_sante):
             raise Refus("RETOUR_IMPOSSIBLE", "le retour arrière précédent a échoué")
-        plan = controler(racine, chemin_archive)
-        acceptation = {"accepte": False}
-        try:
-            extraire(plan)
-            preparer_sauvegarde(plan)
-            _pilote_requis(pilote)
-            if not attendre_sante(plan.port, DELAI_SERVEUR_PRESENT_SECONDES, 0.5):
-                raise Refus("SERVEUR_ABSENT", "le serveur ne répond pas : rien n'est mis à jour")
-            demander_arret(racine, plan.port, calme_secondes, demarrage,
-                           delai_reponse, delai_arret, acceptation)
-            # Seulement maintenant : la sauvegarde courante est celle qui permet de
-            # revenir de la version installée.
-            adopter_sauvegarde(racine)
-            return basculer(plan, pilote, delai_sante, delai_auto_controle)
-        except BaseException:
-            # Toute sortie postérieure à une acceptation relance le serveur : il a
-            # quitté en code 0, la tâche planifiée ne le fera pas. (basculer relance
-            # lui-même dans tous ses chemins ; ce filet couvre ce qui l'entoure.)
-            if acceptation["accepte"]:
-                assurer_serveur(pilote, plan.port, delai_sante)
-            raise
-        finally:
-            shutil.rmtree(chemin_maj(racine, NOM_SAUVEGARDE_NEUVE), ignore_errors=True)
+        return appliquer_trio(racine, chemin_archive, pilote, port, calme_secondes,
+                              demarrage, delai_sante, delai_auto_controle,
+                              delai_reponse, delai_arret)
 
     with contexte_serveur(racine):
         return executer(racine, travail)
