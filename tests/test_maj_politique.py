@@ -213,6 +213,7 @@ class Passage(test_maj.Installation):
         test_maj.Installation.setUp(self)
         self.requetes = []
         self.panne = None
+        self.panne_archive = None       # seule l'archive échoue (manifeste et signature passent)
         self.fichiers = {}
         self.patch(maj, "_telecharger", self.telecharger)
         self.patch(maj, "attendre_sante", lambda *a, **k: True)
@@ -231,6 +232,8 @@ class Passage(test_maj.Installation):
             nature = "signature"
         else:
             nature = "archive"
+        if nature == "archive" and self.panne_archive is not None:
+            raise maj.Refus(self.panne_archive, "panne d'essai sur l'archive")
         with open(self.fichiers[nature], "rb") as f:
             octets = f.read()
         if len(octets) > limite:
@@ -439,6 +442,24 @@ class Frequence(Passage):
         self.assertEqual(self.passer(a(9, 1)), 0)
         self.assertEqual(len(self.requetes), 2, "le passage suivant réessaie")
         self.assertEqual(self.etat()["controle_le"], "2026-11-16T09:01:00")
+
+    def test_un_echec_de_l_archive_laisse_le_controle_du(self):
+        # Le manifeste est jugé et bon, mais l'archive n'arrive pas (Wi-Fi tombé, ou
+        # hébergeur qui a publié le manifeste avant elle) : le même échec réseau que
+        # sur le manifeste, la même parade, une heure et non six (erratum 24).
+        self.publier(self.trio("1.2.0"))
+        self.panne_archive = "HTTP_STATUT"
+        self.assertEqual(self.passer(a(9, 0)), 3)
+        self.assertIn("MAJ_REPORTEE code=HTTP_STATUT", self.technique())
+        etat = self.etat()
+        self.assertIsNone(etat["controle_le"])
+        self.assertIsNone(etat["attente"])
+        self.panne_archive = None
+        self.requetes.clear()
+        self.assertEqual(self.passer(a(10, 0)), 3)          # hors plage : reçue, elle attend
+        self.assertEqual(len(self.requetes), 3, "le contrôle suivant est du, une heure plus tard")
+        self.assertEqual(self.etat()["attente"], "1.2.0")
+        self.assertEqual(self.etat()["controle_le"], "2026-11-16T10:00:00")
 
     def test_un_echec_reseau_ne_change_pas_un_controle_deja_fait(self):
         self.assertEqual(self.passer(a(9, 0)), 0)
