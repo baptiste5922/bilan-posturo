@@ -28,6 +28,8 @@ param([switch]$Verifier)
 $ErrorActionPreference = "Stop"
 
 $NOM_TACHE = "BilanPosturo"
+# Egal a NOM_TACHE_MAJ de serveur\maj.py (un test les compare).
+$NOM_TACHE_MAJ = "BilanPosturo-MiseAJour"
 $NOM_REGLE = "Bilan posturologique"
 
 # La racine est le dossier qui contient ce script : le paquet le depose a cote
@@ -40,6 +42,7 @@ if (-not $racine) {
 }
 $serveur = Join-Path $racine "serveur\serveur.py"
 $config  = Join-Path $racine "config.json"
+$maj     = Join-Path $racine "serveur\maj.py"
 
 if (-not (Test-Path $serveur)) {
     throw "serveur\serveur.py introuvable dans $racine. Lancer ce script depuis le dossier de l'application, celui qui contient serveur\ et formulaire\."
@@ -62,6 +65,12 @@ if (-not $python) {
 Write-Host "Application : $racine"
 Write-Host "Python      : $python"
 Write-Host "Port        : $port"
+# Une simple presence de fichier : la regle de la mise a jour (adresse, plage,
+# client) vit dans maj.py, jamais recopiee ici, et aucun processus n'est lance
+# avant la sortie de -Verifier.
+$presenceMaj = "absent"
+if (Test-Path $maj) { $presenceMaj = "present" }
+Write-Host "Client de mise a jour : $presenceMaj"
 Write-Host ""
 
 if ($Verifier) {
@@ -94,6 +103,56 @@ Register-ScheduledTask -TaskName $NOM_TACHE -Action $action `
     -Force | Out-Null
 
 Write-Host "Tache planifiee « $NOM_TACHE » enregistree."
+
+# --- La mise a jour automatique ------------------------------------------
+
+# Seconde tache : elle ne fait que lancer "maj.py verifier" chaque heure. Le client
+# decide seul, d'apres config.json, s'il y a quelque chose a faire et s'il est
+# l'heure de le faire ; sans adresse configuree il ne se connecte a rien.
+# Le serveur, lui, a deja sa tache : un echec ici ne l'empeche pas de tourner.
+if (Test-Path $maj) {
+    # Le dossier mise-a-jour\ est cree et protege (SYSTEM et administrateurs
+    # seulement) par maj.py lui-meme : la regle des droits n'est ecrite qu'une
+    # fois, la-bas, et le serveur la relit avant d'obeir a une demande d'arret.
+    $protection = Start-Process -FilePath $python `
+        -ArgumentList '-B', ('"' + $maj + '"'), 'proteger' `
+        -WorkingDirectory $racine -Wait -PassThru -WindowStyle Hidden
+    if ($protection.ExitCode -ne 0) {
+        Write-Warning ("Le dossier mise-a-jour n'a pas pu etre protege : la mise a jour " +
+                       "automatique n'est PAS installee (le serveur, lui, l'est). " +
+                       "Pour lire le motif, en console administrateur : " +
+                       "python serveur\maj.py proteger")
+    } else {
+        $actionMaj = New-ScheduledTaskAction -Execute $python `
+            -Argument ('-B "' + $maj + '" verifier') -WorkingDirectory $racine
+
+        # Au demarrage, apres trois minutes : le Wi-Fi a le temps de monter.
+        $declencheurDemarrage = New-ScheduledTaskTrigger -AtStartup
+        $declencheurDemarrage.Delay = "PT3M"
+        # Puis toutes les heures. Vingt ans plutot que [TimeSpan]::MaxValue, que
+        # les Windows recents refusent ; l'installateur relu les renouvelle.
+        $declencheurHoraire = New-ScheduledTaskTrigger -Once -At (Get-Date) `
+            -RepetitionInterval (New-TimeSpan -Hours 1) `
+            -RepetitionDuration (New-TimeSpan -Days 7300)
+
+        # Aucun -RestartCount : un client qui echoue reessaie a l'heure suivante.
+        # Une heure au plus : une tache tuee a l'heure laisse un etat que le
+        # passage suivant defait (reprendre).
+        $reglagesMaj = New-ScheduledTaskSettingsSet `
+            -MultipleInstances IgnoreNew `
+            -ExecutionTimeLimit (New-TimeSpan -Hours 1) `
+            -StartWhenAvailable `
+            -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+
+        Register-ScheduledTask -TaskName $NOM_TACHE_MAJ -Action $actionMaj `
+            -Trigger @($declencheurDemarrage, $declencheurHoraire) `
+            -Principal $principal -Settings $reglagesMaj `
+            -Description "Mise a jour du bilan posturologique. Verifie chaque heure." `
+            -Force | Out-Null
+
+        Write-Host "Tache planifiee « $NOM_TACHE_MAJ » enregistree (inactive tant qu'aucune adresse n'est configuree)."
+    }
+}
 
 # --- Le pare-feu ---------------------------------------------------------
 

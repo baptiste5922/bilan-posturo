@@ -203,21 +203,26 @@ def lire_motif_des_secrets():
     pas = texte.find("Check that no secret is committed")
     if pas < 0:
         raise RuntimeError("pas « Check that no secret is committed » introuvable")
-    # Les deux lignes doivent se suivre : chercher chacune séparément
-    # attraperait le `motif=` d'un pas voisin (celui des licences) quand
-    # celui-ci disparaît ou change de forme.
-    deux = re.search(
-        r"""^\s*motif='([^'\n]+)'\s*\n\s*motif="\$motif"'([^'\n]+)'\s*$""",
+    # Les lignes doivent se suivre : chercher chacune séparément attraperait le
+    # `motif=` d'un pas voisin (celui des licences) quand celui-ci disparaît ou
+    # change de forme. Depuis C5-T2b le motif compte plus de deux lignes
+    # (identite-cabinet.json, adresse-publication.json) : toutes sont lues, sans
+    # quoi un motif ajouté à la suite resterait invisible de cette garde.
+    suite = re.search(
+        r"""^\s*motif='([^'\n]+)'\s*\n"""
+        r"""((?:[ \t]*(?:motif="\$motif"'[^'\n]+'|#[^\n]*)[ \t]*\n?)+)""",
         texte[pas:], re.MULTILINE)
-    if deux is None:
-        raise RuntimeError("les deux lignes motif= du contrôle des secrets "
+    if suite is None:
+        raise RuntimeError("les lignes motif= du contrôle des secrets "
                            "sont introuvables dans tests.yml")
-    premier, second = deux.group(1), deux.group(2)
+    premier = suite.group(1)
+    lignes = re.findall(r"""motif="\$motif"'([^'\n]+)'""", suite.group(2))
+    second = "".join(lignes)
     # Garde contre un motif vidé : il doit au moins nommer les clés.
     if r"\.pem$" not in premier or "cles-editeur" not in second:
         raise RuntimeError("le motif lu dans tests.yml ne ressemble plus à "
                            "celui du contrôle des secrets")
-    # Concaténation pure, comme `motif="$motif"'…'` : la seconde ligne commence
+    # Concaténation pure, comme `motif="$motif"'…'` : chaque ligne commence
     # elle-même par « | ». Un « | » de plus créerait une alternative vide, qui
     # accepte tous les chemins.
     motif = re.compile(premier + second, re.IGNORECASE)
@@ -518,6 +523,257 @@ class RacineDesScriptsDansLePaquet(unittest.TestCase):
                 self.assertEqual(
                     commandes_cd, ['cd /d "%~dp0"'],
                     relatif + " doit se placer dans son propre dossier")
+
+
+# ---------------------------------------------------------------------------
+# La seconde tâche (C5-T2b), vérifiée PAR LECTURE.
+#
+# Aucun lancement de powershell.exe ici, et aucune installation réelle : le délai
+# de 120 s de ExecutionReelleSousWindows est celui du démarrage de PowerShell sur
+# un exécuteur lent, et enregistrer des tâches SYSTEM sur l'exécuteur de la CI
+# serait pire. Ce qui se lit : l'ordre, les noms, les réglages. Ce que Windows en
+# fait est relevé sur la VM (fiche d'essai, partie B) et, pour le dossier protégé,
+# par tests/test_maj_windows.py.
+# ---------------------------------------------------------------------------
+
+SCRIPT_DESINSTALLATION = RACINE / "desinstaller-demarrage.ps1"
+NOM_TACHE_MAJ = "BilanPosturo-MiseAJour"
+
+
+def _bloc_accolades(texte, debut):
+    """Le texte entre l'accolade ouvrante qui suit `debut` et sa fermante."""
+    ouvrante = texte.index("{", debut)
+    profondeur = 0
+    for i in range(ouvrante, len(texte)):
+        if texte[i] == "{":
+            profondeur += 1
+        elif texte[i] == "}":
+            profondeur -= 1
+            if profondeur == 0:
+                return texte[ouvrante + 1:i]
+    raise ValueError("accolade non refermée")
+
+
+def defauts_de_l_installateur(texte):
+    """Les défauts de la seconde tâche dans `installer-demarrage.ps1` ; liste vide
+    si tout va bien. Fonction de module : un test la met en échec sur des textes
+    fabriqués (une garde jamais mise en échec ne garde rien)."""
+    defauts = []
+    # Les commentaires peuvent nommer ce que le script ne fait pas (« aucun
+    # -RestartCount ») : seul le code est jugé.
+    texte = _retirer_commentaires(texte)
+    sortie = re.search(r"^[ \t]*if\s*\(\s*\$Verifier\s*\)\s*\{", texte,
+                       re.IGNORECASE | re.MULTILINE)
+    if sortie is None:
+        return ["bloc -Verifier introuvable"]
+    fin_verifier = sortie.start() + len(_bloc_accolades(texte, sortie.start())) + 2
+    avant, apres = texte[:fin_verifier], texte[fin_verifier:]
+
+    # Avant la sortie de -Verifier : de simples tests de présence, aucun processus.
+    for motif in (r"Start-Process", r"Start-Job", r"Invoke-\w+", r"&\s*[\$\"']",
+                  r"\bpython(?:w)?\.exe\s+[\"'$]", r"ConvertFrom-Json\s*.*mise_a_jour"):
+        if re.search(motif, avant, re.IGNORECASE):
+            defauts.append("avant la sortie de -Verifier : %s" % motif)
+    if not re.search(r"Test-Path\s+\$maj", avant, re.IGNORECASE):
+        defauts.append("la présence de maj.py n'est pas testée avant -Verifier")
+    if not re.search(r"Client de mise a jour :", avant):
+        defauts.append("la ligne « Client de mise a jour » est absente")
+
+    if not re.search(r'^\$maj\s*=\s*Join-Path \$racine "serveur\\maj\.py"\s*$', texte,
+                     re.MULTILINE):
+        defauts.append("$maj n'est pas joint à $racine")
+    if len(re.findall(r"Register-ScheduledTask", apres)) != 2:
+        defauts.append("deux Register-ScheduledTask attendus après -Verifier")
+    if len(re.findall(r"Register-ScheduledTask", avant)) != 0:
+        defauts.append("un enregistrement de tâche avant la sortie de -Verifier")
+    if len(re.findall(r"Start-Process", apres)) != 1:
+        defauts.append("un seul Start-Process attendu (proteger)")
+    if len(re.findall(r"-RestartCount", texte)) != 1:
+        defauts.append("-RestartCount doit n'apparaître qu'une fois (tâche du serveur)")
+
+    # Le lancement de proteger : Start-Process, -B, proteger, attente du code.
+    lancement = re.search(r"\$protection\s*=\s*Start-Process\b(.*?)\n\s*if\b", apres,
+                          re.DOTALL | re.IGNORECASE)
+    if lancement is None:
+        defauts.append("le lancement de proteger est introuvable")
+    else:
+        for exigence in (r"-FilePath\s+\$python", r"'-B'", r"\$maj", r"'proteger'", r"-Wait",
+                         r"-PassThru", r"-WindowStyle\s+Hidden", r"-WorkingDirectory\s+\$racine"):
+            if not re.search(exigence, lancement.group(1)):
+                defauts.append("proteger : %s absent" % exigence)
+
+    # L'enregistrement de la seconde tâche est subordonné au code de sortie.
+    condition = re.search(r"if\s*\(\s*\$protection\.ExitCode\s+-ne\s+0\s*\)", apres)
+    if condition is None:
+        defauts.append("le code de sortie de proteger n'est pas testé")
+    else:
+        branche_echec = _bloc_accolades(apres, condition.start())
+        reste = apres[condition.end():]
+        autre = re.search(r"\}\s*else\s*\{", reste)
+        if autre is None:
+            defauts.append("pas de branche else après l'échec de proteger")
+        else:
+            branche_succes = _bloc_accolades(reste, autre.start())
+            if "Register-ScheduledTask" in branche_echec:
+                defauts.append("la tâche est enregistrée même quand proteger échoue")
+            if "Register-ScheduledTask" not in branche_succes \
+                    or "$NOM_TACHE_MAJ" not in branche_succes:
+                defauts.append("la seconde tâche n'est pas enregistrée par la branche de succès")
+            for exigence, motif in (
+                    ("execution", r"-ExecutionTimeLimit\s+\(New-TimeSpan\s+-Hours\s+1\)"),
+                    ("instances", r"-MultipleInstances\s+IgnoreNew"),
+                    ("argument", r"verifier['\"]"), ("option -B", r"'-B"),
+                    ("SYSTEM", r"-Principal\s+\$principal"),
+                    ("répertoire", r"-WorkingDirectory\s+\$racine"),
+                    ("démarrage", r"-AtStartup"), ("délai", r"PT3M"),
+                    ("heure", r"-RepetitionInterval\s+\(New-TimeSpan\s+-Hours\s+1\)"),
+                    ("forcer", r"-Force")):
+                if not re.search(motif, branche_succes):
+                    defauts.append("seconde tâche : %s absent" % exigence)
+            if "-RestartCount" in branche_succes:
+                defauts.append("la seconde tâche ne redémarre pas sur échec")
+            if "exit" in branche_echec.lower() or "throw" in branche_echec.lower():
+                defauts.append("un échec de proteger ne doit pas sauter le pare-feu")
+
+    # Après la tâche du serveur, avant le pare-feu (dont « exit 1 » ne doit pas sauter
+    # le client).
+    serveur = apres.find("Register-ScheduledTask -TaskName $NOM_TACHE ")
+    maj_ = apres.find("$protection")
+    pare_feu = apres.find("New-NetFirewallRule")
+    if not 0 <= serveur < maj_ < pare_feu:
+        defauts.append("ordre : tâche du serveur, puis mise à jour, puis pare-feu")
+    if NOM_TACHE_MAJ not in texte or not re.search(
+            r'^\$NOM_TACHE_MAJ\s*=\s*"%s"\s*$' % NOM_TACHE_MAJ, texte, re.MULTILINE):
+        defauts.append("$NOM_TACHE_MAJ absent ou différent")
+    return defauts
+
+
+def defauts_du_desinstallateur(texte):
+    """B14 : retire les deux tâches, celle de mise à jour d'abord, et refuse tant
+    qu'elle tourne."""
+    defauts = []
+    maj_ = texte.find("Unregister-ScheduledTask -TaskName $NOM_TACHE_MAJ")
+    serveur = texte.find("Unregister-ScheduledTask -TaskName $NOM_TACHE ")
+    if maj_ < 0 or serveur < 0:
+        defauts.append("les deux tâches ne sont pas retirées")
+    elif maj_ > serveur:
+        defauts.append("la tâche de mise à jour doit être retirée d'abord")
+    etat = re.search(r"\.State\s+-eq\s+'Running'", texte)
+    if etat is None:
+        defauts.append("l'état « Running » n'est pas testé")
+    else:
+        branche = _bloc_accolades(texte, etat.start())
+        if not re.search(r"^\s*exit\s+1\s*$", branche, re.MULTILINE):
+            defauts.append("une mise à jour en cours ne fait pas sortir en code 1")
+        if "Unregister" in branche or "Stop-ScheduledTask" in branche:
+            defauts.append("rien ne doit être arrêté ni retiré pendant une mise à jour")
+        if "reprendre" not in branche or "etat" not in branche:
+            defauts.append("le message ne rappelle pas maj.py etat / reprendre")
+        if maj_ >= 0 and etat.start() > maj_:
+            defauts.append("le refus doit précéder le retrait")
+    if "Stop-ScheduledTask -TaskName $NOM_TACHE_MAJ" in texte:
+        defauts.append("la tâche de mise à jour ne s'arrête jamais de force")
+    if not re.search(r'^\$NOM_TACHE_MAJ\s*=\s*"%s"\s*$' % NOM_TACHE_MAJ, texte, re.MULTILINE):
+        defauts.append("$NOM_TACHE_MAJ absent ou différent")
+    return defauts
+
+
+class SecondeTache(unittest.TestCase):
+    """B13, B14. Trois systèmes, sans paquet, sans zip, sans PowerShell."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.installateur = _lire_script(SCRIPT_INSTALLATION)
+        cls.desinstallateur = _lire_script(SCRIPT_DESINSTALLATION)
+
+    def test_l_installateur_est_conforme(self):
+        self.assertEqual(defauts_de_l_installateur(self.installateur), [])
+
+    def test_la_garde_d_ordre_passe_et_voit_les_effets_apres_la_sortie(self):
+        self.assertEqual(verifier_ordre_des_effets(self.installateur), [])
+        apres = self.installateur[self.installateur.index("exit 0"):]
+        self.assertEqual(len(re.findall(r"Register-ScheduledTask", apres)), 2)
+        self.assertIsNotNone(re.search(r"Start-Process", apres))
+        self.assertNotIn("Start-Process", self.installateur[:self.installateur.index("exit 0")])
+
+    def test_le_nom_de_la_tache_et_son_argument(self):
+        self.assertIn('$NOM_TACHE_MAJ = "BilanPosturo-MiseAJour"', self.installateur)
+        self.assertIn("verifier", self.installateur)
+        self.assertIn("'proteger'", self.installateur)
+        code = _retirer_commentaires(self.installateur)
+        self.assertEqual(len(re.findall(r"-RestartCount", code)), 1)
+
+    def test_aucune_regle_de_la_mise_a_jour_n_est_recopiee_en_powershell(self):
+        # La règle (adresse, plage, calme, droits du dossier) vit dans maj.py : le
+        # script ne lit pas le bloc, ne connaît ni plage ni SDDL.
+        sans_commentaires = _retirer_commentaires(self.installateur)
+        for terme in ("mise_a_jour", "plage", "calme_minutes", "au_demarrage", "icacls",
+                      "SDDL", "Set-Acl", "S-1-5-32-544", "publication"):
+            self.assertNotIn(terme.lower(), sans_commentaires.lower(), terme)
+
+    def test_le_desinstallateur_est_conforme(self):
+        self.assertEqual(defauts_du_desinstallateur(self.desinstallateur), [])
+
+    def test_les_deux_scripts_gardent_leur_forme_de_fichier(self):
+        for script in (SCRIPT_INSTALLATION, SCRIPT_DESINSTALLATION):
+            with self.subTest(script=script.name):
+                brut = script.read_bytes()
+                self.assertTrue(brut.startswith(b"\xef\xbb\xbf"), "BOM absent")
+                self.assertEqual(brut.count(b"\n"), brut.count(b"\r\n"), "fins de ligne mêlées")
+                self.assertEqual(brut.decode("utf-8-sig").count("\x00"), 0)
+
+    # --- les gardes mordent ----------------------------------------------------
+
+    def muter(self, texte, ancien, nouveau, fois=1):
+        self.assertEqual(texte.count(ancien), fois, ancien)
+        return texte.replace(ancien, nouveau)
+
+    def test_la_garde_de_l_installateur_mord(self):
+        t = self.installateur
+        cas = {
+            "Start-Process avant -Verifier": self.muter(
+                t, 'Write-Host "Client de mise a jour : $presenceMaj"',
+                'Start-Process notepad.exe\nWrite-Host "Client de mise a jour : $presenceMaj"'),
+            "python lancé avant -Verifier": self.muter(
+                t, 'Write-Host "Client de mise a jour : $presenceMaj"',
+                '& $python -c "1"\nWrite-Host "Client de mise a jour : $presenceMaj"'),
+            "tâche enregistrée sans condition": self.muter(
+                t, "if ($protection.ExitCode -ne 0)", "if ($false)"),
+            "pas de limite d'une heure": self.muter(
+                t, "-ExecutionTimeLimit (New-TimeSpan -Hours 1)", "-ExecutionTimeLimit (New-TimeSpan -Hours 3)"),
+            "second RestartCount": self.muter(
+                t, "-MultipleInstances IgnoreNew `\r\n            -ExecutionTimeLimit",
+                "-MultipleInstances IgnoreNew -RestartCount 3 `\r\n            -ExecutionTimeLimit"),
+            "mauvais nom": self.muter(t, '$NOM_TACHE_MAJ = "BilanPosturo-MiseAJour"',
+                                      '$NOM_TACHE_MAJ = "BilanPosturo-Maj"'),
+            "sans -B": self.muter(t, "'-B', ('\"' + $maj", "('\"' + $maj"),
+            "sans proteger": self.muter(t, "'proteger'", "'etat'"),
+            "sans attendre": self.muter(t, "-WorkingDirectory $racine -Wait -PassThru",
+                                        "-WorkingDirectory $racine -PassThru"),
+            "pare-feu avant": self.muter(
+                t, "# --- La mise a jour automatique", "New-NetFirewallRule -x\n# --- La mise a jour automatique"),
+            "sans répétition horaire": self.muter(
+                t, "-RepetitionInterval (New-TimeSpan -Hours 1)", "-RepetitionInterval (New-TimeSpan -Hours 2)"),
+        }
+        for nom, texte in cas.items():
+            with self.subTest(nom):
+                self.assertTrue(defauts_de_l_installateur(texte.replace("\r\n", "\n"))
+                                or verifier_ordre_des_effets(texte.replace("\r\n", "\n")), nom)
+
+    def test_la_garde_du_desinstallateur_mord(self):
+        t = self.desinstallateur
+        cas = {
+            "serveur retiré d'abord": t.replace(
+                "Unregister-ScheduledTask -TaskName $NOM_TACHE_MAJ", "Unregister-ScheduledTask -TaskName $XX", 1)
+            + "\nUnregister-ScheduledTask -TaskName $NOM_TACHE_MAJ\n",
+            "pas de refus": self.muter(t, "exit 1", "exit 0"),
+            "arrêt de force": t + "\nStop-ScheduledTask -TaskName $NOM_TACHE_MAJ\n",
+            "état non testé": self.muter(t, "'Running'", "'Ready'"),
+            "mauvais nom": self.muter(t, '"BilanPosturo-MiseAJour"', '"BilanPosturo-Maj"'),
+        }
+        for nom, texte in cas.items():
+            with self.subTest(nom):
+                self.assertTrue(defauts_du_desinstallateur(texte.replace("\r\n", "\n")), nom)
 
 
 # ---------------------------------------------------------------------------

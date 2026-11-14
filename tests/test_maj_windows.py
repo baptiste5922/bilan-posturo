@@ -255,6 +255,55 @@ class WindowsReel(unittest.TestCase):
         os.rmdir(jonction)
         self.assertEqual(os.listdir(cible), ["derriere.txt"])
 
+    # --- C5-T2b ---------------------------------------------------------------
+
+    def test_proteger_par_main_pose_les_droits_exacts(self):
+        # B23 : ce que l'installateur lance, par le point d'entrée du client.
+        if not est_administrateur():
+            self.fail("le lanceur n'est pas administrateur")
+        racine = self.racine_jetable()
+        self.assertEqual(maj.main(["proteger"], racine=racine), 0)
+        dossier = os.path.join(racine, serveur.NOM_DOSSIER_MAJ)
+        enregistrement = os.path.join(racine, "droits-proteger.txt")
+        resultat = lancer(maj._systeme32("icacls.exe"), dossier, "/save", enregistrement)
+        self.assertEqual(resultat.returncode, 0, resultat.stdout + resultat.stderr)
+        with open(enregistrement, "rb") as f:
+            texte = maj.decoder_sortie_icacls(f.read())
+        # Lecture indépendante du lecteur du client, comme pour le dossier réservé.
+        self.assertRegex(texte, r"D:P")
+        self.assertEqual(set(re.findall(r";;;([A-Z0-9-]+)\)", texte)), {"SY", "BA"}, texte)
+        self.assertIn(serveur.proprietaire_windows(dossier),
+                      (serveur.SID_SYSTEME, serveur.SID_ADMINISTRATEURS))
+        self.assertTrue(serveur.dossier_reserve_de_confiance(dossier))
+        # Rien d'autre n'a été créé : proteger ne fait que cela.
+        self.assertEqual(os.listdir(dossier), [])
+
+    def test_proteger_refuse_une_jonction(self):
+        racine = self.racine_jetable()
+        cible = self.racine_jetable()
+        resultat = lancer(maj._systeme32("cmd.exe"), "/c", "mklink", "/J",
+                          os.path.join(racine, serveur.NOM_DOSSIER_MAJ), cible)
+        self.assertEqual(resultat.returncode, 0, resultat.stdout + resultat.stderr)
+        self.assertEqual(maj.main(["proteger"], racine=racine), 1)
+        self.assertEqual(os.listdir(cible), [])
+
+    def test_depuis_demarrage_reel_est_positif_et_ne_decroit_pas(self):
+        premier = maj.depuis_demarrage_systeme()
+        time.sleep(0.05)
+        second = maj.depuis_demarrage_systeme()
+        self.assertGreater(premier, 0)
+        self.assertGreaterEqual(second, premier)
+        # Des secondes : un PC allumé depuis moins de dix ans.
+        self.assertLess(second, 10 * 365 * 24 * 3600)
+
+    def test_nom_de_la_tache_de_mise_a_jour_egal_a_celui_des_deux_scripts(self):
+        for script in ("installer-demarrage.ps1", "desinstaller-demarrage.ps1"):
+            with open(os.path.join(PROJET, script), encoding="utf-8-sig") as f:
+                correspondance = re.search(r'^\$NOM_TACHE_MAJ\s*=\s*"([^"]+)"', f.read(),
+                                           re.MULTILINE)
+            self.assertIsNotNone(correspondance, script)
+            self.assertEqual(maj.NOM_TACHE_MAJ, correspondance.group(1), script)
+
     def test_paquet_essai_est_importable_sous_windows(self):
         # Le bout en bout fabrique ses paquets sans sh ni zip : il tourne ici aussi.
         self.assertTrue(callable(pe.fabriquer_trio))
