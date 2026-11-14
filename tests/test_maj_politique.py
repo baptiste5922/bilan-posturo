@@ -218,6 +218,23 @@ class Passage(test_maj.Installation):
         self.patch(maj, "_telecharger", self.telecharger)
         self.patch(maj, "attendre_sante", lambda *a, **k: True)
         self.configurer()
+        # B21 : quoi qu'un test ait provoqué, le chemin de l'adresse n'est dans aucun
+        # des deux journaux. Enregistré après l'effacement du dossier : joué avant.
+        self.addCleanup(self.aucune_adresse_dans_les_journaux, self.racine)
+
+    @staticmethod
+    def aucune_adresse_dans_les_journaux(racine):
+        # La racine est celle de CE setUp : un test qui rejoue setUp (une installation
+        # par cas d'une table) a plusieurs racines, effacées dans l'ordre inverse.
+        for nom in ("technique.log", "journal.log"):
+            chemin = os.path.join(racine, nom)
+            if not os.path.exists(chemin):
+                continue
+            with open(chemin, encoding="utf-8") as f:
+                texte = f.read()
+            for interdit in ("/essai/", "stable.zip"):
+                if interdit in texte:
+                    raise AssertionError("%s porte une partie de l'adresse de publication" % nom)
 
     # --- faux hébergement ---------------------------------------------------
 

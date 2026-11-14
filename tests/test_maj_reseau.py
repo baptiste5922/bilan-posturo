@@ -489,6 +489,22 @@ class Entete(test_maj.Installation):
         self.patch(maj, "attendre_sante", lambda *a, **k: True)
         self.ecrire_config(mise_a_jour={
             "client": "cabinet-01", "adresse": self.heb.adresse(), "au_demarrage": False})
+        self.addCleanup(self.aucune_adresse_dans_les_journaux)
+
+    def aucune_adresse_dans_les_journaux(self):
+        """B21 : le chemin de l'adresse n'est dans aucun des deux journaux ; seul
+        l'hôte (127.0.0.1 ici) peut figurer dans journal.log."""
+        for nom in ("technique.log", "journal.log"):
+            chemin = os.path.join(self.racine, nom)
+            if not os.path.exists(chemin):
+                continue
+            with open(chemin, encoding="utf-8") as f:
+                texte = f.read()
+            for interdit in ("/essai/", "stable.zip"):
+                if interdit in texte:
+                    raise AssertionError("%s porte une partie de l'adresse de publication" % nom)
+            if nom == "technique.log" and "127.0.0.1" in texte:
+                raise AssertionError("technique.log porte un hôte")
 
     def passer(self, maintenant=datetime.datetime(2026, 11, 16, 12, 0, 0)):
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
