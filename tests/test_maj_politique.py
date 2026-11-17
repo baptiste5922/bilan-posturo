@@ -486,6 +486,10 @@ class Frequence(Passage):
         self.assertEqual(self.passer(a(12, 0), forcer=True), 0)
         self.assertEqual(self.demandes, [])
         self.assertIn("MAJ_REPORTEE code=HORS_PLAGE", self.technique())
+        # Ni extraction ni sauvegarde : le rejugement d'avant l'arrêt n'est pas ce qui
+        # a retenu le passage, c'est la décision d'entrée (défense en profondeur).
+        self.assertFalse(os.path.lexists(self.dossier_maj("prepare")))
+        self.assertFalse(os.path.lexists(self.dossier_maj("sauvegarde-neuve")))
         # Désactivé : aucune connexion, même forcé.
         self.configurer(adresse="")
         self.requetes.clear()
