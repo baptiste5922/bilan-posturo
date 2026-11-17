@@ -192,3 +192,14 @@ résultat inchangé (`HORS_PLAGE`, aucune demande d'arrêt) : le rejugement fait
 demande d'arrêt (erratum 34) rattrapait la faute, **après** l'extraction et la sauvegarde. Le test
 vérifie maintenant que `prepare/` et `sauvegarde-neuve/` n'existent pas : c'est la décision
 d'entrée qui doit retenir le passage, le rejugement n'est que la seconde barrière.
+
+### Suites complètes après les corrections de la revue
+
+| Commande | Résultat |
+|---|---|
+| `python3 -W error::ResourceWarning -m unittest discover -s tests` (tâche de fond de l'outil) | **Ran 1118 tests in 438.456s — OK (skipped=23)** |
+| `python3 -O -W error::ResourceWarning -m unittest …` au premier plan, mêmes cinq tronçons | 989 + 86 + 10 + 18 + 15 = **1118 tests, tous OK sous `-O`** |
+| `python3 -m pyflakes serveur/ tests/ outils/atelier/ outils/signer-paquet.py` | vide |
+| `git diff main -- formulaire/` | vide |
+
++10 tests depuis la correction de l'audit (1108 → 1118). Aucun `serveur.py` ni `maj.py` lancé depuis le dépôt.
