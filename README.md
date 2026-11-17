@@ -16,7 +16,12 @@ produces structured reports that can be sent on directly, and saves time on
 write-up.
 
 **No data leaves the local network.** No cloud, no third-party service, no
-account to create.
+account to create. No health data and no practice data ever leaves the practice PC.
+The one optional exception is the update client: **only if** an update address is
+written in `config.json` (it is empty by default), it makes three anonymous HTTPS
+`GET` requests to that address, with no body, no identifier, no version number and
+nothing from the practice, and installs a package only if it is signed by a key
+already installed on the PC. With no address, nothing is ever sent.
 
 ---
 
@@ -131,9 +136,13 @@ python serveur/serveur.py
 .\installer-demarrage.ps1
 ```
 
-Registers the `BilanPosturo` scheduled task — at system startup, as SYSTEM,
-restarted up to five times — opens the firewall port, and prints the address
-to use on the tablet. `.\desinstaller-demarrage.ps1` reverts to manual start.
+Registers two scheduled tasks, both as SYSTEM: `BilanPosturo` — at system startup,
+restarted up to five times — and `BilanPosturo-MiseAJour` — the update client
+(`serveur\maj.py verifier`), run three minutes after startup and then every hour, one
+hour at most, **inactive until an update address is configured**. It also opens the
+firewall port and prints the address to use on the tablet.
+`.\desinstaller-demarrage.ps1` removes both tasks (the update one first, and it refuses
+while an update is running) and reverts to manual start.
 
 Without this step the server depends on someone double-clicking
 `demarrer-serveur.bat` every morning, and a workstation that rebooted
@@ -157,7 +166,7 @@ exist for SYSTEM.
 | `journal_technique` | `true` by default; `false` turns off the second, non-identifying log (see below) |
 | `page_etat` | `true` by default; `false` switches off the authenticated diagnostic page `GET /etat`, which then answers as if it did not exist. Only `true` enables it. The page is read-only (version, start time, last delivery, free disk, certificate validity, practice identity, state of the last software update, last lines of `technique.log`) and shows no address or file name; details in `docs/Mode_emploi.md`, "La page d'état" |
 | `conservation_journaux_mois` | Retention of both logs, in months of 30 days: an integer from 1 to 120, `6` by default (anything else falls back to 6). Each log is archived past 5 MB or one month; an archive is deleted once its first line is older than this minus one day; checked at startup, at each rotation, at most once a day on write, and every six hours while the server runs |
-| `mise_a_jour` | `{"client": "cabinet-NN"}`: the client this PC belongs to. Required by `serveur/maj.py` to apply a signed update package (C5-T2a); a package signed for another client is refused. The server ignores the block. Details in `docs/configuration.md`, section 8, and `docs/mise-a-jour.md` (French) |
+| `mise_a_jour` | Block read by `serveur/maj.py` only; the server ignores it. `client`: `cabinet-NN`, the client this PC belongs to (required to apply a package; a package signed for another client is refused). `adresse`: the HTTPS address of the update package, ending in `.zip` — absent or `""` means **update disabled, no connection ever made**. `plage`: `"HH:MM-HH:MM"`, default `"20:00-07:00"`, the hours in which an update may be applied. `calme_minutes`: 1 to 240, default `30`, minutes without any request the server must have seen. `au_demarrage`: `true` by default, allows an update outside the range just after the system started (see the caveat on Windows Fast Startup in `docs/mise-a-jour.md`). `proxy`: `""` or `http://host:port`, the only proxy ever used (the environment is never read). A wrong value is never replaced by its default: nothing is applied. Details in `docs/configuration.md`, section 8, and `docs/mise-a-jour.md` (French) |
 | `cabinet` | Practice identity (name, address, email, phone, logo path, file-naming template), set by `--config`, served by `GET /cabinet` (authenticated). The logo path is checked once at startup: only `images/cabinet/<name>.png|jpg` or the default `images/favicon.jpeg`; a refused logo means no logo, never a broken export. Details: `docs/configuration.md` |
 
 ---
@@ -239,6 +248,7 @@ Bilan_entrants/
 BilanPosturo-*.zip   distribution archives
 BilanPosturo-*.zip.manifeste.json  .manifeste.sig   signed manifest of an archive (names the client)
 mise-a-jour/         the update client's working folder on the practice PC (copied package, backup, state), reserved to SYSTEM and administrators
+adresse-publication.json  a client's update address, kept in the workshop folder of that client (it identifies the client and opens its package); a test refuses any URL of that shape in a tracked file
 formulaire/images/cabinet/   the client's own logo, placed on the practice PC only
 identite-cabinet.json  apercu-atelier.html   workshop files of a client, kept outside the repository
 node_modules/        build-time only; formulaire/lib/ is committed
@@ -275,7 +285,7 @@ bilan-posturo/
 │   ├── generer_autorite.py certificate authority + server certificate
 │   ├── signature_ed25519.py  Ed25519 verification, pure Python (C5-T1)
 │   ├── paquet_signe.py     checks a signed update package; extracts nothing
-│   └── maj.py              update client: applies a signed package, rolls back by itself (C5-T2a)
+│   └── maj.py              update client: fetches (C5-T2b) or is given a signed package, applies it in the night range, rolls back by itself (C5-T2a)
 ├── docs/                   practitioner guides, French and English
 ├── outils/
 │   ├── faire-paquet.sh     builds the archive to install at the practice:
@@ -288,7 +298,7 @@ bilan-posturo/
 │                           preview) in a folder outside any Git repository
 ├── tests/                  Python for the server, Node for the delivery queue
 ├── demarrer-serveur.bat    manual Windows launcher, useful to see errors
-├── installer-demarrage.ps1 registers the scheduled task and firewall rule
+├── installer-demarrage.ps1 registers the two scheduled tasks and the firewall rule
 ├── desinstaller-demarrage.ps1
 └── config.json             not committed; created at the root at setup
 ```

@@ -43,7 +43,8 @@ def contexte_client(autorite=None):
 
 class _Serveur(socketserver.ThreadingTCPServer):
     daemon_threads = True
-    allow_reuse_address = True
+    # Pas de SO_REUSEADDR : le port est éphémère (0), il n'en a pas besoin, et sous
+    # Windows l'option laisserait un second processus se lier au même port.
 
     def __init__(self, hebergement):
         socketserver.ThreadingTCPServer.__init__(self, ("127.0.0.1", 0), _Gestionnaire)
@@ -289,7 +290,6 @@ class FauxMandataire(object):
         self.verrou = threading.Lock()
         self.fermeture = threading.Event()
         self.ecoute = socket.socket()
-        self.ecoute.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.ecoute.bind(("127.0.0.1", 0))
         self.ecoute.listen(5)
         self.ecoute.settimeout(0.1)

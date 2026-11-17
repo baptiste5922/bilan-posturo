@@ -22,8 +22,9 @@ touché se défait. Les clés qui jugent le paquet sont celles DÉJÀ installée
 jamais celles du paquet.
 
 Bibliothèque standard seule. Contrat : docs/contrats/C5-T2.md.
-Codes de sortie : 0 succès, 1 refus ou échec, 2 usage ou dépôt de développement,
-3 reporté (à retenter plus tard).
+Codes de sortie : 0 succès (ou client désactivé, ou hors de la plage : rien d'anormal, et
+le Planificateur de tâches ne doit pas afficher 0x3 chaque heure), 1 refus ou échec,
+2 usage ou dépôt de développement, 3 reporté (à retenter plus tard).
 """
 
 import argparse
@@ -103,6 +104,10 @@ CODES_REPORT = frozenset((
     + CODES_RESEAU)
 # Les causes de retour qui écartent la version : un défaut du paquet, pas une
 # coupure de courant (D10).
+# Les reports qui ne sont pas un incident : le client est désactivé, ou il n'est pas
+# l'heure. Sortie 0, pour que « Résultat de la dernière exécution » du Planificateur
+# n'affiche pas 0x3 toute la journée. L'état et technique.log les disent quand même.
+CODES_ATTENTE_NORMALE = frozenset(("DESACTIVEE", "HORS_PLAGE"))
 CAUSES_ECARTEES = ("SANTE_MUETTE", "AUTO_CONTROLE_ECHOUE", "RETOUR_MANUEL")
 VERSIONS_ECARTEES_MAX = 10
 
@@ -116,7 +121,8 @@ RESULTATS_DE_TRACE = ("ok", "echec", "a-jour", "disponible")
 # comme dans journal.log (14.11) : un passage par heure ne doit pas faire 24 lignes
 # de « rien à signaler ». Clé = « ÉVÉNEMENT:code » (ou résultat).
 LIGNES_LIMITEES = frozenset(
-    ["MAJ_REPORTEE:" + code for code in ("DESACTIVEE", "HORS_PLAGE") + CODES_RESEAU]
+    ["MAJ_REPORTEE:" + code
+     for code in ("DESACTIVEE", "HORS_PLAGE", "TEMPS_INSUFFISANT") + CODES_RESEAU]
     + ["MAJ_REFUSEE:ADRESSE_INVALIDE", "MAJ_REFUSEE:PLAGE_INVALIDE",
        "MAJ_REFUSEE:CLES_ABSENTES", "MAJ_CONTROLE:a-jour"])
 
@@ -584,7 +590,8 @@ def preparer_dossier_prive(racine):
     a pu être rempli par n'importe qui avant la première protection : son contenu
     (un état « bascule », une sauvegarde de son choix) serait « restauré » par
     SYSTEM. Il est donc PROTÉGÉ, puis VIDÉ (dans cet ordre : voir plus bas). Un
-    dossier déjà de confiance garde son contenu : c'est l'état, la sauvegarde et le verrou des mises à jour précédentes.
+    dossier déjà de confiance garde son contenu : c'est l'état, la sauvegarde et le
+    verrou des mises à jour précédentes.
     Enfin les droits sont posés et RELUS : un dossier hérité de l'utilisateur du
     cabinet laisserait n'importe quel programme de sa session déposer un paquet que
     SYSTEM installerait."""
@@ -1661,8 +1668,17 @@ def _telecharger(url, destination, limite, delai_total, contexte=None, proxy="",
                         if recu > limite:
                             raise Refus("REPONSE_TROP_GRANDE",
                                         "plus de %d octets reçus de %s" % (limite, hote))
-                        sortie.write(bloc)
-                    sortie.flush()
+                        try:
+                            sortie.write(bloc)
+                        except OSError as erreur:
+                            # Disque plein, droits : une panne d'ÉCRITURE, pas du réseau.
+                            raise Refus("ECRITURE_IMPOSSIBLE",
+                                        "réception impossible : %s" % _cause_sans_adresse(erreur))
+                    try:
+                        sortie.flush()
+                    except OSError as erreur:
+                        raise Refus("ECRITURE_IMPOSSIBLE",
+                                    "réception impossible : %s" % _cause_sans_adresse(erreur))
                 # Le minuteur a coupé la socket pendant une lecture : `read1` rend alors
                 # b"" comme à la fin d'un corps sans longueur, et un corps coupé passerait
                 # pour complet. Une échéance dépassée n'est jamais un succès.
@@ -2023,6 +2039,8 @@ def _signaler_refus(racine, erreur, ecrire, jour=None):
         except (Refus, OSError):
             pass
     print("%s : %s" % (erreur.code, erreur.detail))
+    if erreur.code in CODES_ATTENTE_NORMALE:
+        return 0
     return 3 if erreur.code in CODES_REPORT else 1
 
 
@@ -2033,8 +2051,9 @@ def executer(racine, travail, jour=None, filet=False):
 
     `filet` (la tâche planifiée, `verifier`) : aucune sortie ne reste silencieuse.
     Une exception imprévue devient `MAJ_REFUSEE code=CODE_INCONNU` dans les deux
-    journaux (sa seule classe, jamais son texte, qui peut citer une adresse ou un chemin) et l'état, au lieu d'une trace de pile perdue sous SYSTEM. Les
-    commandes manuelles gardent leur comportement : l'exception se propage."""
+    journaux (sa seule classe, jamais son texte, qui peut citer une adresse ou un
+    chemin) et l'état, au lieu d'une trace de pile perdue sous SYSTEM. Les commandes
+    manuelles gardent leur comportement : l'exception se propage."""
     try:
         preparer_dossier_prive(racine)
         with verrou(racine):
@@ -2240,6 +2259,16 @@ def _jour(maintenant):
     return maintenant.date().isoformat()
 
 
+def _apres_un_controle_reussi(etat):
+    """Ce que l'état oublie quand un contrôle réseau vient d'aboutir : un report ou un
+    refus plus ancien que lui (DESACTIVEE avant l'activation, RESEAU_INJOIGNABLE d'une
+    coupure résorbée) ne doit pas rester affiché par /etat à côté d'un contrôle du jour.
+    Un résultat d'APPLICATION (appliquee, revenue) est gardé : c'est lui que le support lit."""
+    if etat["resultat"] in ("reportee", "refusee"):
+        return {"resultat": None, "code": None}
+    return {}
+
+
 def _horodatage(maintenant):
     return maintenant.isoformat(timespec="seconds")
 
@@ -2301,6 +2330,7 @@ def _controler_en_ligne(racine, politique, client, maintenant, contexte, delais)
     if verdict == "a-jour":
         _vider_reception(racine)
         champs = {"controle_le": _horodatage(maintenant), "attente": None}
+        champs.update(_apres_un_controle_reussi(etat))
         cle = "MAJ_CONTROLE:a-jour"
         if etat["lignes"].get(cle) != _jour(maintenant):
             tracer("MAJ_CONTROLE", resultat="a-jour", de=installee)
@@ -2328,7 +2358,7 @@ def _controler_en_ligne(racine, politique, client, maintenant, contexte, delais)
                         attente=None)
         raise
     ecrire_etat(racine, horodater=False, controle_le=_horodatage(maintenant),
-                attente=manifeste["version"])
+                attente=manifeste["version"], **_apres_un_controle_reussi(etat))
     if etat["attente"] != manifeste["version"]:
         tracer("MAJ_CONTROLE", resultat="disponible", de=installee, vers=manifeste["version"])
 
@@ -2363,7 +2393,8 @@ def budget_application(delais):
 
 
 def verifier(racine, pilote, maintenant=None, depuis_demarrage=None, contexte=None,
-             delais=None, monotone=None, limite_execution=LIMITE_EXECUTION_SECONDES):
+             delais=None, monotone=None, limite_execution=LIMITE_EXECUTION_SECONDES,
+             forcer=False):
     """Un passage de la tâche planifiée : cherche, vérifie, applique si l'heure est
     bonne. Rend le code de sortie (0 rien à signaler ou appliquée, 1 refus, 3 report).
 
@@ -2371,6 +2402,11 @@ def verifier(racine, pilote, maintenant=None, depuis_demarrage=None, contexte=No
     s'injectent pour les tests ; `main` passe ceux de la production. `monotone` est
     l'horloge monotone (secondes), `limite_execution` la durée au bout de laquelle la
     tâche planifiée est tuée.
+
+    `forcer` (`maj.py verifier --forcer`, séance d'assistance et fiche d'essai) : un
+    contrôle réseau est fait même s'il date de moins de six heures. C'est tout : la
+    plage horaire, le démarrage récent, le calme et le temps restant se jugent comme
+    d'habitude, et un client désactivé reste désactivé.
 
     Le temps compte : la plage horaire et le temps restant avant la mort de la tâche
     se jugent à l'heure COURANTE (entrée + temps écoulé), juste avant la demande
@@ -2399,7 +2435,7 @@ def verifier(racine, pilote, maintenant=None, depuis_demarrage=None, contexte=No
             raise Refus("DESACTIVEE", "aucune adresse de publication configurée")
         client, port, _ = lire_reglages(racine)
         etat = lire_etat(racine)
-        if controle_du(etat, maintenant):
+        if forcer or controle_du(etat, maintenant):
             _controler_en_ligne(racine, politique, client, maintenant, contexte, reglages)
             etat = lire_etat(racine)
         if etat["attente"] is None:
@@ -2462,8 +2498,13 @@ def construire_analyseur():
     appliquer_.add_argument("archive", help="l'archive .zip ; son manifeste et sa signature sont à côté")
     appliquer_.add_argument("--calme-minutes", type=int, default=CALME_SECONDES_DEFAUT // 60,
                             help="minutes sans requête exigées du serveur avant l'arrêt (défaut : 2)")
-    sous.add_parser("verifier", help="cherche un paquet, le vérifie, l'applique à son heure "
-                    "(lancé chaque heure par la tâche planifiée)")
+    verifier_ = sous.add_parser(
+        "verifier", help="cherche un paquet, le vérifie, l'applique à son heure "
+        "(lancé chaque heure par la tâche planifiée)")
+    verifier_.add_argument(
+        "--forcer", action="store_true",
+        help="fait le contrôle réseau même s'il date de moins de six heures ; ne change ni "
+        "la plage horaire, ni le calme, ni l'état désactivé")
     sous.add_parser("revenir", help="défait la dernière mise à jour appliquée")
     sous.add_parser("reprendre", help="termine ou défait une mise à jour interrompue")
     sous.add_parser("etat", help="dit où en est la mise à jour")
@@ -2492,7 +2533,7 @@ def main(argv=None, racine=None, pilote=None):
         return appliquer(racine, arguments.archive, pilote,
                          calme_secondes=arguments.calme_minutes * 60)
     if arguments.commande == "verifier":
-        return verifier(racine, pilote)
+        return verifier(racine, pilote, forcer=arguments.forcer)
     if arguments.commande == "revenir":
         return revenir(racine, pilote)
     if arguments.commande == "reprendre":

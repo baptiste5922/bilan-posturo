@@ -143,9 +143,13 @@ Installed once, as administrator:
 .\installer-demarrage.ps1
 ```
 
-It registers the `BilanPosturo` scheduled task (at system startup, as SYSTEM,
-restarted up to five times) and the firewall rule.
-`.\desinstaller-demarrage.ps1` reverts to manual start.
+It registers **two** scheduled tasks, both as SYSTEM: `BilanPosturo` (at system
+startup, restarted up to five times) and `BilanPosturo-MiseAJour`, the update client
+(`python serveur\maj.py verifier`, three minutes after startup and then every hour, one
+hour at most). The second **does nothing until an update address is written** in
+`config.json` (no connection at all: see `docs/mise-a-jour.md`, French). It also registers
+the firewall rule. `.\desinstaller-demarrage.ps1` removes the update task first, **refuses**
+while it is running (retry in a few minutes), and reverts to manual start.
 
 Before a remote installation, run the check-only mode first: it verifies the
 script's location, `config.json` and `pythonw.exe`, then stops before the
@@ -307,10 +311,16 @@ It tells, line by line:
 - **Practice identity** — "not filled in" means assessment export is refused:
   run `python serveur/serveur.py --config`;
 - **Update** ("Mise à jour") — where the last server update stands
-  (`docs/mise-a-jour.md`, French): "no update recorded" until one is tried;
-  otherwise the stage (`repos`: nothing under way), the last result (`appliquee`,
+  (`docs/mise-a-jour.md`, French): "no update recorded" until the update task has
+  ever run (a fresh PC, until its first pass three minutes after startup); then
+  the stage (`repos`: nothing under way), the last result (`appliquee`,
   `revenue`: rolled back by itself, `refusee`, `reportee`), an upper-case code
-  that says why, the version concerned and the date. **`echec-retour`** or
+  that says why, the version concerned, the date, and "**dernier contrôle le …**":
+  the date of the last successful check against the publication address.
+  **`reportee` with code `DESACTIVEE` is the normal state of a PC whose update is not
+  enabled, not a fault**; `HORS_PLAGE` says a version is waiting for the night. If the
+  last-check date is more than half a day old while updates are enabled, look at the
+  `BilanPosturo-MiseAJour` task and the network. **`echec-retour`** or
   **"state unreadable"** need a hand: run `python serveur\maj.py etat` and follow
   `docs/mise-a-jour.md`;
 - the **last 30 lines of `technique.log`**.

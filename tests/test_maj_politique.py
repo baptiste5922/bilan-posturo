@@ -276,14 +276,15 @@ class Passage(test_maj.Installation):
         self.ecrire_config(mise_a_jour=dict(
             (k, v) for k, v in reglage.items() if v is not ABSENTE))
 
-    def passer(self, maintenant=LUNDI_MIDI, depuis_demarrage=100000, monotone=None, **delais):
+    def passer(self, maintenant=LUNDI_MIDI, depuis_demarrage=100000, monotone=None,
+               forcer=False, **delais):
         sortie = io.StringIO()
         options = {"sante": 1, "auto_controle": 5, "reponse": 1, "arret": 1, "operation": 1}
         options.update(delais)
         with contextlib.redirect_stdout(sortie), contextlib.redirect_stderr(io.StringIO()):
             return maj.verifier(self.racine, self.pilote, maintenant=maintenant,
                                 depuis_demarrage=lambda: depuis_demarrage, delais=options,
-                                monotone=monotone)
+                                monotone=monotone, forcer=forcer)
 
     def journal(self):
         with open(os.path.join(self.racine, "journal.log"), encoding="utf-8") as f:
@@ -334,11 +335,11 @@ class Desactive(Passage):
             with self.subTest(forme=forme):
                 self.setUp()
                 self.desactiver(forme)
-                self.assertEqual(self.passer(a(9)), 3)
-                self.assertEqual(self.passer(a(10)), 3)
+                self.assertEqual(self.passer(a(9)), 0)
+                self.assertEqual(self.passer(a(10)), 0)
                 self.assertEqual(self.requetes, [])
                 self.assertEqual(len(self.lignes("MAJ_REPORTEE code=DESACTIVEE")), 1)
-                self.assertEqual(self.passer(a(9, jour=17)), 3)
+                self.assertEqual(self.passer(a(9, jour=17)), 0)
                 self.assertEqual(len(self.lignes("MAJ_REPORTEE code=DESACTIVEE")), 2)
                 # Dans le journal nominatif aussi, et avec la même limite.
                 self.assertEqual(len(self.lignes("MAJ_REPORTEE", self.journal())), 2)
@@ -361,7 +362,7 @@ class Desactive(Passage):
                                dict((r, attendus[r]) for r in sorted(attendus)[:4]),
                                "EXTRACTION_ALTEREE")
         self.configurer(adresse="")
-        self.assertEqual(self.passer(), 3)
+        self.assertEqual(self.passer(), 0)
         self.assertIn("MAJ_RETOUR cause=INTERROMPUE resultat=ok de=1.1.0 vers=1.2.0",
                       self.technique())
         self.assertEqual(self.etat()["etape"], "repos")
@@ -467,6 +468,36 @@ class Frequence(Passage):
         self.assertEqual(len(self.requetes), 2, "le passage suivant réessaie")
         self.assertEqual(self.etat()["controle_le"], "2026-11-16T09:01:00")
 
+    def test_forcer_fait_le_controle_meme_a_une_minute_d_ecart(self):
+        # Revue de C5-T2b : la fiche B-5 et la séance d'assistance ont besoin d'un
+        # contrôle SANS attendre six heures (`maj.py verifier --forcer`).
+        self.assertEqual(self.passer(a(9, 0)), 0)
+        self.requetes.clear()
+        self.assertEqual(self.passer(a(9, 1)), 0)
+        self.assertEqual(self.requetes, [])
+        self.assertEqual(self.passer(a(9, 2), forcer=True), 0)
+        self.assertEqual(len(self.requetes), 2, "forcer ignore la fréquence de six heures")
+        self.assertEqual(self.etat()["controle_le"], "2026-11-16T09:02:00")
+
+    def test_forcer_ne_change_ni_la_plage_ni_le_desactive_ni_la_signature(self):
+        self.publier(self.trio("1.2.0"))
+        # Hors plage : la version est reçue, jamais appliquée.
+        self.configurer(au_demarrage=False)
+        self.assertEqual(self.passer(a(12, 0), forcer=True), 0)
+        self.assertEqual(self.demandes, [])
+        self.assertIn("MAJ_REPORTEE code=HORS_PLAGE", self.technique())
+        # Désactivé : aucune connexion, même forcé.
+        self.configurer(adresse="")
+        self.requetes.clear()
+        self.assertEqual(self.passer(a(12, 5), forcer=True), 0)
+        self.assertEqual(self.requetes, [])
+        self.assertIn("MAJ_REPORTEE code=DESACTIVEE", self.technique())
+        # Une signature fausse reste refusée.
+        self.configurer()
+        self.publier(self.trio("1.3.0", graine=pe.GRAINE_B))
+        self.assertEqual(self.passer(a(12, 10), forcer=True), 1)
+        self.assertIn("MAJ_REFUSEE code=SIGNATURE_INVALIDE", self.technique())
+
     def test_un_echec_de_l_archive_laisse_le_controle_du(self):
         # Le manifeste est jugé et bon, mais l'archive n'arrive pas (Wi-Fi tombé, ou
         # hébergeur qui a publié le manifeste avant elle) : le même échec réseau que
@@ -480,7 +511,7 @@ class Frequence(Passage):
         self.assertIsNone(etat["attente"])
         self.panne_archive = None
         self.requetes.clear()
-        self.assertEqual(self.passer(a(10, 0)), 3)          # hors plage : reçue, elle attend
+        self.assertEqual(self.passer(a(10, 0)), 0)          # hors plage : reçue, elle attend
         self.assertEqual(len(self.requetes), 3, "le contrôle suivant est du, une heure plus tard")
         self.assertEqual(self.etat()["attente"], "1.2.0")
         self.assertEqual(self.etat()["controle_le"], "2026-11-16T10:00:00")
@@ -501,7 +532,7 @@ class Frequence(Passage):
             self.assertEqual(self.passer(a(heure, 0)), 0)
             self.assertEqual(self.requetes, [], "retentée avant six heures")
         self.panne_archive = None
-        self.assertEqual(self.passer(a(15, 0)), 3)          # six heures : dû, reçue, attend
+        self.assertEqual(self.passer(a(15, 0)), 0)          # six heures : dû, reçue, attend
         self.assertEqual(len(self.requetes), 3)
         self.assertEqual(self.etat()["attente"], "1.2.0")
 
@@ -534,6 +565,26 @@ class Frequence(Passage):
         self.assertEqual(self.passer(a(9, 0, jour=17)), 0)
         self.assertEqual(len(self.lignes("MAJ_CONTROLE resultat=a-jour de=1.1.0")), 2)
         self.assertEqual(len(self.lignes("MAJ_CONTROLE", self.journal())), 2)
+
+    def test_un_controle_reussi_efface_le_report_perime_de_l_etat(self):
+        # Revue de C5-T2b : après une activation, /etat gardait DESACTIVEE à côté d'un
+        # contrôle du jour ; après une coupure résorbée, RESEAU_INJOIGNABLE des jours.
+        self.panne = "RESEAU_INJOIGNABLE"
+        self.assertEqual(self.passer(a(9, 0)), 3)
+        self.assertEqual((self.etat()["resultat"], self.etat()["code"]),
+                         ("reportee", "RESEAU_INJOIGNABLE"))
+        self.panne = None
+        self.assertEqual(self.passer(a(9, 1)), 0)
+        etat = self.etat()
+        self.assertEqual((etat["resultat"], etat["code"]), (None, None))
+        self.assertEqual(etat["controle_le"], "2026-11-16T09:01:00")
+
+    def test_un_resultat_d_application_n_est_pas_efface_par_un_controle(self):
+        with maj.contexte_serveur(self.racine):
+            maj.preparer_dossier_prive(self.racine)
+            maj.ecrire_etat(self.racine, resultat="appliquee", version="1.1.0")
+        self.assertEqual(self.passer(a(9, 0)), 0)
+        self.assertEqual(self.etat()["resultat"], "appliquee")
 
     def test_un_controle_n_est_pas_un_resultat(self):
         self.assertEqual(self.passer(a(9, 0)), 0)
@@ -630,7 +681,7 @@ class Eligibilite(Passage):
     def test_hors_plage_sans_demarrage_rien_n_est_extrait_ni_demande(self):
         self.configurer(au_demarrage=False)
         avant = self.arbre()
-        self.assertEqual(self.passer(LUNDI_MIDI, depuis_demarrage=60), 3)
+        self.assertEqual(self.passer(LUNDI_MIDI, depuis_demarrage=60), 0)
         self.assertEqual(self.demandes, [])
         self.assertFalse(os.path.lexists(self.dossier_maj("prepare")))
         self.assertFalse(os.path.lexists(self.dossier_maj(serveur.DEMANDE_ARRET)))
@@ -643,7 +694,7 @@ class Eligibilite(Passage):
         self.assertEqual(self.arbre(), avant)
 
     def test_hors_plage_et_demarrage_depasse_c_est_le_meme_resultat(self):
-        self.assertEqual(self.passer(LUNDI_MIDI, depuis_demarrage=901), 3)
+        self.assertEqual(self.passer(LUNDI_MIDI, depuis_demarrage=901), 0)
         self.assertEqual(self.demandes, [])
         self.assertFalse(os.path.lexists(self.dossier_maj("prepare")))
         self.assertIn("MAJ_REPORTEE code=HORS_PLAGE", self.technique())
@@ -658,7 +709,7 @@ class Eligibilite(Passage):
 
     def test_la_version_en_attente_est_appliquee_au_passage_de_la_nuit(self):
         self.configurer(au_demarrage=False)
-        self.assertEqual(self.passer(a(19, 0)), 3)
+        self.assertEqual(self.passer(a(19, 0)), 0)
         self.assertEqual(self.demandes, [])
         requetes = len(self.requetes)
         self.assertEqual(self.passer(a(20, 0)), 3)
@@ -691,7 +742,7 @@ class Eligibilite(Passage):
         self.configurer(au_demarrage=False, calme_minutes=1)
         horloge = self.horloge()
         self.ralentir(horloge, 1800)
-        self.assertEqual(self.passer(a(6, 59), monotone=horloge), 3)
+        self.assertEqual(self.passer(a(6, 59), monotone=horloge), 0)
         self.assertEqual(self.demandes, [], "l'arrêt a été demandé hors de la plage")
         self.assertIn("MAJ_REPORTEE code=HORS_PLAGE", self.technique())
         self.assertEqual(self.etat()["attente"], "1.2.0", "la version attend la nuit suivante")
@@ -701,6 +752,38 @@ class Eligibilite(Passage):
         horloge2 = self.horloge()
         self.assertEqual(self.passer(a(6, 58, jour=17), monotone=horloge2), 3)
         self.assertEqual(len(self.demandes), 1)
+
+    def test_la_decision_d_entree_se_juge_sur_l_heure_courante_elle_aussi(self):
+        # Mutant survivant de l'audit (Mineur) : le contrôle réseau est lent, la plage se
+        # referme PENDANT lui ; il ne faut pas extraire 64 Mio ni bâtir une sauvegarde pour
+        # rien. Plage jugée sur l'heure d'entrée, `prepare/` existerait ; jugée sur
+        # l'heure courante, rien n'est écrit.
+        self.configurer(au_demarrage=False)
+        horloge = self.horloge()
+        telecharger = self.telecharger
+
+        def lent(*arguments, **options):
+            resultat = telecharger(*arguments, **options)
+            horloge.t += 1800           # chaque téléchargement dure une demi-heure
+            return resultat
+
+        self.patch(maj, "_telecharger", lent)
+        self.assertEqual(self.passer(a(6, 59), monotone=horloge), 0)
+        self.assertIn("MAJ_REPORTEE code=HORS_PLAGE", self.technique())
+        self.assertFalse(os.path.lexists(self.dossier_maj("prepare")))
+        self.assertFalse(os.path.lexists(self.dossier_maj("sauvegarde-neuve")))
+        self.assertEqual(self.demandes, [])
+
+    def test_temps_insuffisant_ne_fait_qu_une_ligne_par_jour(self):
+        self.configurer(plage="00:00-23:59")
+        d = {"sante": 1, "auto_controle": 5, "reponse": 1, "arret": 1}
+        marge = (maj.LIMITE_EXECUTION_SECONDES - maj.MARGE_EXECUTION_SECONDES
+                 - maj.budget_application(d))
+        for heure in (9, 10, 11):
+            horloge = self.horloge()
+            self.ralentir(horloge, marge + 1)
+            self.assertEqual(self.passer(a(heure, 0), monotone=horloge), 3)
+        self.assertEqual(len(self.lignes("MAJ_REPORTEE code=TEMPS_INSUFFISANT")), 1)
 
     def test_le_demarrage_se_rejuge_aussi_a_l_heure_courante(self):
         # La plage est fermée à l'entrée (hors plage), mais le démarrage récent est
@@ -713,7 +796,7 @@ class Eligibilite(Passage):
 
         self.patch(maj, "decider_moment", decider)
         reel = self.passer
-        self.assertEqual(reel(LUNDI_MIDI), 3)
+        self.assertEqual(reel(LUNDI_MIDI), 0)
         self.assertEqual(self.demandes, [])
         self.assertIn("MAJ_REPORTEE code=HORS_PLAGE", self.technique())
 
@@ -753,15 +836,15 @@ class Eligibilite(Passage):
     def test_une_ligne_hors_plage_par_jour(self):
         self.configurer(au_demarrage=False)
         for heure in (9, 10, 11, 12):
-            self.assertEqual(self.passer(a(heure)), 3)
+            self.assertEqual(self.passer(a(heure)), 0)
         self.assertEqual(len(self.lignes("MAJ_REPORTEE code=HORS_PLAGE")), 1)
-        self.assertEqual(self.passer(a(9, jour=17)), 3)
+        self.assertEqual(self.passer(a(9, jour=17)), 0)
         self.assertEqual(len(self.lignes("MAJ_REPORTEE code=HORS_PLAGE")), 2)
 
     def test_une_ligne_disponible_par_version_vue(self):
         self.configurer(au_demarrage=False)
-        self.assertEqual(self.passer(a(9, 0)), 3)
-        self.assertEqual(self.passer(a(15, 0)), 3)      # nouveau contrôle, même version
+        self.assertEqual(self.passer(a(9, 0)), 0)
+        self.assertEqual(self.passer(a(15, 0)), 0)      # nouveau contrôle, même version
         self.assertEqual(len(self.lignes("MAJ_CONTROLE resultat=disponible")), 1)
 
     def test_un_refus_d_arret_garde_la_version_en_attente(self):
@@ -863,7 +946,7 @@ class SansConsole(Passage):
 
     def test_desactive(self):
         self.configurer(adresse="")
-        self.assertEqual(self.passer_sans_console(), 3)
+        self.assertEqual(self.passer_sans_console(), 0)
 
     def test_a_jour(self):
         self.publier(self.trio("1.1.0"))
@@ -907,9 +990,26 @@ class PointDEntree(Passage):
         self.configurer(adresse="")
         with contextlib.redirect_stdout(io.StringIO()):
             code = maj.main(["verifier"], racine=self.racine, pilote=self.pilote)
-        self.assertEqual(code, 3)
+        self.assertEqual(code, 0)
         self.assertIn("MAJ_REPORTEE code=DESACTIVEE", self.technique())
         self.assertEqual(self.requetes, [])
+
+    def test_forcer_est_transmis_a_verifier_et_documente_dans_l_aide(self):
+        appels = []
+        self.patch(maj, "verifier", lambda racine, pilote, **options: appels.append(options) or 0)
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(maj.main(["verifier"], racine=self.racine, pilote=self.pilote), 0)
+            self.assertEqual(maj.main(["verifier", "--forcer"], racine=self.racine,
+                                      pilote=self.pilote), 0)
+        self.assertEqual(appels, [{"forcer": False}, {"forcer": True}])
+        aide = io.StringIO()
+        with contextlib.redirect_stdout(aide), self.assertRaises(SystemExit):
+            maj.main(["verifier", "--help"], racine=self.racine)
+        self.assertIn("--forcer", aide.getvalue())
+        # Une option inconnue reste une erreur d'usage, jamais ignorée.
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as c:
+            maj.main(["verifier", "--toujours"], racine=self.racine)
+        self.assertEqual(c.exception.code, 2)
 
     def test_verifier_refuse_de_s_executer_dans_un_depot(self):
         os.mkdir(os.path.join(self.racine, ".git"))

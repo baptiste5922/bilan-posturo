@@ -463,11 +463,47 @@ class TaillesEtDelais(Hebergement):
         self.assertNotIn("/essai", contexte.exception.detail)
 
     def test_un_hote_qui_n_existe_pas(self):
-        with self.assertRaises(maj.Refus) as contexte:
-            maj._telecharger("https://hote-qui-n-existe-pas.invalid/essai/stable.zip",
-                             self.destination, 1000, 10, contexte=self.contexte)
+        # Résolution simulée : le vrai DNS d'un portail captif ou d'une machine sans
+        # réseau changerait le code ou ferait traîner le test (getaddrinfo ne se borne pas).
+        with unittest.mock.patch("socket.getaddrinfo",
+                                 side_effect=socket.gaierror(-2, "résolution simulée")):
+            with self.assertRaises(maj.Refus) as contexte:
+                maj._telecharger("https://hote-qui-n-existe-pas.invalid/essai/stable.zip",
+                                 self.destination, 1000, 10, contexte=self.contexte)
         self.assertEqual(contexte.exception.code, "RESEAU_INJOIGNABLE")
         self.assertNotIn("/essai", contexte.exception.detail)
+
+    def test_un_disque_plein_pendant_la_reception_est_une_ecriture_impossible(self):
+        # Revue de C5-T2b : ENOSPC levé par write() était rapporté comme une panne du
+        # RÉSEAU dans technique.log, qui circule.
+        corps = os.urandom(200 * 1024)
+        self.heb.routes["/essai/stable.zip"] = faux.corps(corps)
+        reel = os.fdopen
+
+        class Plein(object):
+            def __init__(self, fichier):
+                self.fichier, self.ecrits = fichier, 0
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *arguments):
+                self.fichier.close()
+
+            def write(self, bloc):
+                if self.ecrits >= 64 * 1024:
+                    raise OSError(28, "No space left on device")
+                self.ecrits += len(bloc)
+                return self.fichier.write(bloc)
+
+            def flush(self):
+                self.fichier.flush()
+
+        with unittest.mock.patch.object(maj.os, "fdopen",
+                                        lambda *a, **k: Plein(reel(*a, **k))):
+            exception, _ = self.echec("ECRITURE_IMPOSSIBLE", limite=len(corps))
+        self.assertGreater(exception.octets_recus, 0)
+        self.assertIn("errno=28", exception.detail)
 
     def test_un_statut_autre_que_200(self):
         for code in (400, 401, 403, 404, 410, 500, 503):
@@ -668,7 +704,7 @@ class Entete(test_maj.Installation):
     def test_trois_requetes_dans_l_ordre_quand_une_version_est_disponible(self):
         self.heb.publier(self.trio("1.2.0"))
         # Hors plage et hors démarrage : la version est reçue, jugée, et attend.
-        self.assertEqual(self.passer(), 3)
+        self.assertEqual(self.passer(), 0)
         self.assertIn("MAJ_REPORTEE code=HORS_PLAGE", self.technique())
         self.assertEqual(self.heb.chemins(), [
             self.CHEMIN + paquet_signe.SUFFIXE_MANIFESTE,

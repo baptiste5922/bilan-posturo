@@ -147,9 +147,15 @@ Installé une fois pour toutes, en administrateur :
 .\installer-demarrage.ps1
 ```
 
-Il crée la tâche planifiée `BilanPosturo` (démarrage du PC, compte SYSTEM,
-relance automatique jusqu'à cinq fois) et la règle de pare-feu. Pour revenir
-au lancement manuel : `.\desinstaller-demarrage.ps1`.
+Il crée **deux** tâches planifiées, toutes deux sous le compte SYSTEM :
+`BilanPosturo` (démarrage du PC, relance automatique jusqu'à cinq fois) et
+`BilanPosturo-MiseAJour`, le client de mise à jour (`python serveur\maj.py verifier`,
+trois minutes après le démarrage puis toutes les heures, une heure d'exécution au plus).
+La seconde **ne fait rien tant qu'aucune adresse de mise à jour n'est écrite** dans
+`config.json` (aucune connexion : voir `docs/mise-a-jour.md`). L'installateur crée aussi la
+règle de pare-feu. Pour revenir au lancement manuel : `.\desinstaller-demarrage.ps1`, qui
+retire d'abord la tâche de mise à jour et **refuse** tant qu'elle tourne (réessayer dans
+quelques minutes).
 
 Avant une installation à distance, faire passer le contrôle seul : il vérifie
 l'emplacement du script, `config.json` et `pythonw.exe`, puis s'arrête avant
@@ -324,11 +330,17 @@ Elle dit, ligne à ligne :
 - **Identité du cabinet** — « non renseignée » signifie que l'export des
   bilans est refusé : lancer `python serveur/serveur.py --config` ;
 - **Mise à jour** — où en est la dernière mise à jour du serveur
-  (`docs/mise-a-jour.md`) : « aucune mise à jour enregistrée » tant qu'aucune n'a
-  été tentée ; sinon l'étape (`repos` : rien en cours), le dernier résultat
-  (`appliquee`, `revenue` : défaite seule, `refusee`, `reportee`), un code en
-  majuscules qui dit pourquoi, la version concernée et la date. **`echec-retour`**
-  ou **`état illisible`** demandent une intervention : lancer
+  (`docs/mise-a-jour.md`) : « aucune mise à jour enregistrée » tant que la tâche de
+  mise à jour n'a jamais tourné (c'est le cas d'un poste neuf, jusqu'à son premier
+  passage, trois minutes après le démarrage) ; ensuite l'étape (`repos` : rien en cours),
+  le dernier résultat (`appliquee`, `revenue` : défaite seule, `refusee`, `reportee`), un
+  code en majuscules qui dit pourquoi, la version concernée, la date, et « **dernier
+  contrôle le …** » : la date du dernier contrôle réussi auprès de l'adresse de
+  publication. **`reportee` avec le code `DESACTIVEE` est l'état normal d'un poste dont
+  la mise à jour n'est pas activée, ce n'est pas une panne** ; `HORS_PLAGE` dit qu'une
+  version attend la nuit. Si la date du dernier contrôle a plus d'une demi-journée alors
+  que la mise à jour est activée, regarder la tâche `BilanPosturo-MiseAJour` et le réseau.
+  **`echec-retour`** ou **`état illisible`** demandent une intervention : lancer
   `python serveur\maj.py etat` et suivre `docs/mise-a-jour.md` ;
 - les **30 dernières lignes de `technique.log`**.
 

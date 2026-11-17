@@ -1151,19 +1151,28 @@ avant toute nouvelle fonctionnalité. La fiabilité est la marge.
 > seconde tâche planifiée en C5-T2a. Rien n'en part au cabinet avant la visite de
 > C1-T4b.
 >
-> **C5-T2b implémentée le 14 novembre 2026** (branche `c5-t2b-telechargement`,
-> partie de `main` = `c4e9873` ; contrat `docs/contrats/C5-T2.md`, **§14 qui fait foi
-> sur le corps**, erreurs et écarts relevés au §15 ; D-M1 tranchée : voie (d),
+> **C5-T2b : auditée CONFORME au réaudit, revue le 17 novembre 2026** (branche
+> `c5-t2b-telechargement`, partie de `main` = `c4e9873` ; contrat `docs/contrats/C5-T2.md`,
+> **§14 qui fait foi sur le corps**, écarts et errata au §15 ; D-M1 tranchée : voie (d),
 > hébergement statique à adresse imprévisible par client). Livré : sous-commandes
-> `verifier` et `proteger`, client HTTPS `_telecharger` (TLS vérifié, trois `GET`,
-> redirections `https` seules, délai total borné, proxy de la seule configuration),
-> politique (`adresse`, `plage`, `calme_minutes`, `au_demarrage`, `proxy`, échec fermé),
-> seconde tâche planifiée `BilanPosturo-MiseAJour` et son retrait, `maj_controle_le`
-> dans `/etat`, garde de l'adresse hors du dépôt ; **R1, O1, O2** de C5-T2a refermés.
-> **En attente** : audit de sécurité, revue, fiche d'essai Windows partie B
-> (`docs/essais/C5-T2-windows.md`), puis seulement C5-T3 (publication) et C6-T8
-> **avant d'activer le client** chez un cabinet (D-M3). Rien n'en part au cabinet
-> avant la visite de C1-T4b.
+> `verifier` (avec `--forcer`) et `proteger`, client HTTPS `_telecharger` (TLS vérifié, trois
+> `GET`, redirections `https` seules, échéance totale en-têtes compris, proxy de la seule
+> configuration), politique (`adresse`, `plage`, `calme_minutes`, `au_demarrage`, `proxy`,
+> échec fermé), plage et temps restant rejugés avant la demande d'arrêt, seconde tâche
+> planifiée `BilanPosturo-MiseAJour` et son retrait, `maj_controle_le` dans `/etat`, garde de
+> l'adresse hors du dépôt ; **R1, O1, O2** de C5-T2a refermés.
+>
+> **Préconditions à l'activation du client chez un cabinet (D-M3), à lever avant d'écrire
+> une adresse dans un `config.json` de production :**
+> 1. **C6-T8** (une connexion TCP muette ne doit plus figer l'acceptation du serveur) ;
+> 2. **mesurer B-5, variante 4, avec le Démarrage rapide de Windows** (fiche
+>    `docs/essais/C5-T2-windows.md`) : `au_demarrage` juge « moins de 900 s depuis le démarrage »
+>    avec `GetTickCount64`, que le Démarrage rapide ne remet peut-être pas à zéro après
+>    « Arrêter » ; le processus du serveur peut lui aussi survivre, donc `demarre_depuis_s` du
+>    serveur n'est pas une référence acquise non plus. **Adapter la référence si l'écart se
+>    confirme** (changement de `depuis_demarrage_systeme`, nouvel audit du seul morceau) ;
+> 3. la fiche B jouée sur une VM Windows (B-1 à B-6), la case de la tâche ne se coche
+>    qu'ensuite. Rien n'en part au cabinet avant la visite de C1-T4b.
 
 > **Décision du 3 novembre 2026 :** le PC tire les mises à jour lui-même et
 > n'installe qu'un paquet signé. Seul flux sortant : du code public, jamais

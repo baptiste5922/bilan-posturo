@@ -1276,7 +1276,8 @@ class Constantes(unittest.TestCase):
     def test_lignes_limitees_par_jour(self):
         self.assertEqual(
             sorted(maj.LIGNES_LIMITEES),
-            sorted(["MAJ_REPORTEE:DESACTIVEE", "MAJ_REPORTEE:HORS_PLAGE"]
+            sorted(["MAJ_REPORTEE:DESACTIVEE", "MAJ_REPORTEE:HORS_PLAGE",
+                    "MAJ_REPORTEE:TEMPS_INSUFFISANT"]
                    + ["MAJ_REPORTEE:" + c for c in maj.CODES_RESEAU]
                    + ["MAJ_REFUSEE:ADRESSE_INVALIDE", "MAJ_REFUSEE:PLAGE_INVALIDE",
                       "MAJ_REFUSEE:CLES_ABSENTES", "MAJ_CONTROLE:a-jour"]))
@@ -2178,6 +2179,21 @@ class ChampsDeLEtat(Installation):
         maj.ecrire_etat(self.racine, resultat="reportee", code="HORS_PLAGE")
         self.assertEqual(maj.lire_etat(self.racine)["le"], "2031-01-01T00:00:00")
         self.assertNotEqual(reel(), "2031-01-01T00:00:00")
+
+    def test_les_reports_qui_ne_sont_pas_un_incident_sortent_en_zero(self):
+        # Revue de C5-T2b : sans cela, « Résultat de la dernière exécution » de la tâche
+        # affiche 0x3 chaque heure d'un client désactivé ou hors de la plage.
+        self.assertEqual(maj.CODES_ATTENTE_NORMALE, frozenset(("DESACTIVEE", "HORS_PLAGE")))
+        self.assertTrue(maj.CODES_ATTENTE_NORMALE <= maj.CODES_REPORT)
+        # Dans une installation d'essai : les journaux sont ceux du bac, jamais ceux du dépôt.
+        with maj.contexte_serveur(self.racine), contextlib.redirect_stdout(io.StringIO()):
+            for code, attendu in (("DESACTIVEE", 0), ("HORS_PLAGE", 0), ("ARRET_REFUSE", 3),
+                                  ("TEMPS_INSUFFISANT", 3), ("RESEAU_INJOIGNABLE", 3),
+                                  ("SIGNATURE_INVALIDE", 1), ("ADRESSE_INVALIDE", 1)):
+                with self.subTest(code=code):
+                    self.assertEqual(
+                        maj._signaler_refus(self.racine, maj.Refus(code, "essai"), False),
+                        attendu)
 
     def test_les_champs_reseau_sont_dans_les_champs_par_defaut(self):
         par_defaut = maj.etat_par_defaut()

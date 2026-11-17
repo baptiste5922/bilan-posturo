@@ -339,7 +339,7 @@ python serveur\maj.py etat
 ```
 
 Attendu : `MAJ_CONTROLE resultat=disponible de=… vers=…` puis `MAJ_REPORTEE
-code=HORS_PLAGE` (code 3), la date `maj_controle_le` sur `/etat`. Sinon `TLS_INVALIDE` :
+code=HORS_PLAGE` (code **0** : un client désactivé ou hors de la plage n'est pas un incident, et le Planificateur ne doit pas afficher `0x3`), la date `maj_controle_le` sur `/etat`. Sinon `TLS_INVALIDE` :
 Python lit le magasin de Windows mais ne déclenche pas le téléchargement automatique
 des racines que fait Edge. **Relever l'autorité racine de l'hébergeur** (Edge › cadenas
 › certificat › chemin) et si elle figure dans `certmgr.msc` › Autorités de
@@ -375,30 +375,98 @@ doit au contraire donner `MAJ_REPORTEE code=ARRET_REFUSE` (motif `activite`).
 | Durée entre le lancement de la tâche et `MAJ_APPLIQUEE` | |
 | Dernier résultat de la tâche (`schtasks /Query /TN BilanPosturo-MiseAJour /V /FO LIST`) | |
 
-### B-5. Hors plage, juste après le démarrage
+### B-5. Hors plage, juste après le démarrage (et le Démarrage rapide de Windows)
 
-Publier N+2 (dossier `n2`, mêmes précautions d'ordre). `plage` qui ne couvre **pas**
-l'heure courante, `au_demarrage` à `true`, **ne pas ouvrir le navigateur** sur le
-serveur, puis redémarrer la VM et attendre quatre à cinq minutes (trois de délai du
-déclencheur, un contrôle, une application).
+**Pourquoi cette fiche mesure plus que le contrat.** `au_demarrage` existe pour le PC éteint la
+nuit. Le client juge « moins de 900 s depuis le démarrage » avec `depuis_demarrage_systeme()`,
+c'est-à-dire `GetTickCount64`. Avec le **Démarrage rapide** de Windows 10 et 11 (actif par
+défaut), « Arrêter » puis rallumer ne fait pas un démarrage à froid : le compteur du noyau peut
+continuer de courir, et le processus du serveur lancé par la tâche SYSTEM (session 0) peut lui
+aussi avoir survécu. **Rien de cela n'est acquis ; c'est ce que cette fiche mesure.** Tant que la
+variante 4 n'est pas relevée, `au_demarrage` ne doit pas être tenu pour fiable sur un PC éteint
+chaque soir (limite connue, `docs/mise-a-jour.md` §7).
 
-Attendu : `MAJ_APPLIQUEE de=N+1 vers=N+2`, dans le quart d'heure qui suit le démarrage.
-Variante : redémarrer, **ouvrir** `/cabinet` dans le navigateur avant que la tâche ne
-passe : `MAJ_REPORTEE code=ARRET_REFUSE` (motif `activite`), rien n'est installé. Variante
-2 : attendre plus d'un quart d'heure après le démarrage puis lancer la tâche à la main :
-`MAJ_REPORTEE code=HORS_PLAGE`.
+**Le geste pour obtenir un contrôle sans attendre six heures.** Le dernier contrôle date de moins
+de six heures (B-3, B-4) : sans geste, le passage de la tâche sort sans rien voir de la version
+suivante. En console **administrateur** :
 
-| Résultat (appliquée dans le quart d'heure ?) | |
+```powershell
+python serveur\maj.py verifier --forcer
+echo $LASTEXITCODE
+python serveur\maj.py etat
+```
+
+`--forcer` ignore **seulement** la fréquence de six heures. Plage, démarrage récent, calme et client
+désactivé se jugent comme d'habitude. Hors plage, comme ici : `MAJ_CONTROLE resultat=disponible`,
+puis `MAJ_REPORTEE code=HORS_PLAGE`, code de sortie **0**, version reçue gardée dans
+`mise-a-jour\reception\` (`etat` : version en attente).
+
+Préparation commune : publier N+2 (dossier `n2`, archive d'abord), `plage` qui ne couvre **pas**
+l'heure courante, `au_demarrage` à `true`, **ne pas ouvrir le navigateur** sur le serveur, lancer
+`python serveur\maj.py verifier --forcer` (version reçue, en attente), puis :
+
+- **Variante 1 (démarrage à froid).** Menu Démarrer › Alimentation › **Redémarrer** (ce geste
+  contourne le Démarrage rapide). Attendre quatre à cinq minutes (trois de délai du déclencheur,
+  un contrôle, une application). Attendu : `MAJ_APPLIQUEE de=N+1 vers=N+2`, dans le quart d'heure
+  qui suit le démarrage.
+- **Variante 2 (requête avant la tâche).** Même préparation (publier N+3 et refaire `--forcer`
+  après l'application de N+2), redémarrer, **ouvrir** `/cabinet` dans le navigateur avant que la
+  tâche ne passe : `MAJ_REPORTEE code=ARRET_REFUSE` (motif `activite`), rien n'est installé.
+- **Variante 3 (démarrage dépassé).** Attendre plus d'un quart d'heure après le démarrage puis
+  lancer `schtasks /Run /TN BilanPosturo-MiseAJour` (une version est encore en attente,
+  refusée par la variante 2) : `MAJ_REPORTEE code=HORS_PLAGE`.
+- **Variante 4 (Démarrage rapide : « Arrêter » puis rallumer).** Vérifier d'abord que le
+  Démarrage rapide est actif : `powercfg /a` (« Veille prolongée » disponible) et
+  `reg query "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Power" /v HiberbootEnabled`
+  (`0x1`). Avant l'arrêt, relever le PID du serveur (`Get-Process pythonw | Select Id,
+  StartTime`) et l'heure `demarre_le` de `/etat`. Préparation commune (version reçue et en attente),
+  menu Démarrer › Alimentation › **Arrêter**, rallumer la VM, attendre quatre à cinq minutes
+  **sans ouvrir le navigateur**. **Au premier passage de la tâche**, relever, avec l'heure de
+  chaque relevé :
+
+```powershell
+python -c "import sys; sys.path.insert(0, r'serveur'); import maj; print(maj.depuis_demarrage_systeme())"
+(Get-CimInstance Win32_OperatingSystem).LastBootUpTime ; Get-Date
+Get-Process pythonw | Select Id, StartTime
+(Get-ScheduledTask -TaskName BilanPosturo-MiseAJour | Get-ScheduledTaskInfo).LastRunTime
+```
+
+  Puis, sur `/etat` (authentifié), `demarre_le` du serveur, et dans `technique.log` : `DEMARRAGE`,
+  `MAJ_APPLIQUEE` ou `MAJ_REPORTEE code=HORS_PLAGE` avec leurs heures. Ce que la mesure doit
+  trancher : (a) la valeur de `depuis_demarrage_systeme()` au premier passage est-elle petite
+  (démarrage à froid effectif) ou de plusieurs heures (compteur non remis à zéro) ? (b) la tâche
+  « au démarrage » s'est-elle déclenchée ? (c) le processus du serveur est-il le **même** PID
+  qu'avant l'arrêt, ou un nouveau ? (d) `demarre_le` du serveur dit-il l'heure du rallumage ou
+  celle d'avant ? Si (a) rend des heures : `HORS_PLAGE` à chaque matin, et la référence
+  (`depuis_demarrage_systeme`) est à changer avant d'activer le client (D-M3).
+
+| Résultat | |
 |---|---|
-| Variante 1 (requête avant la tâche) | |
-| Variante 2 (démarrage dépassé) | |
+| Variante 1 (démarrage à froid : appliquée dans le quart d'heure ?) | |
+| Variante 2 (requête avant la tâche) | |
+| Variante 3 (démarrage dépassé) | |
+| Variante 4 : `powercfg /a` et `HiberbootEnabled` | |
+| Variante 4 : `depuis_demarrage_systeme()` au premier passage | |
+| Variante 4 : `LastBootUpTime` et heure du relevé | |
+| Variante 4 : tâche « au démarrage » déclenchée (`LastRunTime`) ? | |
+| Variante 4 : PID du serveur avant / après (même processus ?) | |
+| Variante 4 : `demarre_le` du serveur (`/etat`) | |
+| Variante 4 : issue (`MAJ_APPLIQUEE` ou `HORS_PLAGE`) | |
 
 ### B-6. Désinstaller pendant une mise à jour : refus
 
-Publier N+3 (dossier `n3`, volumineux : la bascule dure assez). Lancer
-`schtasks /Run /TN BilanPosturo-MiseAJour`, puis, **pendant** que `python serveur\maj.py
+Publier N+3 (dossier `n3`, volumineux : la bascule dure assez ; déjà publiée si la variante 2
+de B-5 l'a été, et alors encore en attente), `plage` couvrant l'heure
+courante, `calme_minutes` à 1. Il faut que **la tâche** (et non une console) fasse l'application,
+car le désinstallateur ne regarde que la tâche : lancer `python serveur\maj.py verifier --forcer`
+ne la ferait pas apparaître `Running`. En console administrateur, ouvrir
+`mise-a-jour\etat.json` et remplacer la valeur de `"controle_le"` par `null` (le contrôle est
+alors dû : geste réservé à cet essai ; en séance d'assistance, c'est `--forcer`). Ne pas toucher
+au serveur pendant une minute, puis lancer
+`schtasks /Run /TN BilanPosturo-MiseAJour` et, **pendant** que `python serveur\maj.py
 etat` dit `bascule` ou `verification` (ou tant que la tâche est `Running`), lancer
-`.\desinstaller-demarrage.ps1`.
+`.\desinstaller-demarrage.ps1`. Si la bascule est trop courte pour être vue, ouvrir une
+seconde console administrateur d'avance, la commande tapée.
 
 Attendu : le script **refuse** (code 1), dit de réessayer dans quelques minutes et cite
 `maj.py etat` et `reprendre` ; **aucune** des deux tâches n'est retirée. Une fois la

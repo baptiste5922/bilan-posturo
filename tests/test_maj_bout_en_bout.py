@@ -1068,14 +1068,15 @@ class BacVerifier(BacDeMiseAJour):
             json.dump(config, f)
 
     def verifier(self, maintenant=HEURE_DU_JOUR, depuis_demarrage=100000, pilote=None,
-                 delais=None, contexte=None):
+                 delais=None, contexte=None, forcer=False):
         options = dict(DELAIS_ESSAI)
         options.update(delais or {})
         sortie = io.StringIO()
         with contextlib.redirect_stdout(sortie), contextlib.redirect_stderr(io.StringIO()):
             return maj.verifier(self.racine, pilote or self.pilote, maintenant=maintenant,
                                 depuis_demarrage=lambda: depuis_demarrage,
-                                contexte=contexte or self.contexte, delais=options)
+                                contexte=contexte or self.contexte, delais=options,
+                                forcer=forcer)
 
     def publier(self, version, modifs=None, **kw):
         archive = self.trio(version, modifs, **kw)
@@ -1125,6 +1126,25 @@ class VerifierMontee(BacVerifier):
             self.assertNotIn(b"stable.zip", octets, nom_journal)
         self.assertNotIn("127.0.0.1", self.technique())
 
+    def test_la_fiche_b5_se_deroule_avec_forcer(self):
+        # Revue de C5-T2b : la fiche B-4 applique N+1 après un contrôle ; B-5 publie
+        # N+2 quelques minutes plus tard. Sans geste, le dernier contrôle date de moins
+        # de six heures et N+2 n'est jamais vue. `--forcer` est ce geste.
+        self.publier("1.2.0")
+        self.assertEqual(self.verifier(HEURE_DU_JOUR), 0)
+        self.assertEqual(maj.lire_version_installee(self.racine), "1.2.0")
+        self.courant = self.dernier_contenu
+        self.publier("1.3.0")
+        demandes = len(self.heb.requetes)
+        plus_tard = HEURE_DU_JOUR + datetime.timedelta(minutes=10)
+        self.assertEqual(self.verifier(plus_tard), 0)
+        self.assertEqual(len(self.heb.requetes), demandes, "pas de contrôle avant six heures")
+        self.assertEqual(maj.lire_version_installee(self.racine), "1.2.0")
+        self.assertEqual(self.verifier(plus_tard, forcer=True), 0)
+        self.assertEqual(maj.lire_version_installee(self.racine), "1.3.0")
+        self.assertEqual(len(self.heb.requetes) - demandes, 3)
+        self.assertTrue(maj.sante_repond(self.port))
+
     def test_etat_http_porte_la_date_du_dernier_controle(self):
         self.publier("1.1.0")
         self.assertEqual(self.verifier(), 0)
@@ -1167,7 +1187,7 @@ class VerifierEligibilite(BacVerifier):
         self.configurer(plage="20:00-07:00", au_demarrage=False)
         self.publier("1.2.0")
         avant = pe.instantane(self.racine)
-        self.assertEqual(self.verifier(HEURE_DU_JOUR), 3)
+        self.assertEqual(self.verifier(HEURE_DU_JOUR), 0)
         self.assertIn("MAJ_REPORTEE code=HORS_PLAGE", self.technique())
         self.assertFalse(os.path.lexists(os.path.join(self.racine, "mise-a-jour", "arret.demande")))
         self.assertFalse(os.path.lexists(os.path.join(self.racine, "mise-a-jour", "prepare")))
@@ -1180,7 +1200,7 @@ class VerifierEligibilite(BacVerifier):
     def test_demarrage_depasse_c_est_le_meme_resultat(self):
         self.configurer(plage="20:00-07:00", au_demarrage=True)
         self.publier("1.2.0")
-        self.assertEqual(self.verifier(HEURE_DU_JOUR, depuis_demarrage=901), 3)
+        self.assertEqual(self.verifier(HEURE_DU_JOUR, depuis_demarrage=901), 0)
         self.assertIn("MAJ_REPORTEE code=HORS_PLAGE", self.technique())
         self.assertFalse(os.path.lexists(os.path.join(self.racine, "mise-a-jour", "prepare")))
 
@@ -1210,7 +1230,7 @@ class VerifierEligibilite(BacVerifier):
         self.assertEqual(self.etat_json()["attente"], "1.2.0")
         trois = len(self.heb.requetes)
         plus_tard = HEURE_DU_JOUR + datetime.timedelta(minutes=30)
-        self.assertEqual(self.verifier(plus_tard, depuis_demarrage=100000), 3)
+        self.assertEqual(self.verifier(plus_tard, depuis_demarrage=100000), 0)
         self.assertEqual(len(self.heb.requetes), trois)
 
     def test_dans_la_plage_le_calme_est_exige(self):
@@ -1242,7 +1262,7 @@ class VerifierDesactiveEtCoupure(BacVerifier):
 
         code = self.verifier()
 
-        self.assertEqual(code, 3)
+        self.assertEqual(code, 0)
         self.assertIn("MAJ_RETOUR cause=INTERROMPUE resultat=ok de=1.1.0 vers=1.2.0",
                       self.technique())
         self.assertIn("MAJ_REPORTEE code=DESACTIVEE", self.technique())
@@ -1309,7 +1329,7 @@ class VerifierMortApresAcceptation(BacVerifier):
 
         code = self.verifier(HEURE_DU_JOUR)
 
-        self.assertEqual(code, 3)
+        self.assertEqual(code, 0)
         self.assertTrue(maj.sante_repond(self.port), "le serveur n'a pas été relancé")
         self.assertIn("MAJ_REPORTEE code=INTERROMPUE", self.technique())
         self.assertFalse(self.etat_json()["arret_en_cours"])

@@ -196,8 +196,8 @@ puis `/etat`.
 
 La tâche planifiée **`BilanPosturo-MiseAJour`** (SYSTEM, installée par
 `installer-demarrage.ps1` à côté de celle du serveur) lance `python serveur\maj.py
-verifier` **au démarrage du PC (après trois minutes) puis toutes les heures**, une
-heure d'exécution au plus. Chaque passage :
+verifier` **au démarrage du système (le déclencheur « au démarrage » de Windows, après
+trois minutes) puis toutes les heures**, une heure d'exécution au plus. Chaque passage :
 
 1. **défait ce qu'une coupure a laissé**, toujours, même désactivé (`reprendre`) ;
 2. lit la configuration (`docs/configuration.md`, §8) : sans adresse, il s'arrête là
@@ -210,12 +210,24 @@ heure d'exécution au plus. Chaque passage :
 4. si une version attend et que l'heure s'y prête, l'applique par le chemin de
    `appliquer` (§2) : **dans la plage** (`20:00-07:00` par défaut) si le serveur est
    calme depuis `calme_minutes` ; **hors plage** seulement dans le quart d'heure qui
-   suit le démarrage du PC, et si le serveur n'a reçu aucune requête (`au_demarrage`).
+   suit le démarrage du **système** tel que Windows le compte (`GetTickCount64`), et si
+   le serveur n'a reçu aucune requête (`au_demarrage`) : voir la limite connue plus bas.
    Le serveur reste juge : il refuse pendant un dépôt, quoi qu'on lui demande.
 
 Rien d'extrait, de sauvegardé ni demandé au serveur avant que l'heure s'y prête :
 hors plage, le passage s'arrête à `MAJ_REPORTEE code=HORS_PLAGE`, version reçue
 gardée dans `mise-a-jour\reception\`.
+
+**Forcer un contrôle** (séance d'assistance, fiche d'essai) : en console administrateur,
+
+```powershell
+python serveur\maj.py verifier --forcer
+```
+
+fait le contrôle réseau tout de suite, même si le dernier date de moins de six heures.
+**C'est tout** : la plage horaire, le démarrage récent, le calme, le temps restant et l'état
+désactivé se jugent comme d'habitude (hors plage, la version est reçue et attend). Ce n'est
+pas un moyen d'appliquer hors de l'heure.
 
 **Activer** (séance d'assistance, **après** la semaine de bilans réels qui suit la
 visite : D-M3) : écrire l'adresse dans `config.json`, rien d'autre. Pas de
@@ -231,6 +243,12 @@ configuration, `schtasks /Change /TN BilanPosturo-MiseAJour /Disable`.
 **Ne pas activer** sur un serveur qui ne porte pas encore C6-T8 (une connexion TCP
 muette peut figer l'acceptation du serveur ; contrat C5-T2, §14.16).
 
+**Codes de sortie du passage.** `0` : rien à faire, appliquée, **client désactivé ou hors
+de la plage** (ce n'est pas un incident : le Planificateur de tâches ne doit pas afficher
+`0x3` toute la journée) ; `1` : refus ou échec ; `3` : reporté, à retenter (serveur occupé,
+réseau, temps insuffisant). `technique.log` et `/etat` disent la cause des reports qui
+sortent en `0`.
+
 **Lire où l'on en est.** `/etat` (page authentifiée, qui circule en capture) porte
 `maj_controle_le` : la date du dernier contrôle réseau qui a rendu un verdict. C'est
 le seul signe qui distingue « la tâche tourne et rien n'est publié » de « la tâche ne
@@ -238,10 +256,20 @@ tourne plus ». Elle ne bouge pas quand le réseau est tombé : le passage suiva
 heure) réessaie, sans attendre six heures. `python serveur\maj.py etat` montre
 l'étape et le dernier résultat.
 
+**Valeurs normales de la ligne « Mise à jour »** (page `/etat`) : « aucune mise à jour
+enregistrée » seulement tant que la seconde tâche n'a jamais tourné ; ensuite, client
+désactivé : « dernier résultat : reportee — code : DESACTIVEE » (**ce n'est pas une panne**) ;
+client actif et rien de neuf : un « dernier contrôle le … » récent et aucun résultat (un
+contrôle réussi **efface** le report ou le refus plus ancien : `DESACTIVEE` d'avant
+l'activation, `RESEAU_INJOIGNABLE` d'une coupure résorbée ; un résultat d'application,
+`appliquee` ou `revenue`, reste) ; `HORS_PLAGE` à chaque passage de la journée, version
+reçue qui attend la nuit. **Lire `maj_controle_le` d'abord** : s'il date de plus d'une demi-journée
+alors que la tâche est active, c'est elle (ou le réseau) qu'il faut regarder.
+
 `technique.log` ne reçoit que des codes. **Une ligne par jour au plus** pour
 `DESACTIVEE`, `HORS_PLAGE`, un code réseau, `ADRESSE_INVALIDE`, `PLAGE_INVALIDE`,
-`CLES_ABSENTES` et `MAJ_CONTROLE resultat=a-jour` ; `MAJ_CONTROLE resultat=disponible` une fois par
-version vue. **L'adresse n'est dans aucun journal** : `journal.log` peut nommer
+`CLES_ABSENTES`, `TEMPS_INSUFFISANT` et `MAJ_CONTROLE resultat=a-jour` ;
+`MAJ_CONTROLE resultat=disponible` une fois par version vue. **L'adresse n'est dans aucun journal** : `journal.log` peut nommer
 l'hôte, jamais le chemin.
 
 **Le temps compte.** La plage horaire se rejuge sur l'heure **courante**, juste avant la
@@ -259,7 +287,7 @@ l'hébergeur publie dans le désordre) ; **s'il échoue après un transfert de l
 le suivant attend six heures : pas de 64 Mio retéléchargés chaque heure.
 
 Codes ajoutés par C5-T2b : `DESACTIVEE`, `ADRESSE_INVALIDE`, `PLAGE_INVALIDE`,
-`HORS_PLAGE`, `TEMPS_INSUFFISANT` ; réseau : `RESEAU_INJOIGNABLE` (pas de réponse, port fermé, proxy
+`HORS_PLAGE`, `TEMPS_INSUFFISANT` (le passage n'a plus de quoi finir avant la mort de la tâche) ; réseau : `RESEAU_INJOIGNABLE` (pas de réponse, port fermé, proxy
 refusé), `TLS_INVALIDE` (certificat non reconnu : voir la racine de l'hébergeur dans
 le magasin de Windows), `HTTP_STATUT` (404 : rien n'est publié à cette adresse),
 `REPONSE_TROP_GRANDE` (plus de 64 Mio), `DELAI_DEPASSE` (une minute pour le
@@ -277,6 +305,17 @@ de mise à jour **d'abord**, et **refuse** si elle tourne : l'arrêter en pleine
 bascule laisserait des fichiers mêlés que plus aucune tâche ne reprendrait. Réessayer
 dans quelques minutes ; si `python serveur\maj.py etat` montre longtemps une étape
 autre que `repos`, lancer `python serveur\maj.py reprendre`.
+
+**Limite connue : le Démarrage rapide de Windows.** `au_demarrage` repose sur le temps écoulé
+depuis le démarrage du système (`GetTickCount64`). Avec le Démarrage rapide (hibernation
+hybride, actif par défaut sous Windows 10 et 11), « Arrêter » puis rallumer ne remet peut-être
+pas ce compteur à zéro, et le processus du serveur peut lui-même survivre : seul « Redémarrer »
+fait un démarrage à froid. **Ce n'est pas mesuré** (c'est la variante 4 de la fiche d'essai B-5).
+Si l'écart se confirme, un cabinet qui éteint son PC chaque soir ne se mettrait à jour que dans
+la plage de nuit (PC allumé), jamais « au démarrage », sans autre signe qu'une ligne
+`HORS_PLAGE` par jour ; la référence du démarrage sera alors à changer. D'ici là, **ne pas
+compter sur `au_demarrage` pour un PC éteint chaque soir**, et le mesurer avant d'activer
+le client (D-M3).
 
 **Limites connues.** Un appareil du réseau qui interroge le serveur toutes les
 trente minutes empêche tout arrêt concerté, donc toute mise à jour (le sens de
