@@ -436,6 +436,11 @@ class TaillesEtDelais(Hebergement):
         self.heb.routes["/essai/stable.zip"] = faux.tronque(1000, 10)
         exception, _ = self.echec("RESEAU_INJOIGNABLE")
         self.assertEqual(exception.octets_recus, 10)
+        # Une réinitialisation TCP au milieu du corps : une exception de la socket,
+        # non un Refus de la boucle ; elle aussi dit ce qui était arrivé.
+        self.heb.routes["/essai/stable.zip"] = faux.coupure_brutale(10)
+        exception, _ = self.echec("RESEAU_INJOIGNABLE")
+        self.assertEqual(exception.octets_recus, 10)
         self.heb.routes["/essai/stable.zip"] = faux.statut(404)
         exception, _ = self.echec("HTTP_STATUT")
         self.assertEqual(exception.octets_recus, 0)

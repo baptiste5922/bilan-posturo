@@ -21,6 +21,7 @@ import os
 import socket
 import socketserver
 import ssl
+import struct
 import sys
 import threading
 import time
@@ -153,6 +154,25 @@ def corps_puis_silence(envoye, duree=8):
         g.wfile.write(b"y" * envoye)
         g.wfile.flush()
         g.server.hebergement.attendre(duree)
+    return comportement
+
+
+def coupure_brutale(envoye):
+    """`envoye` octets sans longueur annoncée, puis une réinitialisation TCP (RST) sans
+    fermeture TLS : côté client, une exception de la socket au milieu du corps (et non
+    un simple Refus levé par la boucle de lecture)."""
+    def comportement(g):
+        g.send_response(200)
+        g.end_headers()
+        g.wfile.write(b"y" * envoye)
+        g.wfile.flush()
+        time.sleep(0.2)
+        try:
+            g.connection.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER,
+                                    struct.pack("ii", 1, 0))
+            g.connection.close()
+        except OSError:
+            pass
     return comportement
 
 
