@@ -14,7 +14,10 @@ jobs:
       matrix:
         # Le serveur tourne sous Windows au cabinet et se développe sous
         # macOS : les deux sont couverts, et Linux sert de référence.
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        # ubuntu-24.04 et non ubuntu-latest : constaté le 17 novembre 2026, « latest » est
+        # Ubuntu 26.04, pour laquelle setup-python n'a pas de Python 3.9 (le plancher du
+        # projet). À rouvrir quand 3.9 sera servi sur 26.04 ou que le plancher montera.
+        os: [ubuntu-24.04, windows-latest, macos-latest]
         python: ['3.9', '3.13']
         exclude:
           - os: macos-latest
