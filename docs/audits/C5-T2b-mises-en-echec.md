@@ -164,3 +164,31 @@ pour cela.
 
 +19 tests depuis la livraison (1089 → 1108). Aucun `serveur.py` ni `maj.py` n'a été lancé depuis le dépôt
 pendant ces corrections, pas même pour `--help`.
+
+## Corrections de la revue : N43 à N51 (17 novembre 2026)
+
+La revue (`docs/revues/C5-T2b.md`, À CORRIGER : trois importants) a été corrigée (errata 40 à 43 du
+contrat). Même méthode : copie `git ls-files -z`, `git init` sans `origin`, mutation vérifiée par
+empreinte, `python3` puis `python3 -O` au premier échec, restauration par `cp` et empreinte relue,
+témoin rejoué en entier dans les deux modes.
+
+| # | Mutation | Fichier | Tests visés | python3 | python3 -O | Témoin (fichier restauré) |
+|---|---|---|---|---|---|---|
+| N43 | revue : --forcer n'ignore plus la fréquence de six heures | `serveur/maj.py` | `test_maj_politique.Frequence`, `test_maj_bout_en_bout.VerifierMontee.test_la_fiche_b5_se_deroule_avec_forcer` | rouge (test_forcer_fait_le_controle_meme_a_une_minute_d_ecart, 0.3 s) | rouge (test_forcer_fait_le_controle_meme_a_une_minute_d_ecart, 0.3 s) | vert dans les deux modes (16 tests in 12.096s) |
+| N44 | revue : --forcer outrepasse la plage horaire | `serveur/maj.py` | `test_maj_politique.Frequence` | rouge (test_forcer_ne_change_ni_la_plage_ni_le_desactive_ni_la_signature, 0.4 s) | rouge (test_forcer_ne_change_ni_la_plage_ni_le_desactive_ni_la_signature, 0.4 s) | vert dans les deux modes (15 tests in 0.790s) |
+| N45 | revue : --forcer outrepasse le client désactivé | `serveur/maj.py` | `test_maj_politique.Frequence` | rouge (test_forcer_ne_change_ni_la_plage_ni_le_desactive_ni_la_signature, 0.3 s) | rouge (test_forcer_ne_change_ni_la_plage_ni_le_desactive_ni_la_signature, 0.3 s) | vert dans les deux modes (15 tests in 0.764s) |
+| N46 | revue : un disque plein pendant la réception redevient une panne du réseau | `serveur/maj.py` | `test_maj_reseau.TaillesEtDelais` | rouge (test_un_disque_plein_pendant_la_reception_est_une_ecriture_impossible, 7.4 s) | rouge (test_un_disque_plein_pendant_la_reception_est_une_ecriture_impossible, 7.1 s) | vert dans les deux modes (17 tests in 10.842s) |
+| N47 | revue : TEMPS_INSUFFISANT sorti de la limitation quotidienne | `serveur/maj.py` | `test_maj_politique.Eligibilite`, `test_maj.Constantes` | rouge (test_temps_insuffisant_ne_fait_qu_une_ligne_par_jour, 0.8 s) | rouge (test_temps_insuffisant_ne_fait_qu_une_ligne_par_jour, 0.8 s) | vert dans les deux modes (28 tests in 1.022s) |
+| N48 | revue : le report périmé reste dans l'état après un contrôle réussi | `serveur/maj.py` | `test_maj_politique.Frequence` | rouge (test_un_controle_reussi_efface_le_report_perime_de_l_etat, 0.5 s) | rouge (test_un_controle_reussi_efface_le_report_perime_de_l_etat, 0.5 s) | vert dans les deux modes (15 tests in 0.764s) |
+| N49 | revue : un contrôle efface aussi le résultat d'une application | `serveur/maj.py` | `test_maj_politique.Frequence` | rouge (test_un_resultat_d_application_n_est_pas_efface_par_un_controle, 0.8 s) | rouge (test_un_resultat_d_application_n_est_pas_efface_par_un_controle, 0.8 s) | vert dans les deux modes (15 tests in 0.764s) |
+| N50 | revue : un client désactivé ou hors plage sort de nouveau en code 3 | `serveur/maj.py` | `test_maj_politique.Desactive`, `test_maj.ChampsDeLEtat` | rouge (test_aucune_connexion_et_une_ligne_par_jour, 0.2 s) | rouge (test_aucune_connexion_et_une_ligne_par_jour, 0.2 s) | vert dans les deux modes (9 tests in 0.194s) |
+| N51 | revue (mutant survivant de l'audit) : la décision d'entrée jugée sur l'heure figée | `serveur/maj.py` | `test_maj_politique.Eligibilite` | rouge (test_la_decision_d_entree_se_juge_sur_l_heure_courante_elle_aussi, 0.4 s) | rouge (test_la_decision_d_entree_se_juge_sur_l_heure_courante_elle_aussi, 0.4 s) | vert dans les deux modes (18 tests in 0.793s) |
+
+**Bilan : 9 mutations jouées, 9 font rougir leurs tests dans les deux modes, 9 témoins
+verts dans les deux modes.**
+
+**N44 n'a pas mordu du premier coup.** Un `--forcer` qui outrepasse la plage laissait pourtant le
+résultat inchangé (`HORS_PLAGE`, aucune demande d'arrêt) : le rejugement fait juste avant la
+demande d'arrêt (erratum 34) rattrapait la faute, **après** l'extraction et la sauvegarde. Le test
+vérifie maintenant que `prepare/` et `sauvegarde-neuve/` n'existent pas : c'est la décision
+d'entrée qui doit retenir le passage, le rejugement n'est que la seconde barrière.
