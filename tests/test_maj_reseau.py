@@ -406,7 +406,13 @@ class TaillesEtDelais(Hebergement):
         # comme à la fin d'un corps sans Content-Length. Sans mémoire de l'échéance, un
         # corps coupé passerait pour complet.
         self.heb.routes["/essai/stable.zip"] = faux.corps_puis_silence(10, duree=8)
-        exception, duree = self.echec("DELAI_DEPASSE", total=2, delai_operation=30)
+        # Le délai de la socket (ramené à ce qui reste) et le minuteur se déclenchent
+        # presque ensemble ; pour que le minuteur gagne à coup sûr, il part à la moitié.
+        reel = maj.threading.Timer
+        with unittest.mock.patch.object(
+                maj.threading, "Timer",
+                lambda delai, fonction, args: reel(delai / 2, fonction, args)):
+            exception, duree = self.echec("DELAI_DEPASSE", total=2, delai_operation=30)
         self.assertLess(duree, 5)
         self.assertEqual(exception.octets_recus, 10)
 
