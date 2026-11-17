@@ -125,3 +125,16 @@ Mes neuf mutations (clone `git clone --no-hardlinks`, `origin` retiré, restaura
 | `docs/Mode_emploi.md`, `docs/USER-GUIDE.md` | **À faire** : section « démarrage automatique » (deux tâches), ligne « Mise à jour » de la page d'état (`DESACTIVEE` normal, « dernier contrôle le … »). Français d'abord, anglais ensuite. |
 | `docs/ROADMAP.md` | À la clôture : retirer « En attente : audit », cocher C5-T2b seulement après la fiche B jouée sur Windows. |
 | `CLAUDE.md` | Maintenu par `/cloture-projet` : rien à faire ici. |
+
+## Suites (17 novembre 2026)
+
+Les trois remarques importantes et les mineurs retenus sont corrigés jusqu'à `e2536fd` (errata 40 à 43 du contrat, mises en échec N43 à N51) :
+
+- **Démarrage rapide** : aucun code changé, à dessein. La référence de remplacement proposée (`demarre_depuis_s` du serveur) n'est pas acquise non plus, puisque le processus du serveur lancé par la tâche SYSTEM survit peut-être à la veille prolongée de la session 0. La fiche B-5 porte une variante 4 qui mesure les deux signaux, la limite est dite dans `docs/mise-a-jour.md` et `docs/configuration.md`, et la mesure devient une précondition à l'activation (D-M3), à côté de C6-T8.
+- **Fiche B** : `maj.py verifier --forcer` ignore la seule fréquence de six heures. B24 reste décochée jusqu'au déroulé sur une VM Windows.
+- **Documentation** : README, `Mode_emploi.md` et `USER-GUIDE.md` sont à jour, et la phrase « no data leaves » est précisée sans être affaiblie.
+- **Mineurs** : tous faits, sauf le paquet en attente retéléchargé (erratum 43).
+
+Le code ne change que dans `serveur/maj.py`, sur 69 lignes : l'option `--forcer`, la sortie en 0 pour `DESACTIVEE` et `HORS_PLAGE`, l'effacement d'un report périmé après un contrôle réussi, `ECRITURE_IMPOSSIBLE` à l'écriture et la limitation de `TEMPS_INSUFFISANT`. Le signal de démarrage et le chemin réseau n'ont pas changé, donc aucun nouvel audit n'est dû, comme la revue l'avait posé. La suite complète, rejouée par l'orchestrateur, donne 1118 tests, OK, 23 sautés. La CI `44128391974` est verte sur ses 7 jobs.
+
+**Verdict après corrections : À LIVRER.** C5-T2 reste non cochée dans la feuille de route : B24 et les fiches A et B attendent la VM Windows.
