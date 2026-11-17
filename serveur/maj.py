@@ -1663,6 +1663,11 @@ def _telecharger(url, destination, limite, delai_total, contexte=None, proxy="",
                                         "plus de %d octets reçus de %s" % (limite, hote))
                         sortie.write(bloc)
                     sortie.flush()
+                # Le minuteur a coupé la socket pendant une lecture : `read1` rend alors
+                # b"" comme à la fin d'un corps sans longueur, et un corps coupé passerait
+                # pour complet. Une échéance dépassée n'est jamais un succès.
+                if echu.is_set():
+                    raise Refus("DELAI_DEPASSE", "délai total dépassé par %s" % hote)
                 if attendu is not None and recu != attendu:
                     raise Refus("RESEAU_INJOIGNABLE", "réponse tronquée par %s" % hote)
             except BaseException:

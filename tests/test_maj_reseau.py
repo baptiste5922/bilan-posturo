@@ -401,6 +401,15 @@ class TaillesEtDelais(Hebergement):
         self.assertGreater(duree, 2)
         self.assertEqual(exception.octets_recus, 0)
 
+    def test_un_corps_sans_longueur_coupe_par_l_echeance_n_est_pas_un_succes(self):
+        # L'échéance totale coupe la socket en pleine lecture : read1 rend alors b"",
+        # comme à la fin d'un corps sans Content-Length. Sans mémoire de l'échéance, un
+        # corps coupé passerait pour complet.
+        self.heb.routes["/essai/stable.zip"] = faux.corps_puis_silence(10, duree=8)
+        exception, duree = self.echec("DELAI_DEPASSE", total=2, delai_operation=30)
+        self.assertLess(duree, 5)
+        self.assertEqual(exception.octets_recus, 10)
+
     def test_des_en_tetes_lents_ne_laissent_aucun_minuteur_ni_fil(self):
         import threading
         self.heb.routes["/essai/stable.zip"] = faux.corps(b"ok")

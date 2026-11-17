@@ -144,6 +144,18 @@ def corps_sans_longueur(taille, puis_goutte=20):
     return comportement
 
 
+def corps_puis_silence(envoye, duree=8):
+    """`envoye` octets SANS longueur annoncée, puis le silence (sans fermer) : la
+    lecture reste bloquée, et c'est l'échéance totale qui doit la couper."""
+    def comportement(g):
+        g.send_response(200)
+        g.end_headers()
+        g.wfile.write(b"y" * envoye)
+        g.wfile.flush()
+        g.server.hebergement.attendre(duree)
+    return comportement
+
+
 def tronque(annonce, envoye):
     """Annonce `annonce` octets, en envoie `envoye`, puis ferme."""
     def comportement(g):
