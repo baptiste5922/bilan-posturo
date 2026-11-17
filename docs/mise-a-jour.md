@@ -239,13 +239,27 @@ heure) réessaie, sans attendre six heures. `python serveur\maj.py etat` montre
 l'étape et le dernier résultat.
 
 `technique.log` ne reçoit que des codes. **Une ligne par jour au plus** pour
-`DESACTIVEE`, `HORS_PLAGE`, un code réseau, `ADRESSE_INVALIDE`, `PLAGE_INVALIDE` et
-`MAJ_CONTROLE resultat=a-jour` ; `MAJ_CONTROLE resultat=disponible` une fois par
+`DESACTIVEE`, `HORS_PLAGE`, un code réseau, `ADRESSE_INVALIDE`, `PLAGE_INVALIDE`,
+`CLES_ABSENTES` et `MAJ_CONTROLE resultat=a-jour` ; `MAJ_CONTROLE resultat=disponible` une fois par
 version vue. **L'adresse n'est dans aucun journal** : `journal.log` peut nommer
 l'hôte, jamais le chemin.
 
+**Le temps compte.** La plage horaire se rejuge sur l'heure **courante**, juste avant la
+demande d'arrêt (téléchargement, extraction et sauvegarde ont pu durer) : un passage
+commencé à 06:59 ne demande pas l'arrêt à 07:30. Et la tâche étant tuée au bout d'une
+heure, le passage ne demande l'arrêt que s'il lui reste de quoi tout finir (bascule,
+santé, auto-contrôle, retour arrière : environ 500 s, plus 300 s de marge) ; sinon
+`MAJ_REPORTEE code=TEMPS_INSUFFISANT`, la version attend le passage suivant. Le
+téléchargement a une échéance **totale**, en-têtes compris (une minute pour le manifeste
+et la signature, un quart d'heure pour l'archive).
+
+**Un contrôle qui échoue se retente dans l'heure** (réseau tombé, 404 parce que
+l'hébergeur publie dans le désordre) ; **s'il échoue après un transfert de l'archive**
+(coupure, archive plus longue que signée, goutte-à-goutte), le contrôle compte pour fait et
+le suivant attend six heures : pas de 64 Mio retéléchargés chaque heure.
+
 Codes ajoutés par C5-T2b : `DESACTIVEE`, `ADRESSE_INVALIDE`, `PLAGE_INVALIDE`,
-`HORS_PLAGE` ; réseau : `RESEAU_INJOIGNABLE` (pas de réponse, port fermé, proxy
+`HORS_PLAGE`, `TEMPS_INSUFFISANT` ; réseau : `RESEAU_INJOIGNABLE` (pas de réponse, port fermé, proxy
 refusé), `TLS_INVALIDE` (certificat non reconnu : voir la racine de l'hébergeur dans
 le magasin de Windows), `HTTP_STATUT` (404 : rien n'est publié à cette adresse),
 `REPONSE_TROP_GRANDE` (plus de 64 Mio), `DELAI_DEPASSE` (une minute pour le

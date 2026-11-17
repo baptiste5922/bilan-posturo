@@ -170,6 +170,26 @@ class Tls(Hebergement):
         self.assertTrue(contexte.check_hostname)
         self.assertGreaterEqual(contexte.minimum_version, ssl.TLSVersion.TLSv1_2)
 
+    def test_sslkeylogfile_n_ecrit_jamais_les_cles_de_session(self):
+        # create_default_context honore SSLKEYLOGFILE : sous SYSTEM, une variable
+        # d'environnement ne doit jamais faire écrire les clés de ce client.
+        fichier = os.path.join(self.dossier, "cles-de-session.txt")
+        with unittest.mock.patch.dict(os.environ, {"SSLKEYLOGFILE": fichier}):
+            contexte = maj.contexte_tls_par_defaut()
+            if hasattr(contexte, "keylog_filename"):
+                self.assertIsNone(contexte.keylog_filename)
+            self.heb.routes["/essai/stable.zip"] = faux.corps(b"x")
+            # Le contexte du test fait confiance à l'autorité du bac ; celui de la
+            # production, lui, est celui ci-dessus : on lui donne la même autorité.
+            contexte.load_verify_locations(os.path.join(pe.certificats(), "autorite.crt"))
+            self.assertEqual(self.telecharger(contexte=contexte), 1)
+        if os.path.exists(fichier):
+            # OpenSSL a pu y poser son seul en-tête (un commentaire) à la création du
+            # contexte ; aucun secret de session n'y a été écrit.
+            with open(fichier, encoding="utf-8") as f:
+                secrets = [l for l in f.read().splitlines() if l and not l.startswith("#")]
+            self.assertEqual(secrets, [])
+
     def test_le_contexte_par_defaut_refuse_un_certificat_d_autorite_inconnue(self):
         self.heb.routes["/essai/stable.zip"] = faux.corps(b"x")
         # Sans `contexte=` : le magasin du système, qui ne connaît pas l'autorité du bac.
@@ -280,6 +300,29 @@ class Redirections(Hebergement):
                 self.heb.routes["/essai/a"] = faux.redirection(cible)
                 self.echec("REDIRECTION_REFUSEE", "/essai/a")
 
+    def test_aucune_exception_imprevue_ne_sort_de_telecharger(self):
+        # _telecharger ne lève que des Refus : toute autre exception de la lecture
+        # des réponses devient un code fermé (audit de C5-T2b).
+        self.heb.routes["/essai/stable.zip"] = faux.corps(b"x")
+        for erreur in (ValueError("Invalid IPv6 URL"), RuntimeError("x"), AttributeError("y"),
+                       KeyError("z")):
+            with self.subTest(erreur=type(erreur).__name__):
+                with unittest.mock.patch("http.client.HTTPConnection.getresponse",
+                                         side_effect=erreur):
+                    with self.assertRaises(maj.Refus) as contexte:
+                        self.telecharger()
+                self.assertEqual(contexte.exception.code, "RESEAU_INJOIGNABLE")
+                self.assertNotIn("/essai", contexte.exception.detail)
+                self.assertFalse(os.path.lexists(self.destination))
+
+    def test_une_location_malformee_est_une_redirection_refusee(self):
+        # Audit de C5-T2b : urlsplit lève ValueError sur un crochet IPv6 non fermé ;
+        # _telecharger ne doit lever que des Refus.
+        for cible in ("https://[abc/x", "//[::1/x", "https://[::1", "https://exemple.fr:99999/x"):
+            with self.subTest(cible=cible):
+                self.heb.routes["/essai/a"] = faux.redirection(cible)
+                self.echec("REDIRECTION_REFUSEE", "/essai/a")
+
     def test_une_redirection_sans_location_est_refusee(self):
         self.heb.routes["/essai/a"] = lambda g: faux.envoyer(g, b"", 302)
         self.echec("REDIRECTION_REFUSEE", "/essai/a")
@@ -347,10 +390,46 @@ class TaillesEtDelais(Hebergement):
         self.assertLess(duree, 4)
         self.assertGreater(duree, 1.5)
 
+    def test_des_en_tetes_au_goutte_a_goutte_depassent_le_delai_total(self):
+        # Audit de C5-T2b : un octet d'en-tête toutes les 0,5 s, chacun dans son
+        # enregistrement TLS, restait dans le délai d'opération (2 s) à chaque
+        # réception, et la phase des en-têtes ne se bornait qu'à la fin de l'envoi
+        # (20 s ici). Le minuteur de l'échéance totale doit couper à 3 s.
+        self.heb.routes["/essai/stable.zip"] = faux.en_tetes_au_goutte_a_goutte(0.5, 40)
+        exception, duree = self.echec("DELAI_DEPASSE", total=3, delai_operation=2)
+        self.assertLess(duree, 6, "la phase des en-têtes n'est pas bornée par le délai total")
+        self.assertGreater(duree, 2)
+        self.assertEqual(exception.octets_recus, 0)
+
+    def test_des_en_tetes_lents_ne_laissent_aucun_minuteur_ni_fil(self):
+        import threading
+        self.heb.routes["/essai/stable.zip"] = faux.corps(b"ok")
+        avant = threading.active_count()
+        for _ in range(5):
+            self.telecharger()
+            os.remove(self.destination)
+        self.assertLessEqual(threading.active_count(), avant)
+
     def test_le_delai_total_court_aussi_avant_la_reponse(self):
         self.heb.routes["/essai/stable.zip"] = faux.muet(10)
         _, duree = self.echec("DELAI_DEPASSE", total=1, delai_operation=30)
         self.assertLess(duree, 3)
+
+    def test_un_echec_apres_un_transfert_dit_combien_d_octets_etaient_arrives(self):
+        # Ce que `verifier` en tire : un échec sans octet se retente dans l'heure, un
+        # échec après un transfert attend le contrôle suivant.
+        self.heb.routes["/essai/stable.zip"] = faux.tronque(1000, 10)
+        exception, _ = self.echec("RESEAU_INJOIGNABLE")
+        self.assertEqual(exception.octets_recus, 10)
+        self.heb.routes["/essai/stable.zip"] = faux.statut(404)
+        exception, _ = self.echec("HTTP_STATUT")
+        self.assertEqual(exception.octets_recus, 0)
+        self.heb.routes["/essai/stable.zip"] = faux.sans_corps_annonce(10 ** 9)
+        exception, _ = self.echec("REPONSE_TROP_GRANDE", limite=1000)
+        self.assertEqual(exception.octets_recus, 0)
+        self.heb.routes["/essai/stable.zip"] = faux.corps_sans_longueur(300000, puis_goutte=1)
+        exception, _ = self.echec("REPONSE_TROP_GRANDE", limite=100000)
+        self.assertGreater(exception.octets_recus, 100000)
 
     def test_un_port_ferme(self):
         ecoute = socket.socket()

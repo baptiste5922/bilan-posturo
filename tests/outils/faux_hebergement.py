@@ -177,6 +177,26 @@ def goutte_a_goutte(pause=0.2, nombre=100):
     return comportement
 
 
+def en_tetes_au_goutte_a_goutte(pause=0.5, nombre=40):
+    """La ligne de statut, puis UN octet d'en-tête toutes les `pause` secondes, chacun
+    dans son propre enregistrement TLS : chaque réception arrive dans le délai
+    d'opération, mais la phase des en-têtes n'en finit jamais (audit de C5-T2b)."""
+    def comportement(g):
+        g.wfile.write(b"HTTP/1.0 200 OK\r\n")
+        g.wfile.flush()
+        try:
+            g.wfile.write(b"X-Lent: ")
+            for _ in range(nombre):
+                if g.server.hebergement.fermeture.is_set():
+                    return
+                g.wfile.write(b"z")
+                g.wfile.flush()
+                time.sleep(pause)
+        except OSError:
+            pass
+    return comportement
+
+
 class FauxHebergement(object):
     """Un hébergement HTTPS sur 127.0.0.1, en tâche de fond."""
 

@@ -1240,6 +1240,15 @@ class Constantes(unittest.TestCase):
                 + retour                                        # la bascule échoue
                 + 10 + d["sante"])                              # assurer_serveur
         self.assertLess(pire, 2700, "le pire passage dépasse 75 %% de l'heure : %d s" % pire)
+        # La somme n'est qu'un ordre de grandeur : la GARANTIE est le contrôle fait au
+        # moment de demander l'arrêt (TEMPS_INSUFFISANT, tests.test_maj_politique), qui
+        # s'appuie sur ces deux constantes et sur `budget_application`.
+        self.assertEqual(maj.LIMITE_EXECUTION_SECONDES, 3600)
+        self.assertEqual(maj.MARGE_EXECUTION_SECONDES, 300)
+        # 5 + 30 + 90 + 1 + 60 + 60 + 3 × 60 + 10 + 60
+        self.assertEqual(maj.budget_application(d), 496)
+        self.assertLess(maj.budget_application(d) + maj.MARGE_EXECUTION_SECONDES,
+                        maj.LIMITE_EXECUTION_SECONDES)
         # Témoin : la somme pèse bien quelque chose (un test qui additionne zéro
         # ne garde rien).
         self.assertGreater(pire, 1000)
@@ -1251,11 +1260,12 @@ class Constantes(unittest.TestCase):
     def test_codes_de_la_seconde_sous_tache(self):
         nouveaux = ("DESACTIVEE", "ADRESSE_INVALIDE", "PLAGE_INVALIDE", "HORS_PLAGE",
                     "RESEAU_INJOIGNABLE", "TLS_INVALIDE", "HTTP_STATUT",
-                    "REPONSE_TROP_GRANDE", "DELAI_DEPASSE", "REDIRECTION_REFUSEE")
-        self.assertEqual(len(maj.CODES_MAJ), 35)
-        self.assertEqual(list(maj.CODES_MAJ[-10:]), list(nouveaux))
-        self.assertEqual(len(maj.CODES_REPORT), 13)
-        for code in ("DESACTIVEE", "HORS_PLAGE") + maj.CODES_RESEAU:
+                    "REPONSE_TROP_GRANDE", "DELAI_DEPASSE", "REDIRECTION_REFUSEE",
+                    "TEMPS_INSUFFISANT")
+        self.assertEqual(len(maj.CODES_MAJ), 36)
+        self.assertEqual(list(maj.CODES_MAJ[-11:]), list(nouveaux))
+        self.assertEqual(len(maj.CODES_REPORT), 14)
+        for code in ("DESACTIVEE", "HORS_PLAGE", "TEMPS_INSUFFISANT") + maj.CODES_RESEAU:
             self.assertIn(code, maj.CODES_REPORT)
         self.assertEqual(len(maj.CODES_RESEAU), 6)
         # Une configuration fausse ne se répare pas en attendant ; INTERROMPUE, en
@@ -1269,7 +1279,7 @@ class Constantes(unittest.TestCase):
             sorted(["MAJ_REPORTEE:DESACTIVEE", "MAJ_REPORTEE:HORS_PLAGE"]
                    + ["MAJ_REPORTEE:" + c for c in maj.CODES_RESEAU]
                    + ["MAJ_REFUSEE:ADRESSE_INVALIDE", "MAJ_REFUSEE:PLAGE_INVALIDE",
-                      "MAJ_CONTROLE:a-jour"]))
+                      "MAJ_REFUSEE:CLES_ABSENTES", "MAJ_CONTROLE:a-jour"]))
 
     def test_codes_fermes_et_disjoints_de_ceux_du_verificateur(self):
         self.assertEqual(len(set(maj.CODES_MAJ)), len(maj.CODES_MAJ))

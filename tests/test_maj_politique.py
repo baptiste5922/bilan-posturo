@@ -214,6 +214,8 @@ class Passage(test_maj.Installation):
         self.requetes = []
         self.panne = None
         self.panne_archive = None       # seule l'archive échoue (manifeste et signature passent)
+        self.octets_avant_la_panne = 0  # ... après avoir reçu ce nombre d'octets
+        self.exception_imprevue = None  # une exception qui n'est pas un Refus
         self.fichiers = {}
         self.patch(maj, "_telecharger", self.telecharger)
         self.patch(maj, "attendre_sante", lambda *a, **k: True)
@@ -249,8 +251,12 @@ class Passage(test_maj.Installation):
             nature = "signature"
         else:
             nature = "archive"
+        if self.exception_imprevue is not None:
+            raise self.exception_imprevue
         if nature == "archive" and self.panne_archive is not None:
-            raise maj.Refus(self.panne_archive, "panne d'essai sur l'archive")
+            refus = maj.Refus(self.panne_archive, "panne d'essai sur l'archive")
+            refus.octets_recus = self.octets_avant_la_panne
+            raise refus
         with open(self.fichiers[nature], "rb") as f:
             octets = f.read()
         if len(octets) > limite:
@@ -270,13 +276,14 @@ class Passage(test_maj.Installation):
         self.ecrire_config(mise_a_jour=dict(
             (k, v) for k, v in reglage.items() if v is not ABSENTE))
 
-    def passer(self, maintenant=LUNDI_MIDI, depuis_demarrage=100000, **delais):
+    def passer(self, maintenant=LUNDI_MIDI, depuis_demarrage=100000, monotone=None, **delais):
         sortie = io.StringIO()
         options = {"sante": 1, "auto_controle": 5, "reponse": 1, "arret": 1, "operation": 1}
         options.update(delais)
         with contextlib.redirect_stdout(sortie), contextlib.redirect_stderr(io.StringIO()):
             return maj.verifier(self.racine, self.pilote, maintenant=maintenant,
-                                depuis_demarrage=lambda: depuis_demarrage, delais=options)
+                                depuis_demarrage=lambda: depuis_demarrage, delais=options,
+                                monotone=monotone)
 
     def journal(self):
         with open(os.path.join(self.racine, "journal.log"), encoding="utf-8") as f:
@@ -478,6 +485,40 @@ class Frequence(Passage):
         self.assertEqual(self.etat()["attente"], "1.2.0")
         self.assertEqual(self.etat()["controle_le"], "2026-11-16T10:00:00")
 
+    def test_un_echec_apres_un_transfert_de_l_archive_attend_six_heures(self):
+        # Audit de C5-T2b (Faible) : une archive qui coupe après l'essentiel des octets
+        # ne doit pas être retéléchargée chaque heure (jusqu'à 64 Mio × 24 par jour).
+        self.publier(self.trio("1.2.0"))
+        self.panne_archive = "RESEAU_INJOIGNABLE"
+        self.octets_avant_la_panne = 50 * 1024 * 1024
+        self.assertEqual(self.passer(a(9, 0)), 3)
+        self.assertIn("MAJ_REPORTEE code=RESEAU_INJOIGNABLE", self.technique())
+        etat = self.etat()
+        self.assertEqual(etat["controle_le"], "2026-11-16T09:00:00")
+        self.assertIsNone(etat["attente"])
+        self.requetes.clear()
+        for heure in (10, 11, 14):
+            self.assertEqual(self.passer(a(heure, 0)), 0)
+            self.assertEqual(self.requetes, [], "retentée avant six heures")
+        self.panne_archive = None
+        self.assertEqual(self.passer(a(15, 0)), 3)          # six heures : dû, reçue, attend
+        self.assertEqual(len(self.requetes), 3)
+        self.assertEqual(self.etat()["attente"], "1.2.0")
+
+    def test_un_echec_sans_octet_de_l_archive_reste_retente_dans_l_heure(self):
+        for code in ("HTTP_STATUT", "RESEAU_INJOIGNABLE", "TLS_INVALIDE", "DELAI_DEPASSE",
+                     "REPONSE_TROP_GRANDE"):
+            with self.subTest(code=code):
+                self.setUp()
+                self.publier(self.trio("1.2.0"))
+                self.panne_archive = code
+                self.octets_avant_la_panne = 0
+                self.assertEqual(self.passer(a(9, 0)), 3)
+                self.assertIsNone(self.etat()["controle_le"])
+                self.requetes.clear()
+                self.assertEqual(self.passer(a(10, 0)), 3)
+                self.assertEqual(len(self.requetes), 3)
+
     def test_un_echec_reseau_ne_change_pas_un_controle_deja_fait(self):
         self.assertEqual(self.passer(a(9, 0)), 0)
         avant = self.etat()["controle_le"]
@@ -624,6 +665,91 @@ class Eligibilite(Passage):
         self.assertEqual(len(self.requetes), requetes, "pas de nouveau contrôle : attente")
         self.assertEqual(self.demande_ecrite(), (1800, False))
 
+    def horloge(self):
+        """Une horloge monotone que l'on avance à la main (secondes)."""
+        class Horloge(object):
+            t = 1000.0
+
+            def __call__(self):
+                return self.t
+        return Horloge()
+
+    def ralentir(self, horloge, secondes):
+        """Un passage lent : la sauvegarde (juste avant la demande d'arrêt) prend du temps."""
+        reel = maj.preparer_sauvegarde
+
+        def lente(plan):
+            reel(plan)
+            horloge.t += secondes
+
+        self.patch(maj, "preparer_sauvegarde", lente)
+
+    def test_la_plage_se_rejuge_sur_l_heure_courante_juste_avant_l_arret(self):
+        # Audit de C5-T2b (Moyen) : le passage démarre à 06:59, la plage se referme à
+        # 07:00, une extraction ou un téléchargement lents amènent la demande d'arrêt
+        # à 07:30 : l'arrêt ne doit pas partir.
+        self.configurer(au_demarrage=False, calme_minutes=1)
+        horloge = self.horloge()
+        self.ralentir(horloge, 1800)
+        self.assertEqual(self.passer(a(6, 59), monotone=horloge), 3)
+        self.assertEqual(self.demandes, [], "l'arrêt a été demandé hors de la plage")
+        self.assertIn("MAJ_REPORTEE code=HORS_PLAGE", self.technique())
+        self.assertEqual(self.etat()["attente"], "1.2.0", "la version attend la nuit suivante")
+        self.assertFalse(self.etat()["arret_en_cours"])
+        # Sans lenteur, le même passage à 06:59 demande bien l'arrêt.
+        self.demandes.clear()
+        horloge2 = self.horloge()
+        self.assertEqual(self.passer(a(6, 58, jour=17), monotone=horloge2), 3)
+        self.assertEqual(len(self.demandes), 1)
+
+    def test_le_demarrage_se_rejuge_aussi_a_l_heure_courante(self):
+        # La plage est fermée à l'entrée (hors plage), mais le démarrage récent est
+        # jugé en direct : si le quart d'heure s'est écoulé pendant le passage, rien.
+        self.configurer(au_demarrage=True)
+        durees = iter([100, 901])       # à l'entrée, puis juste avant la demande d'arrêt
+
+        def decider(politique, courant, depuis):
+            return (0, True) if next(durees) <= serveur.DELAI_DEMARRAGE_MAX_SECONDES else None
+
+        self.patch(maj, "decider_moment", decider)
+        reel = self.passer
+        self.assertEqual(reel(LUNDI_MIDI), 3)
+        self.assertEqual(self.demandes, [])
+        self.assertIn("MAJ_REPORTEE code=HORS_PLAGE", self.technique())
+
+    def test_pas_assez_de_temps_pour_tout_finir_avant_la_mort_de_la_tache(self):
+        # Audit de C5-T2b (Moyen) : démarrer l'application avec une heure de tâche
+        # presque écoulée laisserait la tâche tuée au milieu de la bascule.
+        self.configurer(plage="00:00-23:59")
+        d = maj.delais_de_production()
+        horloge = self.horloge()
+        # Il reste tout juste moins que (budget + marge) : refus.
+        marge = maj.LIMITE_EXECUTION_SECONDES - maj.MARGE_EXECUTION_SECONDES \
+            - maj.budget_application(dict(d, sante=1, auto_controle=5, reponse=1, arret=1))
+        self.ralentir(horloge, marge + 1)
+        self.assertEqual(self.passer(LUNDI_MIDI, monotone=horloge), 3)
+        self.assertEqual(self.demandes, [])
+        self.assertIn("MAJ_REPORTEE code=TEMPS_INSUFFISANT", self.technique())
+        self.assertEqual(self.etat()["attente"], "1.2.0")
+        self.assertFalse(self.etat()["arret_en_cours"])
+
+    def test_juste_assez_de_temps_l_arret_est_demande(self):
+        self.configurer(plage="00:00-23:59")
+        d = {"sante": 1, "auto_controle": 5, "reponse": 1, "arret": 1}
+        horloge = self.horloge()
+        marge = maj.LIMITE_EXECUTION_SECONDES - maj.MARGE_EXECUTION_SECONDES \
+            - maj.budget_application(d)
+        self.ralentir(horloge, marge)
+        self.assertEqual(self.passer(LUNDI_MIDI, monotone=horloge), 3)    # ARRET_REFUSE du faux
+        self.assertEqual(len(self.demandes), 1)
+        self.assertIn("MAJ_REPORTEE code=ARRET_REFUSE", self.technique())
+
+    def test_le_budget_somme_les_delais_de_production_de_la_phase_d_application(self):
+        d = maj.delais_de_production()
+        self.assertEqual(maj.budget_application(d), 5 + 30 + 90 + 1 + 60 + 60 + 3 * 60 + 10 + 60)
+        reduit = dict(d, sante=1, auto_controle=5, reponse=1, arret=1)
+        self.assertEqual(maj.budget_application(reduit), 5 + 1 + 1 + 1 + 1 + 5 + 3 + 10 + 1)
+
     def test_une_ligne_hors_plage_par_jour(self):
         self.configurer(au_demarrage=False)
         for heure in (9, 10, 11, 12):
@@ -660,6 +786,61 @@ class Eligibilite(Passage):
         self.assertEqual(os.listdir(self.dossier_maj("reception")), [])
         self.assertEqual(self.etat()["ecartees"], [])
         self.assertEqual(self.demandes, [])
+
+
+class FiletDeLaTache(Passage):
+    """Audit de C5-T2b (Faible) : aucune sortie de `verifier` ne reste silencieuse."""
+
+    def test_une_exception_imprevue_laisse_une_ligne_a_code_ferme_dans_les_deux_journaux(self):
+        self.publier(self.trio("1.2.0"))
+        self.exception_imprevue = ValueError("Invalid IPv6 URL pour le chemin sentinelle")
+        self.assertEqual(self.passer(), 1)
+        self.assertIn("MAJ_REFUSEE code=CODE_INCONNU", self.technique())
+        self.assertIn("MAJ_REFUSEE code=CODE_INCONNU", self.journal())
+        # Le texte de l'exception (qui peut citer un chemin) n'est dans aucun journal.
+        self.assertNotIn("IPv6", self.technique())
+        self.assertNotIn("sentinelle", self.technique())
+        # journal.log : la classe de l'exception, pas son texte.
+        self.assertIn("exception imprévue : ValueError", self.journal())
+        self.assertNotIn("sentinelle", self.journal())
+        etat = self.etat()
+        self.assertEqual((etat["resultat"], etat["code"]), ("refusee", "CODE_INCONNU"))
+        # L'adresse non plus, dans aucun des deux (la fabrique du test n'y met que le
+        # chemin du faux hébergement ; le message de l'exception, lui, est nominatif).
+        self.assertNotIn("stable.zip", self.journal())
+
+    def test_le_verrou_est_relache_apres_l_exception(self):
+        self.publier(self.trio("1.1.0"))
+        self.exception_imprevue = RuntimeError("panne d'essai")
+        self.assertEqual(self.passer(), 1)
+        self.exception_imprevue = None
+        self.assertEqual(self.passer(a(16, 0)), 0)
+
+    def test_une_interruption_au_clavier_n_est_pas_avalee(self):
+        self.publier(self.trio("1.2.0"))
+        self.exception_imprevue = KeyboardInterrupt()
+        with self.assertRaises(KeyboardInterrupt):
+            self.passer()
+
+    def test_les_commandes_manuelles_gardent_leur_comportement(self):
+        # Sans filet : `appliquer` laisse monter l'exception (tests.test_maj, filet de
+        # relance du serveur après acceptation).
+        def travail():
+            raise RuntimeError("panne d'essai")
+
+        with maj.contexte_serveur(self.racine):
+            with self.assertRaises(RuntimeError):
+                maj.executer(self.racine, travail)
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(maj.executer(self.racine, travail, filet=True), 1)
+
+    def test_cles_absentes_ne_fait_qu_une_ligne_par_jour(self):
+        os.remove(os.path.join(self.racine, "serveur", "cles_publication.json"))
+        for heure in (9, 10, 11):
+            self.assertEqual(self.passer(a(heure)), 1)
+        self.assertEqual(len(self.lignes("MAJ_REFUSEE code=CLES_ABSENTES")), 1)
+        self.assertEqual(self.passer(a(9, jour=17)), 1)
+        self.assertEqual(len(self.lignes("MAJ_REFUSEE code=CLES_ABSENTES")), 2)
 
 
 class SansConsole(Passage):

@@ -43,6 +43,7 @@ import ssl
 import stat
 import subprocess
 import sys
+import threading
 import time
 import urllib.parse
 import zipfile
@@ -86,6 +87,8 @@ CODES_MAJ = (
     "DESACTIVEE", "ADRESSE_INVALIDE", "PLAGE_INVALIDE", "HORS_PLAGE",
     "RESEAU_INJOIGNABLE", "TLS_INVALIDE", "HTTP_STATUT", "REPONSE_TROP_GRANDE",
     "DELAI_DEPASSE", "REDIRECTION_REFUSEE",
+    # Audit de C5-T2b : le passage n'a plus assez de temps devant lui.
+    "TEMPS_INSUFFISANT",
 )
 # Les six codes que le client réseau sait rendre (14.6) : on retentera.
 CODES_RESEAU = (
@@ -96,7 +99,8 @@ CODES_RESEAU = (
 # se répare pas en attendant. INTERROMPUE non plus : R1 l'émet directement.
 CODES_REPORT = frozenset((
     "DEJA_EN_COURS", "TACHE_ABSENTE", "SERVEUR_ABSENT", "ARRET_REFUSE",
-    "ARRET_SANS_REPONSE", "DESACTIVEE", "HORS_PLAGE") + CODES_RESEAU)
+    "ARRET_SANS_REPONSE", "DESACTIVEE", "HORS_PLAGE", "TEMPS_INSUFFISANT")
+    + CODES_RESEAU)
 # Les causes de retour qui écartent la version : un défaut du paquet, pas une
 # coupure de courant (D10).
 CAUSES_ECARTEES = ("SANTE_MUETTE", "AUTO_CONTROLE_ECHOUE", "RETOUR_MANUEL")
@@ -114,7 +118,7 @@ RESULTATS_DE_TRACE = ("ok", "echec", "a-jour", "disponible")
 LIGNES_LIMITEES = frozenset(
     ["MAJ_REPORTEE:" + code for code in ("DESACTIVEE", "HORS_PLAGE") + CODES_RESEAU]
     + ["MAJ_REFUSEE:ADRESSE_INVALIDE", "MAJ_REFUSEE:PLAGE_INVALIDE",
-       "MAJ_CONTROLE:a-jour"])
+       "MAJ_REFUSEE:CLES_ABSENTES", "MAJ_CONTROLE:a-jour"])
 
 NOM_TACHE_SERVEUR = "BilanPosturo"
 # Égal à $NOM_TACHE_MAJ des deux scripts d'installation (un test les compare).
@@ -155,6 +159,11 @@ DELAI_TOTAL_MANIFESTE_SECONDES = 60
 DELAI_TOTAL_ARCHIVE_SECONDES = 900
 FREQUENCE_CONTROLE_SECONDES = 21600
 REDIRECTIONS_MAX = 5
+# La tâche planifiée est tuée à l'heure (installer-demarrage.ps1). Un passage ne
+# demande l'arrêt du serveur que s'il lui reste de quoi tout finir, marge comprise :
+# une tâche tuée au milieu de la bascule laisse un serveur arrêté et des fichiers mêlés.
+LIMITE_EXECUTION_SECONDES = 3600
+MARGE_EXECUTION_SECONDES = 300
 TAILLE_BLOC_RESEAU = 64 * 1024
 LONGUEUR_MAX_ADRESSE = 1024
 # Défauts de la politique (D-M2) : la nuit, ou le quart d'heure qui suit le
@@ -213,6 +222,10 @@ class Refus(Exception):
         Exception.__init__(self, "%s : %s" % (code, detail) if detail else code)
         self.code = code
         self.detail = detail
+        # Octets d'un téléchargement déjà reçus quand il a échoué (_telecharger) :
+        # un échec sans octet se retente dans l'heure, un échec après un transfert
+        # attend le contrôle suivant (audit de C5-T2b, Faible 3).
+        self.octets_recus = 0
 
 
 def _depuis_paquet(erreur):
@@ -1493,6 +1506,11 @@ def contexte_tls_par_defaut():
     TLS_INVALIDE (fiche d'essai B-3), pas un contournement."""
     contexte = ssl.create_default_context()
     contexte.minimum_version = ssl.TLSVersion.TLSv1_2
+    # create_default_context honore SSLKEYLOGFILE : une variable d'environnement de
+    # la machine ferait écrire les clés de session de ce client, sous SYSTEM. Jamais.
+    # (Absent des Python liés à LibreSSL, dont le 3.9.6 de macOS.)
+    if getattr(contexte, "keylog_filename", None) is not None:
+        contexte.keylog_filename = None
     return contexte
 
 
@@ -1500,6 +1518,35 @@ def _cause_sans_adresse(erreur):
     """Ce que l'on dit d'une erreur réseau : sa classe et son numéro, JAMAIS son
     texte, qui peut citer l'adresse (InvalidURL cite le chemin)."""
     return "%s errno=%s" % (type(erreur).__name__, getattr(erreur, "errno", None))
+
+
+def _refus_reseau(erreur, hote, corps_commence):
+    """Le Refus à code fermé d'une exception qui vient du réseau ou de sa lecture.
+
+    `_telecharger` ne lève QUE des Refus : c'est la porte d'entrée de données
+    hostiles, et rien ne doit en sortir par une trace de pile perdue sous SYSTEM
+    (audit de C5-T2b : une `Location` malformée levait ValueError)."""
+    if isinstance(erreur, socket.timeout):
+        return Refus("DELAI_DEPASSE", "%s ne répond pas dans le délai" % hote)
+    if isinstance(erreur, (ssl.SSLEOFError, ssl.SSLZeroReturnError)):
+        # Pendant le corps, c'est une coupure ; pendant la poignée de main, un
+        # serveur qui ne parle pas TLS.
+        return Refus("RESEAU_INJOIGNABLE" if corps_commence else "TLS_INVALIDE",
+                     "%s : %s" % (hote, _cause_sans_adresse(erreur)))
+    if isinstance(erreur, ssl.SSLError):
+        raison = getattr(erreur, "verify_message", None) or getattr(erreur, "reason", None)
+        return Refus("TLS_INVALIDE", "%s : %s %s" % (hote, _cause_sans_adresse(erreur), raison))
+    return Refus("RESEAU_INJOIGNABLE", "%s : %s" % (hote, _cause_sans_adresse(erreur)))
+
+
+def _couper_la_socket(prise, echu):
+    """Appelée par le minuteur de `_telecharger` à l'échéance totale : marque
+    l'échéance, puis coupe la socket pour réveiller la lecture qui la tient."""
+    echu.set()
+    try:
+        prise.shutdown(socket.SHUT_RDWR)
+    except (OSError, ValueError):
+        pass
 
 
 def _telecharger(url, destination, limite, delai_total, contexte=None, proxy="",
@@ -1511,12 +1558,18 @@ def _telecharger(url, destination, limite, delai_total, contexte=None, proxy="",
     `destination` est créée en O_EXCL (0o600) APRÈS un statut 200 et une taille
     admise, et effacée sur toute erreur.
 
-    Le délai total est réellement borné : lecture par `read1` (une seule réception
-    par appel ; `read(n)` en enchaînerait plusieurs, de 30 s chacune, et un hôte
-    qui envoie un octet toutes les 20 s ne finirait jamais), échéance monotone
-    testée à chaque bloc, délai de la socket ramené à ce qui reste avant chaque
-    réception. Une redirection ouvre une connexion neuve, vers https seulement.
-    Rien de ce que l'on écrit dans un Refus ne contient l'adresse : l'hôte au plus."""
+    Le délai total est réellement borné, **en-têtes compris**. Corps : lecture par
+    `read1` (une seule réception par appel ; `read(n)` en enchaînerait plusieurs, de
+    30 s chacune), échéance monotone testée à chaque bloc, délai de la socket ramené
+    à ce qui reste avant chaque réception. En-têtes : `http.client` les lit ligne à
+    ligne sans échéance globale, et un hôte qui en envoie un octet toutes les 29 s
+    tiendrait le passage jusqu'à la mort de la tâche ; un MINUTEUR ferme donc la
+    socket à l'échéance (erratum 31, refermé après l'audit). La poignée de main TLS
+    et la connexion portent déjà leur délai (celui de la socket, ramené à ce qui reste).
+    Une redirection ouvre une connexion neuve, vers https seulement. Rien de ce que
+    l'on écrit dans un Refus ne contient l'adresse : l'hôte au plus.
+
+    Un Refus porte `octets_recus` : ce qui avait été reçu avant l'échec."""
     if contexte is None:
         contexte = contexte_tls_par_defaut()
     echeance = time.monotonic() + delai_total
@@ -1542,12 +1595,22 @@ def _telecharger(url, destination, limite, delai_total, contexte=None, proxy="",
                 hote, port, timeout=delai, context=contexte)
         corps_commence = False
         reponse = None
+        recu = 0
+        echu = threading.Event()
+        minuteur = None
         try:
             connexion.request("GET", chemin, headers=ENTETES_DE_REQUETE)
             # La socket, prise avant getresponse : « Connection: close » fait lâcher
             # connexion.sock, que la réponse garde pourtant ouverte.
             prise = connexion.sock
             prise.settimeout(max(0.05, min(delai_operation, echeance - time.monotonic())))
+            # L'échéance TOTALE, en-têtes compris : à l'heure dite le minuteur coupe
+            # la socket, ce qui réveille la lecture en cours (EOF ou erreur), que
+            # l'on traduit plus bas en DELAI_DEPASSE.
+            minuteur = threading.Timer(
+                max(0.0, echeance - time.monotonic()), _couper_la_socket, (prise, echu))
+            minuteur.daemon = True
+            minuteur.start()
             reponse = connexion.getresponse()
             statut = reponse.status
             if statut in STATUTS_DE_REDIRECTION:
@@ -1556,7 +1619,11 @@ def _telecharger(url, destination, limite, delai_total, contexte=None, proxy="",
                 if cible is None or redirections > REDIRECTIONS_MAX:
                     raise Refus("REDIRECTION_REFUSEE",
                                 "redirection absente ou trop longue chez %s" % hote)
-                courante = urllib.parse.urljoin(courante, cible)
+                try:
+                    courante = urllib.parse.urljoin(courante, cible)
+                except ValueError:
+                    raise Refus("REDIRECTION_REFUSEE",
+                                "redirection illisible reçue de %s" % hote)
                 continue
             if statut != 200:
                 raise Refus("HTTP_STATUT", "statut %d de %s" % (statut, hote))
@@ -1578,7 +1645,6 @@ def _telecharger(url, destination, limite, delai_total, contexte=None, proxy="",
             except OSError as erreur:
                 raise Refus("ECRITURE_IMPOSSIBLE",
                             "réception impossible : %s" % _cause_sans_adresse(erreur))
-            recu = 0
             try:
                 with os.fdopen(descripteur, "wb") as sortie:
                     # `isclosed` : une réponse qui a rendu son dernier octet ferme
@@ -1603,21 +1669,21 @@ def _telecharger(url, destination, limite, delai_total, contexte=None, proxy="",
                 _effacer_si_present(destination)
                 raise
             return recu
-        except Refus:
-            raise
-        except socket.timeout:
-            raise Refus("DELAI_DEPASSE", "%s ne répond pas dans le délai" % hote)
-        except (ssl.SSLEOFError, ssl.SSLZeroReturnError) as erreur:
-            # Pendant le corps, c'est une coupure ; pendant la poignée de main,
-            # un serveur qui ne parle pas TLS.
-            raise Refus("RESEAU_INJOIGNABLE" if corps_commence else "TLS_INVALIDE",
-                        "%s : %s" % (hote, _cause_sans_adresse(erreur)))
-        except ssl.SSLError as erreur:
-            raison = getattr(erreur, "verify_message", None) or getattr(erreur, "reason", None)
-            raise Refus("TLS_INVALIDE", "%s : %s %s" % (hote, _cause_sans_adresse(erreur), raison))
-        except (OSError, http.client.HTTPException) as erreur:
-            raise Refus("RESEAU_INJOIGNABLE", "%s : %s" % (hote, _cause_sans_adresse(erreur)))
+        except Refus as erreur:
+            if echu.is_set():
+                erreur = Refus("DELAI_DEPASSE", "délai total dépassé par %s" % hote)
+            erreur.octets_recus = recu
+            raise erreur
+        except Exception as erreur:
+            if echu.is_set():
+                refus = Refus("DELAI_DEPASSE", "délai total dépassé par %s" % hote)
+            else:
+                refus = _refus_reseau(erreur, hote, corps_commence)
+            refus.octets_recus = recu
+            raise refus
         finally:
+            if minuteur is not None:
+                minuteur.cancel()
             # La réponse d'abord : « Connection: close » lui a confié la socket, qui
             # reste ouverte tant qu'elle n'est pas fermée (ResourceWarning sinon).
             if reponse is not None:
@@ -1955,10 +2021,15 @@ def _signaler_refus(racine, erreur, ecrire, jour=None):
     return 3 if erreur.code in CODES_REPORT else 1
 
 
-def executer(racine, travail, jour=None):
+def executer(racine, travail, jour=None, filet=False):
     """Dossier réservé, verrou, puis `travail()` ; tout Refus devient une trace
     et un code de sortie. `jour` (AAAA-MM-JJ) est le jour local de la limitation
-    des lignes ; par défaut celui de l'horloge."""
+    des lignes ; par défaut celui de l'horloge.
+
+    `filet` (la tâche planifiée, `verifier`) : aucune sortie ne reste silencieuse.
+    Une exception imprévue devient `MAJ_REFUSEE code=CODE_INCONNU` dans les deux
+    journaux (sa seule classe, jamais son texte, qui peut citer une adresse ou un chemin) et l'état, au lieu d'une trace de pile perdue sous SYSTEM. Les
+    commandes manuelles gardent leur comportement : l'exception se propage."""
     try:
         preparer_dossier_prive(racine)
         with verrou(racine):
@@ -1966,12 +2037,19 @@ def executer(racine, travail, jour=None):
                 return travail()
             except Refus as erreur:
                 return _signaler_refus(racine, erreur, True, jour)
+            except Exception as erreur:
+                if not filet:
+                    raise
+                return _signaler_refus(
+                    racine, Refus("CODE_INCONNU", "exception imprévue : %s" % type(erreur).__name__),
+                    True, jour)
     except Refus as erreur:
         return _signaler_refus(racine, erreur, False, jour)
 
 
 def appliquer_trio(racine, chemin_archive, pilote, port, calme_secondes, demarrage,
-                   delai_sante, delai_auto_controle, delai_reponse, delai_arret):
+                   delai_sante, delai_auto_controle, delai_reponse, delai_arret,
+                   avant_arret=None):
     """Contrôles, extraction, sauvegarde, arrêt concerté, bascule : tout ce qui suit
     la reprise, pour un trio (archive, manifeste, signature) posé à côté de
     `chemin_archive`. Rend le code de sortie ; lève Refus.
@@ -1979,7 +2057,12 @@ def appliquer_trio(racine, chemin_archive, pilote, port, calme_secondes, demarra
     Appelée verrou pris, dossier réservé protégé et reprise faite : par `appliquer`
     (archive posée à la main) et par `verifier` (archive téléchargée). Le verrou
     n'est pas réentrant, d'où cette fonction plutôt qu'un second appel d'`appliquer`.
-    `port` est celui que l'appelant a lu pour la reprise ; le plan relit le sien."""
+    `port` est celui que l'appelant a lu pour la reprise ; le plan relit le sien.
+
+    `avant_arret` : une fonction appelée JUSTE avant la demande d'arrêt, quand tout
+    le reste (contrôles, extraction, sauvegarde, présence du serveur) a pris son
+    temps. Elle rend le couple (calme_secondes, demarrage) à utiliser, ou lève Refus
+    pour reporter : l'heure et le temps restant se jugent à ce moment, non à l'entrée."""
     plan = controler(racine, chemin_archive)
     acceptation = {"accepte": False}
     try:
@@ -1988,6 +2071,8 @@ def appliquer_trio(racine, chemin_archive, pilote, port, calme_secondes, demarra
         _pilote_requis(pilote)
         if not attendre_sante(plan.port, DELAI_SERVEUR_PRESENT_SECONDES, 0.5):
             raise Refus("SERVEUR_ABSENT", "le serveur ne répond pas : rien n'est mis à jour")
+        if avant_arret is not None:
+            calme_secondes, demarrage = avant_arret()
         demander_arret(racine, plan.port, calme_secondes, demarrage,
                        delai_reponse, delai_arret, acceptation)
         # Seulement maintenant : la sauvegarde courante est celle qui permet de
@@ -2141,7 +2226,9 @@ def _recevoir(nature, adresse, destination, limite, delai_total, politique, cont
         return _telecharger(adresse, destination, limite, delai_total, contexte=contexte,
                             proxy=politique.proxy, delai_operation=delais["operation"])
     except Refus as erreur:
-        raise Refus(erreur.code, "%s : %s" % (nature, erreur.detail))
+        refus = Refus(erreur.code, "%s : %s" % (nature, erreur.detail))
+        refus.octets_recus = erreur.octets_recus
+        raise refus
 
 
 def _jour(maintenant):
@@ -2221,15 +2308,27 @@ def _controler_en_ligne(racine, politique, client, maintenant, contexte, delais)
         ecrire_etat(racine, horodater=False, controle_le=_horodatage(maintenant),
                     attente=None)
         raise Refus("REPONSE_TROP_GRANDE", "l'archive annoncée dépasse %d octets" % TAILLE_MAX_ARCHIVE)
-    _recevoir("archive", adresse, archive, manifeste["archive"]["taille"],
-              delais["archive"], politique, contexte, delais)
+    try:
+        _recevoir("archive", adresse, archive, manifeste["archive"]["taille"],
+                  delais["archive"], politique, contexte, delais)
+    except Refus as erreur:
+        # Un échec SANS octet reçu (404 parce que l'hébergeur publie dans le désordre,
+        # connexion refusée) se retente dans l'heure : il ne coûte presque rien. Un
+        # échec APRÈS un transfert (coupure, archive trop longue, goutte-à-goutte)
+        # coûterait jusqu'à 64 Mio à chaque heure : le contrôle compte alors pour fait,
+        # et le suivant attend six heures, comme le §14.4 l'admettait.
+        if erreur.octets_recus > 0:
+            _vider_reception(racine)
+            ecrire_etat(racine, horodater=False, controle_le=_horodatage(maintenant),
+                        attente=None)
+        raise
     ecrire_etat(racine, horodater=False, controle_le=_horodatage(maintenant),
                 attente=manifeste["version"])
     if etat["attente"] != manifeste["version"]:
         tracer("MAJ_CONTROLE", resultat="disponible", de=installee, vers=manifeste["version"])
 
 
-def _appliquer_recu(racine, pilote, port, calme_secondes, demarrage, delais):
+def _appliquer_recu(racine, pilote, port, calme_secondes, demarrage, delais, avant_arret=None):
     """Étape 7 : le chemin de T2a, sur l'archive reçue. Un report garde la version
     en attente (prochain passage) ; tout autre issue la consomme, et elle sera
     retéléchargée au contrôle suivant (une cause locale, comme l'espace disque,
@@ -2238,7 +2337,7 @@ def _appliquer_recu(racine, pilote, port, calme_secondes, demarrage, delais):
     try:
         code = appliquer_trio(racine, archive, pilote, port, calme_secondes, demarrage,
                               delais["sante"], delais["auto_controle"],
-                              delais["reponse"], delais["arret"])
+                              delais["reponse"], delais["arret"], avant_arret)
     except Refus as erreur:
         if erreur.code not in CODES_REPORT:
             _oublier_la_version(racine)
@@ -2247,15 +2346,36 @@ def _appliquer_recu(racine, pilote, port, calme_secondes, demarrage, delais):
     return code
 
 
+def budget_application(delais):
+    """Le pire temps que prend l'application d'une version APRÈS la demande d'arrêt,
+    sommé depuis les délais : présence du serveur, réponse puis arrêt, répit, santé,
+    auto-contrôle, un retour arrière de toutes ses tentatives, et le filet de relance
+    (fermeture du port, santé). C'est ce que le passage doit encore avoir devant lui
+    pour oser arrêter le serveur."""
+    return (DELAI_SERVEUR_PRESENT_SECONDES + delais["reponse"] + delais["arret"]
+            + PAUSE_APRES_ARRET_SECONDES + delais["sante"] + delais["auto_controle"]
+            + TENTATIVES_RETOUR * delais["sante"] + 10 + delais["sante"])
+
+
 def verifier(racine, pilote, maintenant=None, depuis_demarrage=None, contexte=None,
-             delais=None):
+             delais=None, monotone=None, limite_execution=LIMITE_EXECUTION_SECONDES):
     """Un passage de la tâche planifiée : cherche, vérifie, applique si l'heure est
     bonne. Rend le code de sortie (0 rien à signaler ou appliquée, 1 refus, 3 report).
 
     L'horloge locale, la durée depuis le démarrage du système et le contexte TLS
-    s'injectent pour les tests ; `main` passe ceux de la production."""
+    s'injectent pour les tests ; `main` passe ceux de la production. `monotone` est
+    l'horloge monotone (secondes), `limite_execution` la durée au bout de laquelle la
+    tâche planifiée est tuée.
+
+    Le temps compte : la plage horaire et le temps restant avant la mort de la tâche
+    se jugent à l'heure COURANTE (entrée + temps écoulé), juste avant la demande
+    d'arrêt, jamais sur l'heure d'entrée : un contrôle réseau lent (la nuit finissant)
+    ou une connexion qui traîne ne doit ni arrêter le serveur après la plage, ni le
+    laisser arrêté si la tâche est tuée en pleine bascule."""
     racine = os.path.realpath(racine)
     maintenant = datetime.datetime.now() if maintenant is None else maintenant
+    monotone = time.monotonic if monotone is None else monotone
+    debut = monotone()
     depuis_demarrage = depuis_demarrage_systeme if depuis_demarrage is None else depuis_demarrage
     reglages = delais_de_production()
     inconnus = sorted(set(delais or {}) - set(reglages))
@@ -2280,14 +2400,34 @@ def verifier(racine, pilote, maintenant=None, depuis_demarrage=None, contexte=No
         if etat["attente"] is None:
             return 0
         # Avant toute extraction : hors de l'heure, rien n'est écrit ni demandé.
-        decision = decider_moment(politique, maintenant, depuis_demarrage)
+        decision = decider_moment(politique, heure_courante(), depuis_demarrage)
         if decision is None:
             raise Refus("HORS_PLAGE", "hors de la plage horaire de mise à jour")
         calme_secondes, demarrage = decision
-        return _appliquer_recu(racine, pilote, port, calme_secondes, demarrage, reglages)
+        return _appliquer_recu(racine, pilote, port, calme_secondes, demarrage, reglages,
+                               avant_arret=reevaluer)
+
+    def heure_courante():
+        return maintenant + datetime.timedelta(seconds=monotone() - debut)
+
+    def reevaluer():
+        """Juste avant de demander l'arrêt : l'heure a passé (téléchargement, copie,
+        extraction, sauvegarde). Plage et démarrage se rejugent sur l'heure courante,
+        et il faut avoir devant soi de quoi bascule, santé, auto-contrôle et retour
+        arrière avant la mort de la tâche."""
+        politique = lire_politique(_bloc_mise_a_jour())
+        decision = decider_moment(politique, heure_courante(), depuis_demarrage)
+        if decision is None:
+            raise Refus("HORS_PLAGE", "la plage horaire s'est refermée pendant le passage")
+        ecoule = monotone() - debut
+        if ecoule + budget_application(reglages) > limite_execution - MARGE_EXECUTION_SECONDES:
+            raise Refus("TEMPS_INSUFFISANT",
+                        "%d s écoulées, %d s nécessaires, limite de la tâche %d s"
+                        % (ecoule, budget_application(reglages), limite_execution))
+        return decision
 
     with contexte_serveur(racine):
-        return executer(racine, travail, jour=_jour(maintenant))
+        return executer(racine, travail, jour=_jour(maintenant), filet=True)
 
 
 def proteger(racine):
