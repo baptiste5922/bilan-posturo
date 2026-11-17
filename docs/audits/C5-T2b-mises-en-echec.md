@@ -105,3 +105,62 @@ Sous Python 3.9.6 (macOS, sans `cryptography`) : 427 tests, 0 échec, 69 sautés
 `cryptography` installée dans un environnement jetable : `tests.test_maj_reseau` et
 `tests.test_maj_politique` (107 tests) verts, `-W error::ResourceWarning`. La CI les rejoue
 sur Linux, macOS et Windows (Python 3.9 et 3.13).
+
+## Corrections de l'audit : N29 à N42 (17 novembre 2026)
+
+L'audit (`docs/audits/C5-T2b.md`, CONFORME SOUS RÉSERVE : un Moyen, deux Faibles) a été corrigé
+(errata 33 à 38 du contrat). Même méthode que ci-dessus : copie `git ls-files -z`, `git init`
+sans `origin`, mutation vérifiée par empreinte, `python3` puis `python3 -O` au premier échec,
+restauration par `cp` et empreinte relue, témoin rejoué en entier dans les deux modes. Les
+fichiers `BilanPosturo_video*.mp4` de la racine, non suivis et qui ne sont pas à nous, n'entrent
+pas dans la copie.
+
+| # | Mutation | Fichier | Tests visés | python3 | python3 -O | Témoin (fichier restauré) |
+|---|---|---|---|---|---|---|
+| N29 | audit (a) : le minuteur d'échéance totale n'est jamais démarré | `serveur/maj.py` | `test_maj_reseau.TaillesEtDelais.test_des_en_tetes_au_goutte_a_goutte_depassent_le_delai_total` | rouge (test_des_en_tetes_au_goutte_a_goutte_depassent_le_delai_total, 21.0 s) | rouge (test_des_en_tetes_au_goutte_a_goutte_depassent_le_delai_total, 21.0 s) | vert dans les deux modes (1 test in 3.447s) |
+| N30 | audit (a) : une échéance totale dépassée qui coupe un corps sans longueur passe pour un succès (plus de mémoire de l'échéance) | `serveur/maj.py` | `test_maj_reseau.TaillesEtDelais.test_un_corps_sans_longueur_coupe_par_l_echeance_n_est_pas_un_succes` | rouge (test_un_corps_sans_longueur_coupe_par_l_echeance_n_est_pas_un_succes, 2.0 s) | rouge (test_un_corps_sans_longueur_coupe_par_l_echeance_n_est_pas_un_succes, 1.4 s) | vert dans les deux modes (1 test in 1.736s) |
+| N31 | audit (b) : la plage est rejugée sur l'heure d'entrée, non sur l'heure courante, avant l'arrêt | `serveur/maj.py` | `test_maj_politique.Eligibilite` | rouge (test_la_plage_se_rejuge_sur_l_heure_courante_juste_avant_l_arret, 0.5 s) | rouge (test_la_plage_se_rejuge_sur_l_heure_courante_juste_avant_l_arret, 0.5 s) | vert dans les deux modes (16 tests in 0.725s) |
+| N32 | audit (b) : plus aucun rejugement juste avant la demande d'arrêt | `serveur/maj.py` | `test_maj_politique.Eligibilite` | rouge (test_la_plage_se_rejuge_sur_l_heure_courante_juste_avant_l_arret, 0.5 s) | rouge (test_la_plage_se_rejuge_sur_l_heure_courante_juste_avant_l_arret, 0.5 s) | vert dans les deux modes (16 tests in 0.725s) |
+| N33 | audit (c) : plus de contrôle du temps restant avant la mort de la tâche | `serveur/maj.py` | `test_maj_politique.Eligibilite` | rouge (test_pas_assez_de_temps_pour_tout_finir_avant_la_mort_de_la_tache, 0.7 s) | rouge (test_pas_assez_de_temps_pour_tout_finir_avant_la_mort_de_la_tache, 0.7 s) | vert dans les deux modes (16 tests in 0.725s) |
+| N34 | audit (c) : borne du temps restant décalée d'une seconde (>= au lieu de >) | `serveur/maj.py` | `test_maj_politique.Eligibilite` | rouge (test_juste_assez_de_temps_l_arret_est_demande, 0.4 s) | rouge (test_juste_assez_de_temps_l_arret_est_demande, 0.4 s) | vert dans les deux modes (16 tests in 0.725s) |
+| N35 | audit (c) : le budget oublie le retour arrière | `serveur/maj.py` | `test_maj.Constantes`, `test_maj_politique.Eligibilite` | rouge (test_un_passage_tient_dans_l_heure_de_la_tache, 0.1 s) | rouge (test_un_passage_tient_dans_l_heure_de_la_tache, 0.1 s) | vert dans les deux modes (26 tests in 0.704s) |
+| N36 | audit Faible 2 : une Location illisible n'est plus convertie (ValueError d'urljoin) | `serveur/maj.py` | `test_maj_reseau.Redirections` | rouge (test_une_location_malformee_est_une_redirection_refusee, 2.2 s) | rouge (test_une_location_malformee_est_une_redirection_refusee, 1.1 s) | vert dans les deux modes (14 tests in 1.838s) |
+| N37 | audit Faible 2 : toute exception imprévue du client traduite seulement si OSError/HTTPException | `serveur/maj.py` | `test_maj_reseau.Redirections.test_aucune_exception_imprevue_ne_sort_de_telecharger` | rouge (test_aucune_exception_imprevue_ne_sort_de_telecharger, 0.6 s) | rouge (test_aucune_exception_imprevue_ne_sort_de_telecharger, 1.3 s) | vert dans les deux modes (1 test in 0.676s) |
+| N38 | audit Faible 2 : le filet de verifier laisse passer l'exception (muette sous SYSTEM) | `serveur/maj.py` | `test_maj_politique.FiletDeLaTache` | rouge (test_le_verrou_est_relache_apres_l_exception, 0.2 s) | rouge (test_le_verrou_est_relache_apres_l_exception, 0.2 s) | vert dans les deux modes (5 tests in 0.153s) |
+| N39 | audit Faible 3 : un échec après transfert d'archive laisse le contrôle dû | `serveur/maj.py` | `test_maj_politique.Frequence` | rouge (test_un_echec_apres_un_transfert_de_l_archive_attend_six_heures, 0.4 s) | rouge (test_un_echec_apres_un_transfert_de_l_archive_attend_six_heures, 0.4 s) | vert dans les deux modes (11 tests in 0.622s) |
+| N40 | audit Faible 3 : _telecharger ne dit plus combien d'octets étaient arrivés | `serveur/maj.py` | `test_maj_reseau.TaillesEtDelais` | rouge (test_un_echec_apres_un_transfert_dit_combien_d_octets_etaient_arrives, 7.6 s) | rouge (test_un_echec_apres_un_transfert_dit_combien_d_octets_etaient_arrives, 7.3 s) | vert dans les deux modes (16 tests in 10.642s) |
+| N41 | audit : MAJ_REFUSEE CLES_ABSENTES retirée de la limitation quotidienne | `serveur/maj.py` | `test_maj_politique.FiletDeLaTache`, `test_maj.Constantes` | rouge (test_cles_absentes_ne_fait_qu_une_ligne_par_jour, 0.2 s) | rouge (test_cles_absentes_ne_fait_qu_une_ligne_par_jour, 0.2 s) | vert dans les deux modes (15 tests in 0.143s) |
+| N42 | audit : SSLKEYLOGFILE honoré par le contexte du client | `serveur/maj.py` | `test_maj_reseau.Tls` | rouge (test_sslkeylogfile_n_ecrit_jamais_les_cles_de_session, 0.8 s) | rouge (test_sslkeylogfile_n_ecrit_jamais_les_cles_de_session, 0.8 s) | vert dans les deux modes (6 tests in 1.958s) |
+
+**Bilan : 14 mutations jouées, 14 font rougir leurs tests dans les deux modes, 14 témoins
+verts dans les deux modes.**
+
+**Deux mutations qui n'ont pas mordu du premier coup, et ce qu'on en a fait.**
+- **N30** (première version : le client ne traduisait plus une erreur de socket en `DELAI_DEPASSE`
+  après l'échéance) était **équivalente** : la boucle de lecture rejuge l'échéance à chaque bloc,
+  donc le résultat ne changeait pas. Le vrai trou, trouvé en l'analysant : le minuteur coupe la
+  socket, `read1` rend alors `b""` comme à la fin d'un corps sans longueur, et **un corps coupé
+  passait pour complet**. Ajout d'une vérification explicite (`echu.is_set()` avant de rendre
+  le succès) et d'un test où le minuteur gagne à coup sûr (il part à la moitié du délai de la
+  socket) ; N30 a été redéfinie sur cette vérification et rougit.
+- **N40** (`octets_recus` n'est plus posé) ne rougissait pas : les tests ne passaient que par
+  le chemin des `Refus` levés par la boucle, jamais par celui d'une exception de socket au
+  milieu du corps. Ajout de `faux.coupure_brutale` (réinitialisation TCP) et d'une assertion ;
+  N40 rougit.
+
+**Ce que ces mutations ne disent pas.** N34 éprouve la borne du temps restant à la seconde près
+sur une horloge monotone injectée ; elle ne dit rien de la précision de `time.monotonic()` sous
+Windows (15 ms) ni d'une mise en veille du PC pendant un passage. La marge de 300 s est faite
+pour cela.
+
+### Suites complètes après les corrections de l'audit
+
+| Commande | Résultat |
+|---|---|
+| `python3 -W error::ResourceWarning -m unittest discover -s tests` (tâche de fond de l'outil) | **Ran 1108 tests in 427.791s — OK (skipped=23)** |
+| `python3 -O -W error::ResourceWarning -m unittest …` au premier plan, mêmes cinq tronçons qu'auparavant | 980 + 86 + 10 + 18 + 14 = **1108 tests, tous OK sous `-O`** |
+| `python3 -m pyflakes serveur/ tests/ outils/atelier/ outils/signer-paquet.py` | vide |
+| `git diff main -- formulaire/` | vide |
+
++19 tests depuis la livraison (1089 → 1108). Aucun `serveur.py` ni `maj.py` n'a été lancé depuis le dépôt
+pendant ces corrections, pas même pour `--help`.
