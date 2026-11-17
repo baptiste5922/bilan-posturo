@@ -153,3 +153,74 @@ Un hébergement compromis peut le provoquer, mais aussi, sans malveillance, une 
 - **Désinstallation hors `Running`** : un état `bascule` laissé par un passage tué n'est plus repris une fois la tâche retirée. Le message `reprendre` ne s'affiche que dans le cas du refus. Lire `maj.py etat` serait plus sûr (fiche B-6).
 - **Motif de la garde d'adresse** : une URL échappée en JSON (`https:\/\/…`) ou un segment suivi d'un accent grave lui échappent. La forme réelle (`/<hex>/<canal>.zip`) est bien couverte.
 - `analyser_adresse` rend `port or 443` : un `:0` explicite vise 443. Sans effet de sécurité.
+
+## Réaudit — 2026-11-17
+
+**Plage réauditée :** `3cf9e8b..bc24177` (`96e0b24`, `c63f035`, `dd697ef`, `d10ba25`, `d22acdc`, `a7308f5`, `bc24177`). Errata 33 à 39 (§15 du contrat), mises en échec N29 à N42.
+**CI :** run `44089891029` sur `a7308f5`, lu sur le run : sept jobs verts, dont `lint`. Son pas « Check that no secret is committed » a bien tourné, en succès. `bc24177` ne touche que le contrat.
+**Verdict du réaudit :** CONFORME
+
+Les trois constats sont fermés, et aucun constat nouveau n'est ouvert.
+
+### Moyen — passage hors de l'heure : fermé
+
+**(a) Échéance totale, en-têtes compris.** Un `threading.Timer` est armé après la requête, sur l'échéance globale. Il pose d'abord le drapeau `echu`, puis coupe la socket (`serveur/maj.py:1545`).
+
+Toute issue postérieure au déclenchement est convertie en `DELAI_DEPASSE` :
+- `Refus` et `Exception` (`maj.py:1678-1686`) ;
+- fin de corps sans longueur (`maj.py:1669`, N30).
+
+Le minuteur est annulé dans le `finally` de chaque tour, redirections comprises (`maj.py:1691`).
+
+Le drapeau est posé **avant** la coupure. Une lecture réveillée par la coupure voit donc toujours le drapeau. Un déclenchement entre le dernier test du drapeau et le `return` ne survient qu'après une lecture terminée sur une vraie fin de flux. La poignée de main et la connexion restent bornées par le délai de la socket, ramené à ce qui reste.
+
+**Rejoué :**
+- Goutte-à-goutte d'en-têtes, un octet par enregistrement TLS toutes les 0,5 s, `delai_total=3` : **`DELAI_DEPASSE` en 3,00 s**. L'audit avait mesuré 20,3 s. Avec `delai_total=1,5` : 1,51 s.
+- Corps sans longueur au goutte-à-goutte : `DELAI_DEPASSE` en 3,00 s, `octets_recus=10`, destination absente.
+- Course minuteur contre lecture, 150 téléchargements dont l'échéance tombe autour de la fin d'un corps sans longueur de 20 octets : 22 succès, tous complets, et 128 `DELAI_DEPASSE` sans fichier restant. **Aucun succès tronqué.** Aucun minuteur vivant à la fin.
+
+**(b) Plage rejugée sur l'heure courante.** L'heure courante vaut l'heure d'entrée plus le temps monotone écoulé (`maj.py:2415`). La plage est jugée deux fois :
+- à l'entrée de l'application (`maj.py:2408`) ;
+- par `reevaluer`, juste avant `demander_arret` (`maj.py:2079`, `2418-2433`), après extraction, sauvegarde et contrôle de présence. La politique y est relue, et le démarrage est jugé en direct.
+
+Un `Refus` levé là précède la demande d'arrêt : le filet d'O1 ne relance rien, puisque le drapeau n'est pas posé.
+
+**(c) `TEMPS_INSUFFISANT`.** La demande d'arrêt est refusée si le temps écoulé plus `budget_application` (496 s en production) dépasse 3 600 − 300 s. Il reste donc au moins 796 s au moment de la demande. Ce qui suit l'arrêt sans figurer au budget se compte en secondes : adoption de la sauvegarde, pose des fichiers. La marge le couvre, avec le démarrage de Python. Le code est un report : la version attend le passage suivant.
+
+### Faible — `Location` malformée : fermé
+
+`urljoin` est converti en `REDIRECTION_REFUSEE`, et `_telecharger` ne laisse plus sortir que des `Refus`. Rejoué : `https://[abc/x` et `//[::1/x` donnent `REDIRECTION_REFUSEE`, détail « redirection illisible reçue de 127.0.0.1 », sans chemin.
+
+En dernier filet, `executer(…, filet=True)` est réservé à `verifier` (`maj.py:2045-2050`, `2435`). Il écrit `MAJ_REFUSEE code=CODE_INCONNU` avec la seule classe de l'exception. Les commandes manuelles gardent la propagation.
+
+### Faible — archive retentée chaque heure : fermé
+
+`Refus.octets_recus` porte les octets de corps reçus. Après un transfert, le contrôle compte pour fait et la réception est vidée : six heures d'attente (`maj.py:2325`). Sans octet, il est retenté dans l'heure. Un hôte qui égoutte les en-têtes de l'archive coûte désormais au plus 900 s et quelques Mio d'en-têtes par heure, sans charge notable.
+
+### Points courts
+
+- `MAJ_REFUSEE:CLES_ABSENTES` limitée à une ligne par jour (`maj.py:121`).
+- `keylog_filename = None` (`maj.py:1513`).
+- `SSL_CERT_FILE` est laissé tel quel (erratum 38). Il faut des droits administrateur pour le poser : accepté.
+
+**CI : épinglage `ubuntu-24.04`.** Il ne concerne que la matrice `test`. `lint`, qui porte le contrôle des secrets, reste sur `ubuntu-latest` avec Python 3.13. Aucune condition ne dépend du nom de l'exécuteur. Il n'y a pas de recul de couverture : Linux reste joué en 3.9 et 3.13.
+
+### Mises en échec de l'auditeur (réaudit)
+
+Méthode : copie `git ls-files -z` de `bc24177`, `git init` sans `origin`. Chaque mutation est jouée en `python3` puis `-O`, le fichier restauré par `cp` puis vérifié par empreinte (`82450c5a…`), et le témoin rejoué dans les deux modes.
+
+| # | Mutation | Tests | python3 | -O | Témoin |
+|---|---|---|---|---|---|
+| R1 | filet de `verifier` : détail porté par le **texte** de l'exception, et non par sa classe | `test_maj_politique`, `test_maj_reseau` | rouge (`FiletDeLaTache.test_une_exception_imprevue_laisse_une_ligne_a_code_ferme_dans_les_deux_journaux`) | rouge | vert ×2 (127 tests) |
+| R2 | minuteur : drapeau `echu` posé **après** la coupure (course) | `test_maj_reseau` | rouge (`test_un_corps_sans_longueur_coupe_par_l_echeance_n_est_pas_un_succes`) | rouge | vert ×2 (57 tests) |
+| R3 | décision d'**entrée** (`maj.py:2408`) jugée sur l'heure figée | `test_maj_politique` | **vert** (mutant survivant) | vert | vert ×2 (70 tests) |
+
+R3 survit, sans effet de sécurité. La propriété « aucune demande d'arrêt hors plage » est portée par `reevaluer`, que N31 et N32 éprouvent. La décision d'entrée ne fait qu'éviter une extraction inutile. Elle n'a pas de test qui la distingue : à couvrir à l'occasion.
+
+Suites jouées dans la copie : `test_maj_reseau`, `test_maj_politique`, `test_maj`, `test_paquet_signe`, `test_confidentialite_publication` et `test_scripts_installation`, sous `-W error::ResourceWarning`, toutes OK. La suite complète n'a pas été relancée par l'auditeur ; la CI l'a jouée.
+
+### Points à surveiller (ajouts)
+
+- La décision d'entrée sur l'heure courante n'est pas gardée par un test (R3).
+- `TEMPS_INSUFFISANT` n'est pas dans `LIGNES_LIMITEES`. Il ne survient qu'après un contrôle réseau anormalement long, donc il reste rare.
+- Les points de l'audit initial restent valables : C6-T8 avant toute activation, redirection vers le réseau local, désinstallation hors `Running`, angles morts du motif d'adresse.
