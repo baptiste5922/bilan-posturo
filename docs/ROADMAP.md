@@ -1164,9 +1164,10 @@ avant toute nouvelle fonctionnalité. La fiabilité est la marge.
 >
 > **Préconditions à l'activation du client chez un cabinet (D-M3), à lever avant d'écrire
 > une adresse dans un `config.json` de production :**
-> 1. ~~**C6-T8** (une connexion TCP muette ne doit plus figer l'acceptation du serveur)~~ :
->    **levée le 18 novembre 2026**, code livré sur la branche `c6-t8-negociation-tls`
->    (CI à voir avant fusion) ; `docs/contrats/C6-T8.md` ;
+> 1. **C6-T8** (une connexion TCP muette ne doit plus figer l'acceptation du serveur) :
+>    **code livré sur `main` le 18 novembre 2026, précondition encore ouverte** ; elle
+>    n'est levée qu'une fois C6-T8 **installée au cabinet** (le cabinet tourne sur
+>    `d43350a`, qui a le défaut) ; `docs/contrats/C6-T8.md` ;
 > 2. **mesurer B-5, variante 4, avec le Démarrage rapide de Windows** (fiche
 >    `docs/essais/C5-T2-windows.md`) : `au_demarrage` juge « moins de 900 s depuis le démarrage »
 >    avec `GetTickCount64`, que le Démarrage rapide ne remet peut-être pas à zéro après
@@ -1624,7 +1625,8 @@ devient un appel de support, et un appel de support consomme la marge du mois.
   complète plutôt qu'une connexion TCP, et faire échouer le démarrage avec un
   message explicite plutôt que de laisser dix tests expirer un par un.
   Ce chantier croise trois pièges déjà payés : ALPN, les erreurs TLS avalées
-  par `socketserver.get_request()`, et `SO_REUSEADDR` sous Windows.
+  par `socketserver` (négociation dans `finish_request` depuis C6-T8), et
+  `SO_REUSEADDR` sous Windows.
 - **Critères d'acceptation :**
   - Un démarrage de serveur de test qui échoue produit **un** message nommant
     la cause, et non dix expirations de dix secondes.
