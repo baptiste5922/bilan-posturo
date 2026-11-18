@@ -74,3 +74,15 @@ Remarques :
 
 Après la série, `git status --short` et `git diff --stat` dans le **dépôt réel**
 et dans le clone : vides.
+
+## A13 — Chrome (essai sur le Mac, 18 novembre 2026)
+
+Bac à sable fabriqué par `demarrer_sandbox_court` (délai réglé à 2 s), une
+connexion TCP muette **tenue ouverte** pendant l'essai, Chrome sans tête
+(`--headless=new --ignore-certificate-errors`, profil jetable hors dépôt,
+`--dump-dom https://127.0.0.1:<port>/sante`) : code 0, DOM
+`<pre>{"etat":"ok"}</pre>`. `technique.log` du bac : une ligne
+`TLS_REFUSE raison=delai-depasse` (la connexion muette) et la sonde de
+démarrage ; **aucune** ligne `delai-depasse` due à Chrome lui-même.
+Le certificat de l'autorité n'a pas été importé : `--ignore-certificate-errors`
+vaut pour ce profil seul.
