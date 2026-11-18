@@ -21,7 +21,6 @@ Bibliothèque standard seule. Pas d'`assert` nu : il s'évaporerait sous -O.
 import base64
 import http.client
 import os
-import re
 import shutil
 import socket
 import ssl

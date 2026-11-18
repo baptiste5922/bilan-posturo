@@ -2329,23 +2329,43 @@ class ServeurBilan(ThreadingHTTPServer):
         self.server_name = "bilan-posturo"
         self.server_port = self.server_address[1]
 
-    def get_request(self):
-        """Remonte les échecs de négociation TLS.
+    def finish_request(self, request, client_address):
+        """Négocie TLS dans le fil de la connexion, avec un délai (C6-T8).
 
-        Quand la socket d'écoute est chiffrée, le handshake a lieu ici, et
-        socketserver avale les OSError sans rien journaliser : le navigateur
-        affiche une erreur pendant que le serveur reste parfaitement muet.
+        La socket d'écoute est enveloppée sans négociation automatique : si
+        `accept()` négociait, une connexion TCP ouverte et muette figerait
+        `serve_forever()` — donc tous les dépôts et `/sante` — sans limite.
+        Ici, chaque connexion a son fil, et la négociation y est bornée par une
+        échéance totale. socketserver avale les OSError sans rien journaliser :
+        le navigateur affiche une erreur pendant que le serveur reste muet, d'où
+        les lignes écrites ici.
+
+        Jamais `client_address` dans un journal : aucune adresse dans
+        technique.log (décision D1 de C4-T1), même maintenant qu'elle est là.
         """
+        request.settimeout(DELAI_NEGOCIATION_TLS_SECONDES)
         try:
-            return super().get_request()
+            request.do_handshake()
+        except socket.timeout:
+            # Avant OSError, dont socket.timeout descend ; alias de TimeoutError
+            # dès Python 3.10. Jeton fermé : le texte de l'erreur varie selon la
+            # version de Python, et ne doit pas dériver dans le journal.
+            journaliser("{} TLS refusé : délai de négociation dépassé\n".format(
+                datetime.datetime.now().isoformat(timespec="seconds")))
+            journaliser_technique("TLS_REFUSE", "raison=delai-depasse")
+            return
         except ssl.SSLError as erreur:
             journaliser("{} TLS refusé : {}\n".format(
                 datetime.datetime.now().isoformat(timespec="seconds"), erreur))
-            # self.client_address n'est pas disponible à ce stade, et ne
-            # doit pas y être cherché : aucune adresse dans technique.log
-            # (décision D1).
             journaliser_technique("TLS_REFUSE", "raison={}".format(erreur))
-            raise
+            return
+        except OSError:
+            # Réinitialisation pendant la négociation : sans trace, comme avant.
+            return
+        # Aucun chemin ne mène au gestionnaire sans canal chiffré établi.
+        if request.version() is None:
+            return
+        super().finish_request(request, client_address)
 
 
 class Gestionnaire(SimpleHTTPRequestHandler):
@@ -2914,7 +2934,10 @@ def demarrer():
         print("Une autre instance du serveur tourne probablement déjà.")
         return 1
 
-    serveur.socket = contexte.wrap_socket(serveur.socket, server_side=True)
+    # Sans négociation à l'acceptation : elle a lieu dans le fil de chaque
+    # connexion, avec un délai (voir ServeurBilan.finish_request, C6-T8).
+    serveur.socket = contexte.wrap_socket(
+        serveur.socket, server_side=True, do_handshake_on_connect=False)
 
     global VERSION_EN_COURS
     VERSION_EN_COURS = lire_version()

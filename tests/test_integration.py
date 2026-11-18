@@ -748,6 +748,9 @@ class ServeurEnMarche(unittest.TestCase):
         self.requete("GET", "/", utilisateur=None)
         self.requete("GET", "/", mot_de_passe="mauvais-mot-de-passe")
         self.tls_1_1_refuse()
+        # La ligne du refus est écrite par le fil de la connexion (C6-T8), plus
+        # par celui de l'acceptation : elle n'est plus là au retour du client.
+        attendre_ligne_technique(self.dossier, "TLS_REFUSE")
 
         with open(self.technique, encoding="utf-8") as f:
             contenu = f.read()
