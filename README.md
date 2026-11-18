@@ -342,9 +342,15 @@ recur in any TLS server built on the standard library.
 sending a single byte, where curl silently falls back to HTTP/1.1. The symptom
 is an `ERR_EMPTY_RESPONSE` with no server-side trace at all.
 
-**Invisible TLS errors** — when the listening socket is wrapped, negotiation
-happens inside `get_request()`, and `socketserver` swallows the `OSError` there
-without logging anything. `get_request` is overridden to surface them.
+**TLS negotiation off the main thread** — when the listening socket is wrapped
+with the default settings, negotiation happens inside `accept()`, on the thread
+that runs `serve_forever()`, with no timeout: a single silent TCP connection
+freezes the whole server. The socket is therefore wrapped with
+`do_handshake_on_connect=False`, and `ServeurBilan.finish_request` negotiates in
+each connection's own thread, with a 10 s overall deadline. It also logs the
+failures that `socketserver` would otherwise swallow without a trace
+(`TLS_REFUSE`, including `raison=delai-depasse` for a connection that never
+negotiates), never with the client's address.
 
 **`SO_REUSEADDR`** — the semantics differ by platform. On Windows it lets two
 processes bind the same port, the old one still answering while the new one

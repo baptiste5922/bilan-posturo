@@ -1453,8 +1453,10 @@ gratuits.
 
 ### C6-T8 — La négociation TLS a un délai
 
-> **État (18 novembre 2026) : livrée sur la branche `c6-t8-negociation-tls`,
-> en attente de l'audit, de la CI (A11) et de la fusion.** Contrat :
+> **État : livrée le 18 novembre 2026** sur `main` ; audit CONFORME
+> (`docs/audits/C6-T8.md`), revue À LIVRER (`docs/revues/C6-T8.md`), CI verte
+> sur les sept travaux, Windows 3.9 et 3.13 compris. Part au cabinet avec
+> C1-T4b ; la précondition 1 de D-M3 ne se lève qu'à cette installation. Contrat :
 > `docs/contrats/C6-T8.md`. La négociation a lieu dans `finish_request`, donc
 > dans le fil de la connexion, bornée par `DELAI_NEGOCIATION_TLS_SECONDES = 10`
 > (échéance totale) ; `get_request()` est retirée ; l'expiration est journalisée
