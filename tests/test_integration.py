@@ -120,6 +120,32 @@ def attendre_ligne_technique(dossier, sous_chaine, limite=10):
             sous_chaine, limite))
 
 
+def compter_lignes_technique(dossier, evenement):
+    """Nombre de lignes de technique.log dont le SECOND mot est exactement
+    `evenement` : jamais une sous-chaîne (DEMARRAGE préfixe DEMARRAGE_REFUSE)."""
+    chemin = os.path.join(dossier, "technique.log")
+    if not os.path.exists(chemin):
+        return 0
+    with open(chemin, encoding="utf-8") as f:
+        return sum(1 for ligne in f.read().splitlines()
+                   if ligne.split(" ", 2)[1:2] == [evenement])
+
+
+def attendre_lignes_technique(dossier, evenement, nombre, limite=10):
+    """Attend, de façon bornée, qu'il y ait au moins `nombre` lignes de
+    l'événement dans technique.log. Contrairement à attendre_ligne_technique,
+    elle ne se satisfait pas d'une ligne ANTÉRIEURE du même événement : l'appelant
+    compte avant d'agir, puis attend une ligne de plus (C6-T8)."""
+    limite_temps = time.monotonic() + limite
+    while time.monotonic() < limite_temps:
+        if compter_lignes_technique(dossier, evenement) >= nombre:
+            return
+        time.sleep(0.02)
+    raise AssertionError(
+        "moins de {} lignes {} dans technique.log après {}s".format(
+            nombre, evenement, limite))
+
+
 def preparer_sandbox(config_extra=None, avant_demarrage=None):
     """Construit un bac à sable complet (arborescence, autorité, config.json)
     sans lancer le serveur. Rend (dossier, port) ; l'appelant supprime le
@@ -747,10 +773,13 @@ class ServeurEnMarche(unittest.TestCase):
             "X-Fichier": base64.b64encode(b"faux.pdf").decode("ascii")})
         self.requete("GET", "/", utilisateur=None)
         self.requete("GET", "/", mot_de_passe="mauvais-mot-de-passe")
-        self.tls_1_1_refuse()
         # La ligne du refus est écrite par le fil de la connexion (C6-T8), plus
         # par celui de l'acceptation : elle n'est plus là au retour du client.
-        attendre_ligne_technique(self.dossier, "TLS_REFUSE")
+        # La sonde de démarrage en a déjà écrit une : on compte avant, et on
+        # attend la SUIVANTE.
+        refus_avant = compter_lignes_technique(self.dossier, "TLS_REFUSE")
+        self.tls_1_1_refuse()
+        attendre_lignes_technique(self.dossier, "TLS_REFUSE", refus_avant + 1)
 
         with open(self.technique, encoding="utf-8") as f:
             contenu = f.read()
@@ -763,6 +792,10 @@ class ServeurEnMarche(unittest.TestCase):
         self.assertIn("DEPOT ok {} octets".format(len(PDF)), contenu)
         self.assertIn("AUTH_REFUSEE", contenu)
         self.assertIn("TLS_REFUSE", contenu)
+        # Le refus TLS 1.1 a bien ajouté SA ligne : la sonde de démarrage en
+        # avait déjà écrit une, que le seul assertIn ci-dessus ne distingue pas.
+        self.assertGreater(
+            compter_lignes_technique(self.dossier, "TLS_REFUSE"), refus_avant)
         # Premier démarrage de ce serveur : le dossier du bac à sable est
         # neuf, donc aucune ligne DEMARRAGE antérieure à comparer.
         self.assertIn("premier démarrage observé", contenu)

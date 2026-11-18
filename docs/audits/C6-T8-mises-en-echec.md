@@ -70,6 +70,36 @@ Remarques :
   par une connexion muette ne répond plus du tout. Ce second effet est mon
   hypothèse, non isolée.
 
+## M7 — l'attente de `test_scenario_complet_reconstituable` (après revue du coordinateur)
+
+L'attente `attendre_ligne_technique(…, "TLS_REFUSE")` du premier jet revenait
+aussitôt : un `TLS_REFUSE` antérieur (sonde de démarrage, test précédent de la
+classe) suffisait, et le test, qui n'avait qu'un `assertIn("TLS_REFUSE", …)`, ne
+gardait rien. Elle est remplacée par un compte avant l'action
+(`compter_lignes_technique`, second mot exact), une attente de la ligne suivante
+(`attendre_lignes_technique`, bornée à 10 s), et un `assertGreater` final sur le
+compte. `attendre_ligne_technique` est inchangée (aucun appelant touché).
+
+Mutation sur un clone jetable (`git clone`, sans `origin`) portant le test
+durci ; `time.sleep(0.3)` injecté dans `finish_request` juste avant la
+journalisation de l'`SSLError`, comme si la ligne arrivait tard ; commande :
+`python3 -m unittest tests.test_integration.ServeurEnMarche.test_scenario_complet_reconstituable`.
+
+| Variante | Serveur | Attente | Résultat |
+|---|---|---|---|
+| Témoin | sain | présente | `OK` |
+| A | `sleep(0.3)` injecté | **retirée** | `FAILED` : `'TLS_REFUSE' not found` (ligne pas encore écrite à la lecture) |
+| B | `sleep(0.3)` injecté | présente | `OK` |
+| C | sain | retirée | `OK` (la course n'est pas déclenchée : c'est elle que A déclenche) |
+| Témoin | sain | présente | `OK` |
+
+Dix exécutions de suite du test sur l'arbre réel : 10 `OK`.
+
+Observation : lancé **seul**, le test voit un `technique.log` sans aucun
+`TLS_REFUSE` avant son propre refus TLS 1.1 : la sonde de démarrage n'en écrit
+pas toujours (ou pas encore). Le compte préalable est donc indispensable et
+l'attente, jamais redondante.
+
 ## Mutation résiduelle
 
 Après la série, `git status --short` et `git diff --stat` dans le **dépôt réel**
