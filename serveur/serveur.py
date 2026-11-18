@@ -234,6 +234,13 @@ DELAI_FIN_DEPOTS_SECONDES = 30
 # fil au bout de ce délai : sans lui, un dépôt figé resterait compté « en cours »
 # et refuserait toute mise à jour jusqu'au redémarrage du serveur (C5-T2a).
 INACTIVITE_CONNEXION_SECONDES = 120
+# Délai TOTAL de la négociation TLS d'une connexion entrante (C6-T8). Distinct du
+# délai d'inactivité ci-dessus : une négociation est un échange fixe de quelques
+# kilo-octets, sans humain dans la boucle, quelques millisecondes en réseau
+# local ; 120 s laisseraient un appareil muet occuper un fil bien plus longtemps
+# qu'aucune négociation légitime n'en a besoin. C'est une échéance totale : un
+# client qui envoie un octet de temps en temps ne la prolonge pas.
+DELAI_NEGOCIATION_TLS_SECONDES = 10
 # Reprises d'une écriture atomique dont le remplacement est refusé : sous Windows,
 # CPython ouvre ses fichiers sans FILE_SHARE_DELETE, et un os.replace sur un
 # fichier que l'autre processus lit à cet instant échoue (PermissionError).
