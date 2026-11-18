@@ -1164,7 +1164,9 @@ avant toute nouvelle fonctionnalité. La fiabilité est la marge.
 >
 > **Préconditions à l'activation du client chez un cabinet (D-M3), à lever avant d'écrire
 > une adresse dans un `config.json` de production :**
-> 1. **C6-T8** (une connexion TCP muette ne doit plus figer l'acceptation du serveur) ;
+> 1. ~~**C6-T8** (une connexion TCP muette ne doit plus figer l'acceptation du serveur)~~ :
+>    **levée le 18 novembre 2026**, code livré sur la branche `c6-t8-negociation-tls`
+>    (CI à voir avant fusion) ; `docs/contrats/C6-T8.md` ;
 > 2. **mesurer B-5, variante 4, avec le Démarrage rapide de Windows** (fiche
 >    `docs/essais/C5-T2-windows.md`) : `au_demarrage` juge « moins de 900 s depuis le démarrage »
 >    avec `GetTickCount64`, que le Démarrage rapide ne remet peut-être pas à zéro après
@@ -1450,6 +1452,16 @@ gratuits.
 
 ### C6-T8 — La négociation TLS a un délai
 
+> **État (18 novembre 2026) : livrée sur la branche `c6-t8-negociation-tls`,
+> en attente de l'audit, de la CI (A11) et de la fusion.** Contrat :
+> `docs/contrats/C6-T8.md`. La négociation a lieu dans `finish_request`, donc
+> dans le fil de la connexion, bornée par `DELAI_NEGOCIATION_TLS_SECONDES = 10`
+> (échéance totale) ; `get_request()` est retirée ; l'expiration est journalisée
+> `TLS_REFUSE raison=delai-depasse`, sans adresse. Six mutations rougissent
+> (`docs/audits/C6-T8-mises-en-echec.md`). **À mesurer à la visite C1-T4b :**
+> la tablette ne doit produire aucune ligne `delai-depasse` en usage normal
+> (sinon, tâche de suivi : les rendre muettes, D3 du contrat).
+>
 > **Ouverte le 12 novembre 2026**, par le réaudit de C5-T2a (observation 4,
 > gravité élevée, **antérieure** : présente en production sur `d43350a`).
 > La socket d'écoute est chiffrée (`wrap_socket(..., server_side=True)`) : la
