@@ -1637,6 +1637,28 @@ devient un appel de support, et un appel de support consomme la marge du mois.
   prend l'habitude de relancer, et le jour où l'échec est réel, on relance
   aussi.
 
+### C7-T6 — Un appel PowerShell de test qui expire sur un exécuteur lent
+
+> **Ouverte le 25 novembre 2026**, à la clôture de C5-T2. Sur la CI de `main`
+> `43465630699` (windows-latest, Python 3.13, exécuteur lent : 10 min 30),
+> `test_lance_d_un_sous_dossier_s_arrete` a échoué par `TimeoutExpired` de
+> 120 s sur un appel `installer-demarrage.ps1 -Verifier`. Le même code était
+> vert sur la branche, et vert à la relance. Journal capturé hors dépôt.
+
+- **Effort :** S
+- **Process :** Direct — tests seuls.
+- **Dépendances :** aucune.
+- **Périmètre :** l'appel PowerShell de ce test, et l'outillage de test commun
+  (courses sous macOS, `port_libre`, routes dérivées), si la cause y mène ; et
+  l'unification du comptage des lignes de `technique.log` entre
+  `tests/test_negociation_tls.py` et `tests/test_integration.py`
+  (`compter_lignes_technique`), remarque mineure de la revue de C6-T8.
+- **Travail :** mesurer la durée réelle de `-Verifier` en CI Windows ; borner
+  l'attente sur une mesure, pas sur un chiffre rond ; en cas d'expiration,
+  rendre la sortie partielle de PowerShell dans le message d'échec.
+- **Critères d'acceptation :** une expiration nomme ce que PowerShell faisait ;
+  trente exécutions consécutives du travail Windows 3.13 sans échec de ce test.
+
 ---
 
 ## C8 — Mécanisme de licence d'abonnement

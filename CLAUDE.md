@@ -5,13 +5,13 @@ formulaire et annote les schémas au stylet, le PDF est fabriqué dans le
 navigateur et déposé sur le PC du cabinet. Utilisée quotidiennement depuis
 août 2026 par une pédicure-podologue à Morlaix, pour la totalité de ses bilans.
 
-**Dernière mise à jour :** 9 novembre 2026, par `/cloture-projet`
+**Dernière mise à jour :** 25 novembre 2026, par `/cloture-projet`
 **Version :** V1 en production au cabinet ; `main` porte la 1.1.0
 (`formulaire/version.json`), sous **BUSL 1.1** depuis le 14 octobre 2026
-**Jalon en cours :** V2 — 23 tâches livrées, C1-T5 et C9-T2 fusionnées en
+**Jalon en cours :** V2 — 26 tâches livrées, C1-T5 et C9-T2 fusionnées en
 attente de leur mesure ; rien de la V2 n'est au cabinet, qui tourne sur
 **`d43350a` (26 août)**, étiquette `production-cabinet-01`, fiche
-`docs/production/cabinet-01.md`. **`main` est poussé** (`f33cb2b`), CI verte.
+`docs/production/cabinet-01.md`. **`main` est poussé**, CI verte.
 **Premier prospect hors pilote :** un formateur en posturologie (fiche hors dépôt).
 
 ## Architecture en bref
@@ -29,7 +29,8 @@ attente de leur mesure ; rien de la V2 n'est au cabinet, qui tourne sur
 
 | Composant | Rôle |
 |---|---|
-| `serveur/serveur.py` (~2 330 l.) | HTTPS, dépôt, authentification, `/sante`, `/cabinet`, `/etat`, deux journaux purgés à six mois |
+| `serveur/serveur.py` (~3 030 l.) | HTTPS, dépôt, authentification, `/sante`, `/cabinet`, `/etat`, deux journaux purgés à six mois, arrêt concerté |
+| `serveur/maj.py` (~2 550 l.) | Client de mise à jour (C5-T2) : télécharge, vérifie, applique la nuit, revient en arrière ; tâche `BilanPosturo-MiseAJour` ; **désactivé** sans adresse de publication |
 | `serveur/generer_autorite.py` | Autorité de certification locale + certificat serveur |
 | `formulaire/script.js` | PDF, stylet, brouillon, dépôt, file d'attente, tokens de couleur |
 | `formulaire/index.html` | Coquille de 118 l. que le moteur remplit ; V1 gelée dans `index-v1.html` |
@@ -43,7 +44,7 @@ attente de leur mesure ; rien de la V2 n'est au cabinet, qui tourne sur
 | `serveur/paquet_signe.py`, `signature_ed25519.py`, `outils/signer-paquet.py` | Paquet signé (C5-T1) : vérification Ed25519 en Python pur au cabinet, signature par `cryptography` chez l'éditeur ; fiche `docs/cle-publication.md` |
 | `blocs/`, `templates/`, `outils/composer-schema.js` | Neuf fragments du pilote, recettes de départ, composition validée par le moteur (atelier, hors paquet) |
 | `outils/atelier/` | Fabrication d'un client hors de tout dépôt Git ; règles lues dans `serveur.py` et `script.js`, jamais recopiées ; `identite-cabinet.json` et `apercu-atelier.html` ignorés par Git |
-| `tests/` | 671 tests Python + 16 suites Node |
+| `tests/` | 1 130 tests Python + 16 suites Node |
 
 Le PDF est produit **côté navigateur** : le serveur ne reçoit qu'un fichier déjà
 assemblé, et n'a aucune dépendance Python.
@@ -84,10 +85,6 @@ hors paquet, validé au démarrage (C2-T2, `docs/configuration.md` §7).
 
 ## Avancement V2
 
-Trois hypothèses implicites structurent la V1, et ce sont celles que le passage
-à plusieurs cabinets casse : un seul cabinet, un seul installateur, le bilan est
-une image et non une donnée.
-
 | Chantier | Intitulé | État |
 |---|---|---|
 | C0 | Cadre juridique et licence | T1 **livré** ; T2 (contrat RGPD, modèles génériques) à faire |
@@ -95,9 +92,9 @@ une image et non une donnée.
 | C2 | Identité du cabinet en configuration | T1, **T2 (logo) livrés** |
 | C3 | Adressage, certificat et installateur | T1, **T3a livrés** (T3a : VM Windows à faire) ; T2, T3, T4 |
 | C4 | Observabilité et support | T1, T2, **T3 (`/etat`)**, T4 **livrés** ; T5 **sortie de la V2** ; T6 |
-| C5 | Mises à jour signées | **T1 livré** (clé réelle à générer par Baptiste ; D9 avant T3) ; T2, T3 |
-| C6 | Durcissement de sécurité | **T4, T5 (requêtes malformées), T6 (liens), T7 (racine web) livrés** ; T1, T2, T3 |
-| C7 | Filet de tests | **T1, T5 livrés** ; T2, T3, T4 |
+| C5 | Mises à jour signées | **T1, T2a, T2b livrés** (T2 cochée après les fiches A et B sur VM ; clé réelle à générer ; D9 avant T3) ; T3 |
+| C6 | Durcissement de sécurité | **T4, T5, T6, T7, T8 (négociation TLS bornée) livrés** ; T1, T2, T3 |
+| C7 | Filet de tests | **T1, T5 livrés** ; T2, T3, T4, T6 |
 | C8 | Mécanisme de licence d'abonnement | à faire (grâce de 30 j puis export bloqué : décidé) |
 | C9 | Atelier de fabrication d'un client | **T1 livré** ; **T2 fusionnée**, mesures M-A et M-B à faire ; T3 décidé (révision annuelle) |
 
@@ -142,17 +139,21 @@ une semaine de bilans réels. Il faut l'appareil, **pas avant janvier 2027**.
 D'ici là rien ne part au cabinet ; un correctif d'urgence part de
 `maintenance-cabinet-01`, jamais de `main`.
 
-**Tests :** 671 Python (7 sautés sur le Mac) et 16 suites Node, tous verts
-au 9 novembre 2026, aussi sous `python3 -O`, et en CI sur Linux, Windows et
-macOS, Python 3.9 et 3.13, sur les branches de tâche comme sur `main`.
-`npm test` dépasse le délai de 2 min d'une commande : le lancer en arrière-plan.
+**Tests :** 1 130 Python (23 sautés sur le Mac) et 16 suites Node, tous verts
+au 18 novembre 2026, aussi sous `python3 -O`, et en CI sur Linux (épinglé
+`ubuntu-24.04`), Windows et macOS, Python 3.9 et 3.13. La suite Python prend
+~7 min, `npm test` davantage : les lancer en arrière-plan, sortie dans un fichier.
 
-**Deux mesures de Baptiste attendent** : C1-T5 (`docs/essais/C1-T5-client-fictif.md`)
+**Mises à jour (C5-T2)** : paquets par client sur un hébergement statique (D-M1),
+adresse imprévisible gardée hors du dépôt. **Ne pas activer le client au cabinet
+(D-M3) avant** C6-T8 installée (visite C1-T4b) **et** la mesure du Démarrage
+rapide (B-5 variante 4). Fiches A et B (`docs/essais/C5-T2-windows.md`) : VM.
+
+**Mesures de Baptiste en attente** : C1-T5 (`docs/essais/C1-T5-client-fictif.md`)
 et C9-T2 (`docs/essais/C9-T2-fabrication.md`). Avant le premier client hors
 pilote, trancher D-O1 (où vit son schéma) et D-O2 (sa palette), bloc C9-T2.
-**Et un geste** : générer et sauvegarder la clé de publication
-(`docs/cle-publication.md`) ; trancher D9 (paquet par client ou générique)
-avant C5-T3. Le contrat de C5-T2 reprend les reports du bloc C5-T1.
+**Et des gestes** : générer et sauvegarder la clé de publication
+(`docs/cle-publication.md`) ; choisir l'hébergeur et trancher D9 avant C5-T3.
 
 **Une grille n'entre dans un schéma client** qu'aux trois conditions de
 `docs/schema-formulaire.md`, dont un export d'essai **sur la tablette du
@@ -168,6 +169,8 @@ rejouer A5 de C6-T5 sur la liste réelle des fichiers de son formulaire.
 
 ## Dernières sessions
 
+- [2026-11-25 — Un client de mise à jour, et un serveur qu'une connexion muette ne fige plus](docs/resumes/2026-11-25-client-de-mise-a-jour.md) :
+  C5-T2a, C5-T2b, C6-T8 livrées ; audits CONFORMES ; C5-T2 attend la VM.
 - [2026-11-09 — Un paquet de mise à jour que le cabinet sait authentifier](docs/resumes/2026-11-09-paquet-signe.md) :
   C5-T1 livrée ; audit CONFORME au réaudit.
 - [2026-11-08 — Plus de silence sur une requête malformée, et un en-tête `Server` muet](docs/resumes/2026-11-08-requetes-malformees.md) :
@@ -176,8 +179,6 @@ rejouer A5 de C6-T5 sur la liste réelle des fichiers de son formulaire.
   C6-T7 livrée ; audit CONFORME au réaudit.
 - [2026-11-07 — L'atelier de composition, et un serveur qui ne suit plus les liens](docs/resumes/2026-11-07-atelier-et-liens-servis.md) :
   C9-T2 fusionnée (mesure à faire) ; C6-T6 livrée ; C6-T7 ouverte.
-- [2026-11-06 (3) — Une bibliothèque de blocs, et le logo du client](docs/resumes/2026-11-06-blocs-templates-et-logo.md) :
-  C1-T4a et C1-T5 fusionnées ; C2-T2 livrée ; C6-T6 ouverte.
 
 ## Comment on travaille ici
 
@@ -209,7 +210,8 @@ sous 300 lignes. Il oriente ; il ne recopie pas `docs/ROADMAP.md`.
   dans le PDF. **Le moteur n'invente ni ponctuation ni structure** : le schéma
   porte le texte exact qui s'affiche. Se méfier de ses propres tolérances : le
   bruit JPEG invoqué pour excuser un écart était **nul**, mesure faite.
-- **Ne jamais lancer `serveur.py` ni `generer_autorite.py` depuis le dépôt.**
+- **Ne jamais lancer `serveur.py`, `maj.py` (pas même `--help`) ni
+  `generer_autorite.py` depuis le dépôt.**
   Ils calculent leur racine depuis leur emplacement et **écraseraient** les
   fichiers réels du cabinet. Tout essai se fait en bac à sable — patron
   `demarrer_sandbox_court` dans `tests/test_integration.py`.
@@ -220,8 +222,10 @@ sous 300 lignes. Il oriente ; il ne recopie pas `docs/ROADMAP.md`.
   d'adresse IP est restée active dans le code**. Sauvegarder hors du dépôt avant
   toute mutation, restaurer par `cp` ; au retour d'un agent interrompu, vérifier
   l'absence de mutation résiduelle **avant** toute autre question.
-- **Serveur** — sans `set_alpn_protocols`, Chrome ferme sans un octet, et
-  `get_request()` est surchargée pour ne pas avaler l'`OSError` TLS ;
+- **Serveur** — sans `set_alpn_protocols`, Chrome ferme sans un octet ; la
+  négociation TLS vit dans `ServeurBilan.finish_request`, bornée à 10 s
+  (C6-T8) : une ligne `TLS_REFUSE` est écrite **par le fil de la connexion**,
+  après le retour du client — compter, puis attendre une ligne de plus ;
   `SO_REUSEADDR` conditionné à `os.name` (Windows) ; `compare_digest` sur des
   octets (accents) ; double pile IPv6 avec `IPV6_V6ONLY` désactivé.
 - **Palette** — cinq couleurs sur `:root` ; le PDF les lit par
@@ -249,27 +253,22 @@ sous 300 lignes. Il oriente ; il ne recopie pas `docs/ROADMAP.md`.
 - **La CI ne part que sur `main`, une pull request ou à la main.** Une branche
   poussée ne lance rien : `env -u GITHUB_TOKEN gh workflow run tests.yml --ref
   <branche>`. Un `GITHUB_TOKEN` invalide dans l'environnement masque le
-  trousseau de `gh`. Des commits jamais passés en CI ont caché deux semaines une
-  régression Windows : ne pas laisser `main` local longtemps sans CI.
+  trousseau de `gh`. Ne pas laisser `main` local longtemps sans CI. Un job
+  « not acquired by Runner » est un manque de capacité : relancer ce seul job.
 - **Un harnais de mutation peut mentir** (`$?` après un `printf` ; commande en
   variable sous zsh, rendue 127 : écrire `A() { … "$@"; }`) : toujours un témoin.
   Muter une copie `git ls-files -z`, ou un clone jetable **sans `origin`**.
-- **Une mutation qui interbloque fige la suite** : garde statique AST (C4-T2).
 - **Piloter Chrome** : défiler avant `Input.dispatchMouseEvent` ; sans
   `Network.setCacheDisabled`, un PDF régénéré ressort identique ; le nombre de
   pages dépend de la fenêtre (3 à 1 280 px, 6 vers 760 px).
 - **Simuler Windows dans un test** : `lstat` aussi doit ignorer la casse, et
-  `realpath` être isolé du faux `lstat` sous 3.9 (vu en CI seulement). Sous
-  macOS, `os.getcwd()` rend le chemin résolu : un bac à sable ne passe jamais
-  par `/var`. Le 3.9.6 de macOS (deux jonctions en échec, sans `cryptography`)
-  reproduit seul le silence de C6-T5 ; sous Windows, `fsencode` accepte une demi-paire.
+  `realpath` être isolé du faux `lstat` sous 3.9 (vu en CI seulement). Le 3.9.6
+  du Mac n'a pas `cryptography` : ses tests en bac sont sautés, la CI 3.9 juge.
 - **Chemins comparés** : en CI Windows, le dossier temporaire passe par un nom
   court 8.3 (`RUNNER~1`) — partir de `realpath(tmp)`, ne pas sauter le test ;
   sous macOS, un chemin a deux écritures Unicode — comparer en NFC (C6-T7).
-- **Paquet signé** — `zipfile` réécrit `\` en `/` sous Windows : juger
-  `orig_filename`, écrire un antislash de test dans les octets du zip. Le champ
-  0x7075 renomme une entrée sous 3.12+, pas sous 3.9. Une garde du zip ne
-  s'éprouve que derrière un manifeste **re-signé** (D8 de C5-T1).
+- **Paquet signé** — sous Windows `zipfile` réécrit `\` en `/` : juger
+  `orig_filename` ; une garde du zip ne s'éprouve que sous manifeste **re-signé**.
 - **Un lecteur de journal cherche un jeton exact**, jamais une sous-chaîne :
   `DEMARRAGE` est un préfixe de `DEMARRAGE_REFUSE` (`verdict_certificat`).
 - **`python3 -O` lancé par `(… &)` d'un shell non interactif ignore SIGINT** :
