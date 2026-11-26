@@ -46,10 +46,11 @@ faux coûte plus cher qu'un index absent.
                               Gestionnaire (authentification, routes, dépôt).
   Démarrage                   demarrer() : l'ordre des refus, puis serve_forever.
 
-L'état partagé tient en dix globales de module : sept posées au démarrage, les
+L'état partagé tient en douze globales de module : sept posées au démarrage, les
 autres pendant le service (DERNIER_DEPOT au dépôt, DEPOTS_EN_COURS et
-DERNIERE_ACTIVITE à chaque requête). Six relient « Démarrage » à « Page
-d'état », aux deux extrémités du fichier, et maj.py en réécrit cinq le temps
+DERNIERE_ACTIVITE à chaque requête, ECHECS_AUTH et DERNIER_ECHEC_AUTH à chaque
+refus d'identifiants, sous leur propre verrou). Six relient « Démarrage » à
+« Page d'état », aux deux extrémités du fichier, et maj.py en réécrit cinq le temps
 d'une mise à jour. C'est le couplage réel de ce fichier, et la raison pour
 laquelle le découper en modules n'est pas un geste de pure forme.
 Carte détaillée, état global et gardes de tests : docs/architecture-serveur.md.
@@ -203,6 +204,12 @@ MOTIFS_REFUS_DEPOT = frozenset({
     "transfert-interrompu", "non-pdf",
 })
 
+# Nature d'un refus d'authentification (C6-T2), fermée elle aussi : « absents »
+# quand le client n'a présenté aucun identifiant exploitable (le cas ordinaire
+# du premier accès d'un navigateur, jamais compté), « refuses » quand il en a
+# présenté et qu'ils sont faux. Aucun jeton n'est préfixe de l'autre.
+MOTIFS_AUTH_REFUSEE = frozenset({"absents", "refuses"})
+
 # Interrupteur de retour arrière (étape 8) : à False, le journal technique
 # n'est jamais écrit. Positionné depuis la configuration dans demarrer().
 JOURNAL_TECHNIQUE_ACTIF = True
@@ -279,6 +286,24 @@ INACTIVITE_CONNEXION_SECONDES = 120
 # qu'aucune négociation légitime n'en a besoin. C'est une échéance totale : un
 # client qui envoie un octet de temps en temps ne la prolonge pas.
 DELAI_NEGOCIATION_TLS_SECONDES = 10
+# Limitation des tentatives d'authentification (C6-T2). Dix refus présentés sont
+# le chiffre de la feuille de route : une praticienne qui se trompe de mot de
+# passe en tapant n'en fait pas dix de suite. Au-delà, chaque refus est retardé,
+# jamais un identifiant valide (voir noter_echec_authentification).
+SEUIL_ECHECS_AUTH = 10
+ATTENTE_AUTH_BASE_SECONDES = 0.5
+# Le plafond tient à deux bornes : strictement sous le plus court délai de la
+# tablette (DELAI_CABINET, 5 s dans script.js), pour qu'un refus retardé ne passe
+# jamais pour une panne du serveur ; et très au-dessous de DELAI_FIN_DEPOTS_SECONDES,
+# car un POST /depot retardé reste compté « dépôt en cours » pendant son sommeil :
+# l'arrêt concerté de maj.py ne doit pas pouvoir être reporté par un simple flot
+# de mauvais mots de passe.
+ATTENTE_AUTH_MAX_SECONDES = 3.0
+# Au bout de cinq minutes sans nouvel échec, on oublie : la file d'attente de la
+# tablette retente au plus une fois par minute (RELANCE_FILE), donc au plus cinq
+# refus par fenêtre, la moitié du seuil. Une tablette dont le mot de passe a
+# changé ne dépasse jamais le seuil toute seule.
+FENETRE_ECHECS_AUTH_SECONDES = 300
 # Reprises d'une écriture atomique dont le remplacement est refusé : sous Windows,
 # CPython ouvre ses fichiers sans FILE_SHARE_DELETE, et un os.replace sur un
 # fichier que l'autre processus lit à cet instant échoue (PermissionError).
@@ -1361,6 +1386,18 @@ def detail_refus_depot(motif):
     return "refus motif={}".format(motif)
 
 
+def detail_auth_refusee(route, motif, echecs, attente):
+    """Compose le détail d'un refus d'authentification : une classe de route
+    fermée, un motif fermé et deux nombres, rien d'autre. Un motif hors de
+    MOTIFS_AUTH_REFUSEE devient "motif-inconnu" plutôt que d'être recopié ;
+    ni identifiant présenté, ni en-tête, ni adresse, ni chemin brut n'entrent
+    dans la chaîne (C6-T2)."""
+    if motif not in MOTIFS_AUTH_REFUSEE:
+        motif = "motif-inconnu"
+    return "route={} identifiants={} echecs={} attente={:.1f}".format(
+        route, motif, echecs, attente)
+
+
 def detail_refus_logo(motif):
     """Compose le détail d'un logo refusé, sur un vocabulaire fermé : jamais
     le chemin, qui est une saisie libre (enseigne, nom de session Windows) et
@@ -2314,6 +2351,72 @@ def attendre_fin_depots(delai, pas=0.05):
 # Serveur
 # --------------------------------------------------------------------------
 
+# --- Limitation des tentatives d'authentification (C6-T2) ---
+
+# Compteur GLOBAL au processus, en mémoire seulement (D1, D6) : un dictionnaire
+# indexé sur l'adresse du client serait une structure non bornée nourrie par le
+# client, et placerait une adresse en mémoire dans la classe que la page d'état
+# surveille. Sous un verrou PROPRE : jamais _verrou_compteurs, qui appartient à
+# l'arrêt concerté et ne doit jamais attendre une décision d'authentification,
+# ni _verrou_journal, non réentrant. Aucun sommeil ni aucune écriture de journal
+# sous ce verrou (garde G2 de tests/test_limitation_auth.py).
+_verrou_auth = threading.Lock()
+ECHECS_AUTH = 0
+DERNIER_ECHEC_AUTH = None     # time.monotonic() du dernier échec compté, ou None
+
+
+def attente_apres_echec(echecs):
+    """Secondes d'attente d'un refus qui porte le compte à `echecs` : nulle
+    jusqu'au seuil inclus, puis 0,5 s doublant à chaque refus, plafonnée.
+
+    Pure et sans horloge : tout se calcule ici, et se teste sans dormir. Le
+    nombre d'échecs n'est pas borné : l'exposant l'est, car un 2 ** n énorme ne
+    se convertit plus en flottant (OverflowError) bien avant que le plafond ne
+    soit en cause."""
+    if echecs <= SEUIL_ECHECS_AUTH:
+        return 0.0
+    exposant = min(echecs - SEUIL_ECHECS_AUTH - 1, 32)
+    return min(ATTENTE_AUTH_MAX_SECONDES,
+               ATTENTE_AUTH_BASE_SECONDES * 2 ** exposant)
+
+
+def noter_echec_authentification(maintenant=None):
+    """Compte un refus d'identifiants PRÉSENTÉS et rend (échecs, attente).
+
+    `maintenant` s'injecte pour les tests : aucune horloge n'est simulée par un
+    sleep. Un compteur dont le dernier échec date de plus que la fenêtre est
+    oublié d'abord (D4 : le service normal revient seul). Le verrou est relâché
+    avant de rendre : l'appelant dort hors de tout verrou."""
+    global ECHECS_AUTH, DERNIER_ECHEC_AUTH
+    if maintenant is None:
+        maintenant = time.monotonic()
+    with _verrou_auth:
+        if (DERNIER_ECHEC_AUTH is not None
+                and maintenant - DERNIER_ECHEC_AUTH > FENETRE_ECHECS_AUTH_SECONDES):
+            ECHECS_AUTH = 0
+        ECHECS_AUTH += 1
+        DERNIER_ECHEC_AUTH = maintenant
+        echecs = ECHECS_AUTH
+    return echecs, attente_apres_echec(echecs)
+
+
+def reinitialiser_echecs_authentification():
+    """Un identifiant valide a été présenté : service normal retrouvé."""
+    global ECHECS_AUTH, DERNIER_ECHEC_AUTH
+    with _verrou_auth:
+        ECHECS_AUTH = 0
+        DERNIER_ECHEC_AUTH = None
+
+
+def attendre(secondes):
+    """Le SEUL endroit du chemin d'authentification où l'on dort : un test peut
+    le remplacer, et une garde de tests peut exiger qu'il soit le seul. Le fil
+    d'une connexion dort sans retarder aucune autre requête (ThreadingHTTPServer,
+    un fil par connexion) ; le plafond borne ce qu'un fil endormi occupe."""
+    if secondes > 0:
+        time.sleep(secondes)
+
+
 class ServeurBilan(ThreadingHTTPServer):
     """Serveur d'écoute, en double pile quand la machine le permet.
 
@@ -2442,6 +2545,12 @@ class Gestionnaire(SimpleHTTPRequestHandler):
         # d'une précédente.
         self.silencieux = False
         self._code_reponse_technique = 0
+        # Même raison pour le verdict d'authentification (C6-T2) : sans cette
+        # remise à zéro, une requête sans identifiants hériterait du compte et
+        # du motif de la précédente.
+        self._auth_motif = "absents"
+        self._auth_echecs = 0
+        self._auth_attente = 0.0
         super().handle_one_request()
 
     def log_request(self, code="-", size="-"):
@@ -2506,6 +2615,9 @@ class Gestionnaire(SimpleHTTPRequestHandler):
     # --- authentification --------------------------------------------------
 
     def authentifie(self):
+        # Pas d'identifiants présentés : pas une tentative (D3). Compter ces 401
+        # ralentirait la première page de chaque session de navigateur.
+        self._auth_motif = "absents"
         entete = self.headers.get("Authorization", "")
         if not entete.startswith("Basic "):
             return False
@@ -2526,14 +2638,27 @@ class Gestionnaire(SimpleHTTPRequestHandler):
                                                 self.config["mot_de_passe"])
         # Les deux vérifications sont toujours exécutées : le temps de réponse
         # ne révèle pas si c'est l'identifiant ou le mot de passe qui est faux.
-        return identifiant_ok and mot_de_passe_ok
+        if identifiant_ok and mot_de_passe_ok:
+            # Jamais d'attente sur un succès, quoi que fasse un autre client au
+            # même moment (D2) : c'est ce qui interdit le déni de service que le
+            # produit s'infligerait à la praticienne.
+            reinitialiser_echecs_authentification()
+            return True
+        self._auth_motif = "refuses"
+        self._auth_echecs, self._auth_attente = noter_echec_authentification()
+        attendre(self._auth_attente)
+        return False
 
     def exiger_authentification(self):
         # Ni identifiant, ni mot de passe, ni adresse : seule la classe de
-        # route, fermée (décision D3). Un compteur d'échecs par identité
-        # relève de C6, pas d'ici.
-        journaliser_technique("AUTH_REFUSEE", "route={}".format(
-            classe_route(self.chemin_demande())))
+        # route, fermée (décision D3), et le verdict posé par authentifie().
+        # Les attributs manquent quand la méthode est appelée sans être passée
+        # par authentifie() : repli sur « aucun identifiant présenté ».
+        journaliser_technique("AUTH_REFUSEE", detail_auth_refusee(
+            classe_route(self.chemin_demande()),
+            getattr(self, "_auth_motif", "absents"),
+            getattr(self, "_auth_echecs", 0),
+            getattr(self, "_auth_attente", 0.0)))
         self.send_response(HTTPStatus.UNAUTHORIZED)
         self.send_header("WWW-Authenticate", 'Basic realm="Bilan posturologique"')
         self.send_header("Content-Length", "0")

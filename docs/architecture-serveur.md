@@ -132,9 +132,11 @@ disponibilité du port pour une relance ».
 
 ## 3. L'état global : le couplage réel du fichier
 
-Dix globales de module sont **lues par plusieurs sections à la fois** : sept
-sont posées au démarrage, les trois autres pendant le service. C'est elles, et
-non la longueur, qui rendent le fichier difficile à couper.
+Douze globales de module portent l'état partagé : sept sont posées au
+démarrage, les cinq autres pendant le service. Dix sont **lues par plusieurs
+sections à la fois** ; les deux dernières (limitation des tentatives, C6-T2)
+ne sortent pas de la section « Serveur ». C'est elles, et non la longueur, qui
+rendent le fichier difficile à couper.
 
 | Globale | Posée par | Lue par |
 |---|---|---|
@@ -148,10 +150,17 @@ non la longueur, qui rendent le fichier difficile à couper.
 | `JOURNAL_TECHNIQUE_ACTIF` | Démarrage | Journal technique, Page d'état |
 | `CONSERVATION_JOURNAUX_MOIS` | Démarrage | Journal |
 | `_PROTECTION_SIGNALEE` | Arrêt concerté | Arrêt concerté |
+| `ECHECS_AUTH` | Serveur (`noter_echec_authentification`, `reinitialiser_echecs_authentification`, appelées par `authentifie`) | Serveur (mêmes fonctions) |
+| `DERNIER_ECHEC_AUTH` | Serveur (mêmes fonctions) | Serveur (oubli après la fenêtre) |
 
 Lecture de ce tableau : **« Démarrage » écrit, « Page d'état » lit.** Six des
-dix globales relient ces deux sections, qui sont aux deux extrémités du
+douze globales relient ces deux sections, qui sont aux deux extrémités du
 fichier. Et trois relient « Serveur » à « Arrêt concerté ».
+
+Les deux dernières lignes vivent sous leur **propre verrou**, `_verrou_auth`,
+distinct de `_verrou_journal` et de `_verrou_compteurs` : aucun sommeil ni
+aucune écriture de journal ne s'y fait (gardes G1 et G2 de
+`tests/test_limitation_auth.py`).
 
 Conséquence pratique, pour toute modification : **changer une de ces valeurs
 ailleurs qu'au démarrage touche la page d'état sans qu'aucun appel ne le
