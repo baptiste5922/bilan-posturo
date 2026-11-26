@@ -15,6 +15,44 @@ Le certificat, lui, se fabrique avec generer_autorite.py.
     python3 serveur/generer_autorite.py 192.168.1.13   # certificat, une fois
     python3 serveur/serveur.py --config                # identifiant, mot de passe
     python3 serveur/serveur.py                         # démarrage
+
+SECTIONS DE CE FICHIER, dans l'ordre. Chacune porte une bannière encadrée ;
+une recherche de « # --- » les enchaîne, une recherche du titre y mène
+directement. Pas de numéros de ligne ici : ils vieillissent mal, et un index
+faux coûte plus cher qu'un index absent.
+
+  En-tête et constantes       Chemins (RACINE, FORMULAIRE), vocabulaires fermés
+                              des deux journaux, bornes, CONFIG_DEFAUT. Les
+                              listes dont les tests se dérivent vivent ici.
+  Configuration et mots de passe   charger_config, PBKDF2, comparaison à temps
+                              constant.
+  Logo du cabinet (C2-T2)     Le logo, ET le confinement des chemins (C6-T6 :
+                              confiner_sous_racine, confiner_fichier_servi) et
+                              le refus d'une racine web dangereuse (C6-T7 :
+                              motif_refus_racine_web), ET la saisie --config.
+                              La bannière dit moins que le contenu : voir
+                              docs/architecture-serveur.md.
+  Nom de fichier              assainir_nom, chemin_libre, écriture atomique.
+  Journal                     journal.log, nominatif : rotation, purge, le fil
+                              de purge périodique (C4-T2).
+  Journal technique (C4-T1)   technique.log, conçu pour circuler : vocabulaire
+                              fermé, classes de route, détails fermés.
+  Page d'état (C4-T3)         GET /etat, et l'analyseur DER du certificat, qui
+                              ne dépend de rien d'autre.
+  Arrêt concerté (C5-T2a)     Compteurs de dépôts, demande d'arrêt de maj.py,
+                              et la protection Windows du dossier réservé
+                              (sous-bannière).
+  Serveur                     ServeurBilan (écoute, négociation TLS bornée) et
+                              Gestionnaire (authentification, routes, dépôt).
+  Démarrage                   demarrer() : l'ordre des refus, puis serve_forever.
+
+L'état partagé tient en dix globales de module : sept posées au démarrage, les
+autres pendant le service (DERNIER_DEPOT au dépôt, DEPOTS_EN_COURS et
+DERNIERE_ACTIVITE à chaque requête). Six relient « Démarrage » à « Page
+d'état », aux deux extrémités du fichier, et maj.py en réécrit cinq le temps
+d'une mise à jour. C'est le couplage réel de ce fichier, et la raison pour
+laquelle le découper en modules n'est pas un geste de pure forme.
+Carte détaillée, état global et gardes de tests : docs/architecture-serveur.md.
 """
 
 import argparse

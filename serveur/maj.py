@@ -25,6 +25,62 @@ Bibliothèque standard seule. Contrat : docs/contrats/C5-T2.md.
 Codes de sortie : 0 succès (ou client désactivé, ou hors de la plage : rien d'anormal, et
 le Planificateur de tâches ne doit pas afficher 0x3 chaque heure), 1 refus ou échec,
 2 usage ou dépôt de développement, 3 reporté (à retenter plus tard).
+
+SECTIONS DE CE FICHIER, dans l'ordre. Chacune porte une bannière encadrée ;
+une recherche de « # --- » les enchaîne, une recherche du titre y mène
+directement. Pas de numéros de ligne : un index faux coûte plus cher qu'un
+index absent.
+
+Les premières sections sont des briques ; l'action commence à « Contrôles
+préalables ». L'enchaînement d'une mise à jour se lit de bas en haut du
+fichier :
+
+    verifier  →  _controler_en_ligne  (manifeste, signature, puis archive)
+              →  _appliquer_recu  →  appliquer_trio
+                     →  controler, extraire, preparer_sauvegarde
+                     →  demander_arret, adopter_sauvegarde
+                     →  basculer  →  poser_fichiers, auto-contrôle
+                                  →  revenir_a_la_sauvegarde sur TOUT échec
+
+`appliquer <archive>` entre au même `appliquer_trio`, sans la partie réseau.
+
+  En-tête et constantes       Racine, imports des trois modules voisins, délais
+                              et tailles. Tout import est au niveau du module
+                              (D12) : après la bascule, ce processus ne doit
+                              plus rien charger.
+  Vocabulaire                 CODES_MAJ et les ensembles fermés : le seul
+                              vocabulaire qui atteint technique.log. Exception
+                              Refus.
+  Traces                      detail_maj, tracer : rien n'entre dans un journal
+                              hors de ces deux fonctions.
+  Fichiers                    Lectures bornées, écritures exclusives, JSON.
+  Dossier réservé et verrou   mise-a-jour/ réservé à SYSTEM et aux
+                              administrateurs ; verrou d'exécution unique.
+  État sur disque             etat.json : où en est la mise à jour, lu aussi
+                              par GET /etat du serveur.
+  Destinations                Liste blanche des chemins qu'un paquet peut
+                              écrire (D6), et les exclusions.
+  Configuration, clés, version installée   Ce que le PC sait déjà de lui-même.
+  Politique (C5-T2b, 14.5)    adresse, plage horaire, calme, démarrage, proxy.
+                              Échec fermé : une valeur fausse n'est jamais
+                              remplacée par son défaut.
+  Contrôles préalables, extraction, sauvegarde   Tout ce qui peut refuser, AVANT
+                              qu'un fichier du cabinet ne soit touché.
+  Pose des fichiers           La bascule, et le même code pour le retour.
+  Pilote du serveur           schtasks : arrêter, relancer, lire l'état.
+  Santé                       Attendre que /sante réponde après la relance.
+  Client HTTPS (C5-T2b, 14.6) _telecharger : trois GET, TLS vérifié,
+                              redirections https seules, proxy de la seule
+                              configuration.
+  Arrêt concerté              Demander au serveur de s'arrêter, et l'attendre.
+  Retour arrière              revenir_a_la_sauvegarde, reprendre.
+  Application                 basculer, appliquer_trio : l'enchaînement complet
+                              d'une mise à jour locale, et l'auto-contrôle.
+  Vérifier (C5-T2b, 14.4)     Le point d'entrée de la tâche planifiée :
+                              chercher, juger, appliquer à son heure.
+  Ligne de commande           Les sept sous-commandes.
+
+Carte détaillée et gardes de tests : docs/architecture-serveur.md.
 """
 
 import argparse
