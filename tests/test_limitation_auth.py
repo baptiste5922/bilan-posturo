@@ -242,6 +242,34 @@ class Calcul(Banc):
         echecs, _ = serveur.noter_echec_authentification(origine + fenetre)
         self.assertEqual(echecs, 2)
 
+    def test_u3_tablette_au_mot_de_passe_perime_franchit_seule_le_seuil(self):
+        # La cadence de la file d'attente de la tablette (RELANCE_FILE, en ms
+        # dans script.js), lue à la source plutôt que recopiée.
+        with open(os.path.join(PROJET, "formulaire", "script.js"),
+                  encoding="utf-8") as f:
+            script = f.read()
+        relance = int(re.search(r"const RELANCE_FILE = (\d+);", script).group(1)) / 1000
+        delai_depot = int(re.search(r"const DELAI_DEPOT = (\d+);", script).group(1)) / 1000
+        # La fenêtre glisse : un refus par relance ne la laisse jamais expirer.
+        self.assertLess(relance, serveur.FENETRE_ECHECS_AUTH_SECONDES)
+
+        origine = 5000.0
+        attentes = []
+        for i in range(SEUIL_DOCUMENTE + 5):
+            echecs, attente = serveur.noter_echec_authentification(origine + i * relance)
+            self.assertEqual(echecs, i + 1)         # jamais oublié
+            attentes.append(attente)
+        # Le seuil est franchi, seul, vers dix minutes de relances.
+        self.assertEqual(attentes[:SEUIL_DOCUMENTE], [0.0] * SEUIL_DOCUMENTE)
+        self.assertGreater(attentes[SEUIL_DOCUMENTE], 0)
+        # Mais le retard reste sous le plafond, très sous le délai d'un dépôt :
+        # la file ne prend pas ce refus pour une panne.
+        self.assertLessEqual(max(attentes), serveur.ATTENTE_AUTH_MAX_SECONDES)
+        self.assertLess(serveur.ATTENTE_AUTH_MAX_SECONDES, delai_depot)
+        # Le bon mot de passe, ensuite, remet à zéro.
+        serveur.reinitialiser_echecs_authentification()
+        self.assertEqual(serveur.ECHECS_AUTH, 0)
+
     def test_u4_succes_remet_a_zero(self):
         self.refuser(12)
         self.assertEqual(serveur.ECHECS_AUTH, 12)

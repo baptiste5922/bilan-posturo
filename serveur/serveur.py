@@ -299,10 +299,15 @@ ATTENTE_AUTH_BASE_SECONDES = 0.5
 # l'arrêt concerté de maj.py ne doit pas pouvoir être reporté par un simple flot
 # de mauvais mots de passe.
 ATTENTE_AUTH_MAX_SECONDES = 3.0
-# Au bout de cinq minutes sans nouvel échec, on oublie : la file d'attente de la
-# tablette retente au plus une fois par minute (RELANCE_FILE), donc au plus cinq
-# refus par fenêtre, la moitié du seuil. Une tablette dont le mot de passe a
-# changé ne dépasse jamais le seuil toute seule.
+# Au bout de cinq minutes sans nouvel échec, on oublie : le service normal revient
+# seul après une rafale de fautes de frappe. La fenêtre GLISSE (elle repart à
+# chaque échec) et la file d'attente de la tablette retente une fois par minute
+# (RELANCE_FILE) : une tablette dont le mot de passe est périmé n'est jamais
+# oubliée entre deux relances, et franchit seule le seuil au bout d'une dizaine
+# de minutes. Ses refus reviennent
+# alors avec au plus ATTENTE_AUTH_MAX_SECONDES de retard, très au-dessous de
+# DELAI_DEPOT (script.js) : la file ne prend pas ce 401 pour une panne et aucun
+# bilan n'est perdu. Le bon mot de passe passe sans délai et remet tout à zéro.
 FENETRE_ECHECS_AUTH_SECONDES = 300
 # Reprises d'une écriture atomique dont le remplacement est refusé : sous Windows,
 # CPython ouvre ses fichiers sans FILE_SHARE_DELETE, et un os.replace sur un
