@@ -88,6 +88,6 @@ et `min(MAX, …)` reste la borne qui compte : M6 la mord.
 
 Run **45860882477**, lancé le 26 novembre 2026 après le réaudit
 (`env -u GITHUB_TOKEN gh workflow run tests.yml --ref c6-t2-limitation-auth`),
-sur le commit qui consigne l'audit de sécurité : **vert**. Huit jobs en
+sur le commit qui consigne l'audit de sécurité : **vert**. Sept jobs en
 succès : `lint`, `scripts-windows`, `test` sous Linux (`ubuntu-24.04`) en 3.9 et
 3.13, sous Windows en 3.9 et 3.13, et sous macOS en 3.13. A15 est acquis.
